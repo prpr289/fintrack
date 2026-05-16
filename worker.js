@@ -1,0 +1,1424 @@
+﻿var __defProp = Object.defineProperty;
+var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
+
+// worker.js
+var JWT_EXPIRY_HOURS = 24 * 30;
+var DEFAULT_CATEGORIES = [
+  { name: "\u0E22\u0E2D\u0E14\u0E02\u0E32\u0E22", color: "#1A7A4A", type: "both" },
+  { name: "Delivery", color: "#7C3AED", type: "both" },
+  { name: "\u0E27\u0E31\u0E15\u0E16\u0E38\u0E14\u0E34\u0E1A", color: "#C0392B", type: "expense" },
+  { name: "\u0E04\u0E48\u0E32\u0E40\u0E0A\u0E48\u0E32", color: "#B45309", type: "expense" },
+  { name: "\u0E04\u0E48\u0E32\u0E44\u0E1F/\u0E19\u0E49\u0E33", color: "#0369A1", type: "expense" },
+  { name: "\u0E40\u0E07\u0E34\u0E19\u0E40\u0E14\u0E37\u0E2D\u0E19", color: "#BE185D", type: "expense" },
+  { name: "\u0E2A\u0E48\u0E27\u0E19\u0E15\u0E31\u0E27", color: "#6B7280", type: "both" },
+  { name: "\u0E2D\u0E37\u0E48\u0E19\u0E46", color: "#9CA3AF", type: "both" }
+];
+var DEFAULT_WALLETS = [
+  { name: "\u0E40\u0E07\u0E34\u0E19\u0E2A\u0E14", scope: "business", type: "cash", color: "#1A7A4A" },
+  { name: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E18\u0E19\u0E32\u0E04\u0E32\u0E23", scope: "business", type: "bank", color: "#0369A1" },
+  { name: "\u0E40\u0E07\u0E34\u0E19\u0E2A\u0E14\u0E2A\u0E48\u0E27\u0E19\u0E15\u0E31\u0E27", scope: "personal", type: "cash", color: "#6B7280" }
+];
+var worker_default = {
+  async scheduled(event, env, ctx) {
+    const hour = new Date(event.scheduledTime).getUTCHours();
+    if (hour === 1) await processRecurring(env);
+    if (hour === 17) await cleanupDrafts(env);
+  },
+  async fetch(request, env, ctx) {
+    if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
+    const url = new URL(request.url);
+    const path = url.pathname;
+    const method = request.method;
+    try {
+      if (path === "/auth/register" && method === "POST") return cors(await handleRegister(request, env));
+      if (path === "/auth/login" && method === "POST") return cors(await handleLogin(request, env));
+      if (path === "/health") return cors(json({ ok: true, time: (/* @__PURE__ */ new Date()).toISOString(), version: "v2" }));
+      if (path === "/ws") return handleWebSocket(request, env);
+      const auth = await requireAuth(request, env);
+      if (!auth.ok) return cors(json({ error: auth.error }, auth.status || 401));
+      const user = auth.user;
+      if (path === "/me" && method === "GET") { const fullUser = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND is_active = 1").bind(user.id).first(); return cors(json({ user: formatUser(fullUser || user) })); }
+      if (path === "/me" && method === "PATCH") return cors(await updateMyProfile(request, env, user));
+      if (path === "/me/password" && method === "POST") return cors(await changeMyPassword(request, env, user));
+      if (path === "/transactions" && method === "GET") return cors(await listTransactions(request, env, user));
+      if (path === "/transactions" && method === "POST") return cors(await createTransaction(request, env, user));
+      const txMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)$/);
+      if (txMatch && method === "PATCH") return cors(await updateTransaction(txMatch[1], request, env, user));
+      if (txMatch && method === "DELETE") return cors(await deleteTransaction(txMatch[1], env, user));
+      if (path === "/transfers" && method === "POST") return cors(await createTransfer(request, env, user));
+      if (path === "/wallets" && method === "GET") return cors(await listWallets(env, user));
+      if (path === "/wallets" && method === "POST") return cors(await createWallet(request, env, user));
+      const walletMatch = path.match(/^\/wallets\/([a-zA-Z0-9_-]+)$/);
+      if (walletMatch && method === "PATCH") return cors(await updateWallet(walletMatch[1], request, env, user));
+      if (walletMatch && method === "DELETE") return cors(await deleteWallet(walletMatch[1], env, user));
+      if (path === "/categories" && method === "GET") return cors(await listCategories(env, user));
+      if (path === "/categories" && method === "POST") return cors(await createCategory(request, env, user));
+      const catMatch = path.match(/^\/categories\/([a-zA-Z0-9_-]+)$/);
+      if (catMatch && method === "PATCH") return cors(await updateCategory(catMatch[1], request, env, user));
+      if (catMatch && method === "DELETE") return cors(await deleteCategory(catMatch[1], env, user));
+      if (path === "/users" && method === "GET") return cors(await listUsers(env, user));
+      if (path === "/users" && method === "POST") return cors(await createUser(request, env, user));
+      const userMatch = path.match(/^\/users\/([a-zA-Z0-9_-]+)$/);
+      if (userMatch && method === "PATCH") return cors(await updateUser(userMatch[1], request, env, user));
+      if (userMatch && method === "DELETE") return cors(await deleteUser(userMatch[1], env, user));
+      if (path === "/recurring" && method === "GET") return cors(await listRecurring(env, user));
+      if (path === "/recurring" && method === "POST") return cors(await createRecurring(request, env, user));
+      const recMatch = path.match(/^\/recurring\/([a-zA-Z0-9_-]+)$/);
+      if (recMatch && method === "PATCH") return cors(await updateRecurring(recMatch[1], request, env, user));
+      if (recMatch && method === "DELETE") return cors(await deleteRecurring(recMatch[1], env, user));
+      const triggerMatch = path.match(/^\/recurring\/([a-zA-Z0-9_-]+)\/trigger$/);
+      if (triggerMatch && method === "POST") return cors(await triggerRecurring(triggerMatch[1], env, user));
+      const reconcileMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/reconcile$/);
+      if (reconcileMatch && method === "PATCH") return cors(await toggleReconcile(reconcileMatch[1], env, user));
+      const confirmMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm$/);
+      if (confirmMatch && method === "POST") return cors(await confirmTransaction(confirmMatch[1], request, env, user));
+      if (path === "/audit-log" && method === "GET") return cors(await listAuditLog(request, env, user));
+      if (path === "/budgets" && method === "GET") return cors(await listBudgets(env, user));
+      if (path === "/budgets" && method === "POST") return cors(await createBudget(request, env, user));
+      const budgetMatch = path.match(/^\/budgets\/([a-zA-Z0-9_-]+)$/);
+      if (budgetMatch && method === "PATCH") return cors(await updateBudget(budgetMatch[1], request, env, user));
+      if (budgetMatch && method === "DELETE") return cors(await deleteBudget(budgetMatch[1], env, user));
+      if (path === "/slips" && method === "GET") return cors(await listAllSlips(request, env, user));
+      const slipsTxMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/slips$/);
+      if (slipsTxMatch && method === "GET") return cors(await listSlips(slipsTxMatch[1], env, user));
+      if (slipsTxMatch && method === "POST") return cors(await uploadSlip(slipsTxMatch[1], request, env, user));
+      const slipMatch = path.match(/^\/slips\/([a-zA-Z0-9_-]+)$/);
+      if (slipMatch && method === "GET") return cors(await getSlipUrl(slipMatch[1], env, user));
+      if (slipMatch && method === "DELETE") return cors(await deleteSlip(slipMatch[1], env, user));
+      if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
+      if (path === "/line-users" && method === "GET") return cors(await listLineUsers(env, user));
+      if (path === "/line-users" && method === "POST") return cors(await upsertLineUser(request, env, user));
+      const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
+      if (lineUserMatch && method === "DELETE") return cors(await deleteLineUser(lineUserMatch[1], env, user));
+      if (path === "/line-users/lookup" && method === "GET") return cors(await lookupLineUser(request, env, user));
+      return cors(json({ error: "Not found" }, 404));
+    } catch (err) {
+      console.error("Error:", err);
+      return cors(json({ error: "Internal server error: " + err.message }, 500));
+    }
+  }
+};
+async function handleRegister(request, env) {
+  const body = await request.json();
+  const { email, password, name, workspaceName } = body;
+  if (!email || !password || !name || !workspaceName) {
+    return json({ error: "email, password, name, workspaceName required" }, 400);
+  }
+  if (password.length < 6) return json({ error: "password must be at least 6 chars" }, 400);
+  const existing = await env.DB.prepare("SELECT id FROM users WHERE email = ?").bind(email).first();
+  if (existing) return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27" }, 409);
+  const workspaceId = "ws_" + crypto.randomUUID();
+  const userId = "u_" + crypto.randomUUID();
+  const passwordHash = await hashPassword(password);
+  const stmts = [
+    env.DB.prepare("INSERT INTO workspaces (id, name, owner_id) VALUES (?, ?, ?)").bind(workspaceId, workspaceName, userId),
+    env.DB.prepare("INSERT INTO users (id, workspace_id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?, ?)").bind(userId, workspaceId, email, passwordHash, name, "admin")
+  ];
+  for (const cat of DEFAULT_CATEGORIES) {
+    stmts.push(env.DB.prepare("INSERT INTO categories (id, workspace_id, name, color, type) VALUES (?, ?, ?, ?, ?)").bind("c_" + crypto.randomUUID().slice(0, 12), workspaceId, cat.name, cat.color, cat.type));
+  }
+  for (const w of DEFAULT_WALLETS) {
+    stmts.push(env.DB.prepare("INSERT INTO wallets (id, workspace_id, name, scope, type, color) VALUES (?, ?, ?, ?, ?, ?)").bind("w_" + crypto.randomUUID().slice(0, 12), workspaceId, w.name, w.scope, w.type, w.color));
+  }
+  try {
+    await env.DB.batch(stmts);
+  } catch (e) {
+    if (String(e.message || "").includes("UNIQUE constraint")) {
+      return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27" }, 409);
+    }
+    throw e;
+  }
+  const token = await signJWT({ sub: userId, ws: workspaceId, role: "admin", name }, env);
+  return json({ token, user: formatUser({ id: userId, email, name, role: "admin", workspace_id: workspaceId, is_active: 1, language: "th", theme: "light" }) });
+}
+__name(handleRegister, "handleRegister");
+async function handleLogin(request, env) {
+  const { email, password } = await request.json();
+  if (!email || !password) return json({ error: "email and password required" }, 400);
+  const user = await env.DB.prepare("SELECT * FROM users WHERE email = ? AND is_active = 1").bind(email).first();
+  if (!user) return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
+  const ok = await verifyPassword(password, user.password_hash);
+  if (!ok) return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
+  await env.DB.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
+  const token = await signJWT({ sub: user.id, ws: user.workspace_id, role: user.role, name: user.name }, env);
+  return json({ token, user: formatUser(user) });
+}
+__name(handleLogin, "handleLogin");
+async function requireAuth(request, env) {
+  const authHeader = request.headers.get("Authorization");
+  if (!authHeader || !authHeader.startsWith("Bearer ")) return { ok: false, error: "Missing token", status: 401 };
+  const token = authHeader.slice(7);
+  const payload = await verifyJWT(token, env);
+  if (!payload) return { ok: false, error: "Invalid token", status: 401 };
+  const user = { id: payload.sub, workspace_id: payload.ws, role: payload.role, name: payload.name || "" };
+  return { ok: true, user };
+}
+__name(requireAuth, "requireAuth");
+function requireRole(user, ...roles) {
+  return roles.includes(user.role);
+}
+__name(requireRole, "requireRole");
+async function updateMyProfile(request, env, user) {
+  const body = await request.json();
+  const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings"];
+  const updates = [], args = [];
+  if (body.language !== void 0 && !["th", "en"].includes(body.language)) return json({ error: "invalid language" }, 400);
+  if (body.theme !== void 0 && !["light", "dark"].includes(body.theme)) return json({ error: "invalid theme" }, 400);
+  for (const f of allowed) {
+    const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val !== void 0) {
+      updates.push(`${f} = ?`);
+      args.push(f === "settings" && typeof val === "object" ? JSON.stringify(val) : val);
+    }
+  }
+  if (updates.length === 0) return json({ error: "no fields to update" }, 400);
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  args.push(user.id);
+  await env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  const updated = await env.DB.prepare("SELECT * FROM users WHERE id = ?").bind(user.id).first();
+  return json({ user: formatUser(updated) });
+}
+__name(updateMyProfile, "updateMyProfile");
+async function changeMyPassword(request, env, user) {
+  const { currentPassword, newPassword } = await request.json();
+  if (!currentPassword || !newPassword) return json({ error: "currentPassword and newPassword required" }, 400);
+  if (newPassword.length < 6) return json({ error: "password must be at least 6 chars" }, 400);
+  const dbUser = await env.DB.prepare("SELECT password_hash FROM users WHERE id = ? AND is_active = 1").bind(user.id).first();
+  if (!dbUser) return json({ error: "ไม่พบผู้ใช้" }, 404);
+  const ok = await verifyPassword(currentPassword, dbUser.password_hash);
+  if (!ok) return json({ error: "\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E1B\u0E31\u0E08\u0E08\u0E38\u0E1A\u0E31\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
+  const newHash = await hashPassword(newPassword);
+  await env.DB.prepare("UPDATE users SET password_hash = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newHash, user.id).run();
+  return json({ ok: true });
+}
+__name(changeMyPassword, "changeMyPassword");
+async function listWallets(env, user) {
+  const visibilityFilter = user.role === "staff" || user.role === "viewer" ? " AND staff_visible = 1" : "";
+  const result = await env.DB.prepare(`SELECT * FROM wallets WHERE workspace_id = ? AND is_active = 1${visibilityFilter} ORDER BY scope, sort_order, name`).bind(user.workspace_id).all();
+  return json({ wallets: (result.results || []).map(formatWallet) });
+}
+__name(listWallets, "listWallets");
+async function createWallet(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const body = await request.json();
+  const { name, scope, type, initialBalance, creditLimit, color, icon } = body;
+  if (!name || !scope || !type) return json({ error: "name, scope, type required" }, 400);
+  if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
+  if (!["cash", "bank", "credit"].includes(type)) return json({ error: "invalid type" }, 400);
+  const id = "w_" + crypto.randomUUID().slice(0, 12);
+  const initBal = Number(initialBalance) || 0;
+  await env.DB.prepare(
+    "INSERT INTO wallets (id, workspace_id, name, scope, type, current_balance, initial_balance, credit_limit, color, icon) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, name, scope, type, initBal, initBal, creditLimit || null, color || "#9CA3AF", icon || null).run();
+  await broadcastChange(env, user.workspace_id, { event: "wallet.created", id, by: user.name });
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ?").bind(id).first();
+  return json({ wallet: formatWallet(wallet) }, 201);
+}
+__name(createWallet, "createWallet");
+async function updateWallet(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  const body = await request.json();
+  if (body.scope !== void 0 && !["business", "personal"].includes(body.scope)) return json({ error: "invalid scope" }, 400);
+  if (body.type !== void 0 && !["cash", "bank", "credit"].includes(body.type)) return json({ error: "invalid type" }, 400);
+  const fields = ["name", "scope", "type", "credit_limit", "color", "icon", "sort_order", "staff_visible"];
+  const updates = [], args = [];
+  for (const f of fields) {
+    const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val !== void 0) {
+      updates.push(`${f} = ?`);
+      args.push(val);
+    }
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  args.push(id);
+  await env.DB.prepare(`UPDATE wallets SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  await broadcastChange(env, user.workspace_id, { event: "wallet.updated", id, by: user.name });
+  const updated = await env.DB.prepare("SELECT * FROM wallets WHERE id = ?").bind(id).first();
+  return json({ wallet: formatWallet(updated) });
+}
+__name(updateWallet, "updateWallet");
+async function deleteWallet(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  const txCount = await env.DB.prepare("SELECT COUNT(*) as cnt FROM transactions WHERE wallet_id = ?").bind(id).first();
+  if (txCount.cnt > 0) {
+    await env.DB.prepare("UPDATE wallets SET is_active = 0 WHERE id = ?").bind(id).run();
+  } else {
+    await env.DB.prepare("DELETE FROM wallets WHERE id = ?").bind(id).run();
+  }
+  await broadcastChange(env, user.workspace_id, { event: "wallet.deleted", id, by: user.name });
+  return json({ ok: true });
+}
+__name(deleteWallet, "deleteWallet");
+async function listTransactions(request, env, user) {
+  const url = new URL(request.url);
+  const params = url.searchParams;
+  const dateFrom = params.get("from");
+  const dateTo = params.get("to");
+  const type = params.get("type");
+  const scope = params.get("scope");
+  const walletId = params.get("walletId");
+  const categoryId = params.get("categoryId");
+  const search = params.get("search");
+  const limit = Math.min(parseInt(params.get("limit") || "50"), 1e3);
+  const offset = parseInt(params.get("offset") || "0");
+  const joinClause = `FROM transactions t
+    LEFT JOIN users u ON t.created_by_user_id = u.id
+    LEFT JOIN categories c ON t.category_id = c.id
+    LEFT JOIN categories sc ON t.sub_category_id = sc.id
+    LEFT JOIN wallets w ON t.wallet_id = w.id
+    WHERE t.workspace_id = ?`;
+  const args = [user.workspace_id];
+  let filters = "";
+  if (dateFrom) {
+    filters += " AND t.date >= ?";
+    args.push(dateFrom);
+  }
+  if (dateTo) {
+    filters += " AND t.date <= ?";
+    args.push(dateTo);
+  }
+  if (type) {
+    filters += " AND t.type = ?";
+    args.push(type);
+  }
+  if (scope) {
+    filters += " AND t.scope = ?";
+    args.push(scope);
+  }
+  if (walletId) {
+    filters += " AND t.wallet_id = ?";
+    args.push(walletId);
+  }
+  if (categoryId) {
+    filters += " AND (t.category_id = ? OR t.sub_category_id = ?)";
+    args.push(categoryId, categoryId);
+  }
+  if (search) {
+    filters += " AND (t.name LIKE ? OR t.note LIKE ?)";
+    args.push(`%${search}%`, `%${search}%`);
+  }
+  const [countRow, result] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) as cnt FROM transactions t WHERE t.workspace_id = ?${filters}`).bind(...args).first(),
+    env.DB.prepare(`SELECT t.*, u.name AS created_by_name,
+      c.name AS category_name, c.color AS category_color,
+      sc.name AS sub_category_name, sc.color AS sub_category_color,
+      w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type
+      ${joinClause}${filters}
+      ORDER BY t.date DESC, t.created_at DESC LIMIT ? OFFSET ?`).bind(...args, limit, offset).all()
+  ]);
+  return json({
+    transactions: (result.results || []).map(formatTransaction),
+    total: countRow?.cnt || 0,
+    limit,
+    offset
+  });
+}
+__name(listTransactions, "listTransactions");
+async function createTransaction(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const body = await request.json();
+  const { name, amount, type, scope, date, note, walletId, categoryId, subCategoryId, submittedBy } = body;
+  if (!name || !amount || !type || !scope || !date) {
+    return json({ error: "fields required: name, amount, type, scope, date" }, 400);
+  }
+  if (!["income", "expense"].includes(type)) return json({ error: "invalid type" }, 400);
+  if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
+  if (Number(amount) <= 0 || isNaN(Number(amount))) return json({ error: "amount must be positive" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "invalid date format (YYYY-MM-DD)" }, 400);
+  let resolvedWalletId = walletId;
+  if (!resolvedWalletId) {
+    const defaultWallet = await env.DB.prepare(
+      "SELECT id FROM wallets WHERE workspace_id = ? AND is_active = 1 ORDER BY created_at ASC LIMIT 1"
+    ).bind(user.workspace_id).first();
+    if (!defaultWallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+    resolvedWalletId = defaultWallet.id;
+  }
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(resolvedWalletId, user.workspace_id).first();
+  if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  const id = "tx_" + crypto.randomUUID();
+  const amt = Number(amount);
+  const balanceChange = type === "income" ? amt : -amt;
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, user.workspace_id, user.id, resolvedWalletId, categoryId || null, subCategoryId || null, name, amt, type, scope, date, note || null, submittedBy || null),
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, resolvedWalletId)
+  ]);
+  await logAudit(env, user, "create", "transaction", id, { name, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId: id, walletId: resolvedWalletId, by: user.name });
+  const tx = await env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
+  return json({ transaction: formatTransaction(tx) }, 201);
+}
+__name(createTransaction, "createTransaction");
+async function updateTransaction(id, request, env, user) {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);
+  if (user.role === "viewer") return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E41\u0E01\u0E49\u0E44\u0E02" }, 403);
+  if (user.role === "staff" && tx.created_by_user_id !== user.id) return json({ error: "\u0E41\u0E01\u0E49\u0E44\u0E02\u0E44\u0E14\u0E49\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07" }, 403);
+  const body = await request.json();
+  if (body.type !== void 0 && !["income", "expense"].includes(body.type)) return json({ error: "invalid type" }, 400);
+  if (body.scope !== void 0 && !["business", "personal"].includes(body.scope)) return json({ error: "invalid scope" }, 400);
+  if (body.amount !== void 0 && (Number(body.amount) <= 0 || isNaN(Number(body.amount)))) return json({ error: "amount must be positive" }, 400);
+  if (body.date !== void 0 && !/^\d{4}-\d{2}-\d{2}$/.test(body.date)) return json({ error: "invalid date format" }, 400);
+  const oldAmount = Number(tx.amount);
+  const oldType = tx.type;
+  const oldWalletId = tx.wallet_id;
+  const newAmount = body.amount !== void 0 ? Number(body.amount) : oldAmount;
+  const newType = body.type !== void 0 ? body.type : oldType;
+  const newWalletId = body.walletId !== void 0 ? body.walletId : body.wallet_id !== void 0 ? body.wallet_id : oldWalletId;
+  if (newWalletId !== oldWalletId) {
+    const newWallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(newWalletId, user.workspace_id).first();
+    if (!newWallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07" }, 404);
+  }
+  const fields = ["name", "amount", "type", "scope", "date", "note", "category_id", "sub_category_id", "wallet_id"];
+  const updates = [], args = [];
+  for (const f of fields) {
+    const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val !== void 0) {
+      updates.push(`${f} = ?`);
+      args.push(val);
+    }
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  args.push(id);
+  const oldEffect = oldType === "income" ? oldAmount : -oldAmount;
+  const newEffect = newType === "income" ? newAmount : -newAmount;
+  const stmts = [
+    env.DB.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).bind(...args)
+  ];
+  if (newWalletId === oldWalletId) {
+    const delta = newEffect - oldEffect;
+    if (delta !== 0) {
+      stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(delta, oldWalletId));
+    }
+  } else {
+    stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(oldEffect, oldWalletId));
+    stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newEffect, newWalletId));
+  }
+  await env.DB.batch(stmts);
+  await logAudit(env, user, "update", "transaction", id, body);
+  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+  const updated = await env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
+  return json({ transaction: formatTransaction(updated) });
+}
+__name(updateTransaction, "updateTransaction");
+async function deleteTransaction(id, env, user) {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);
+  if (user.role === "viewer") return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E25\u0E1A" }, 403);
+  if (user.role === "staff" && tx.created_by_user_id !== user.id) return json({ error: "\u0E25\u0E1A\u0E44\u0E14\u0E49\u0E40\u0E09\u0E1E\u0E32\u0E30\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07" }, 403);
+  const reverseEffect = tx.type === "income" ? -Number(tx.amount) : Number(tx.amount);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(reverseEffect, tx.wallet_id),
+    env.DB.prepare("DELETE FROM transactions WHERE id = ?").bind(id)
+  ]);
+  await logAudit(env, user, "delete", "transaction", id, { name: tx.name, amount: tx.amount });
+  await broadcastChange(env, user.workspace_id, { event: "tx.deleted", txId: id, by: user.name });
+  return json({ ok: true });
+}
+__name(deleteTransaction, "deleteTransaction");
+async function createTransfer(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const { fromWalletId, toWalletId, amount, date, note } = await request.json();
+  if (!fromWalletId || !toWalletId || !amount || !date) return json({ error: "fromWalletId, toWalletId, amount, date required" }, 400);
+  if (fromWalletId === toWalletId) return json({ error: "fromWalletId and toWalletId must differ" }, 400);
+  if (Number(amount) <= 0 || isNaN(Number(amount))) return json({ error: "amount must be positive" }, 400);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "invalid date format" }, 400);
+  const fromW = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(fromWalletId, user.workspace_id).first();
+  const toW = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(toWalletId, user.workspace_id).first();
+  if (!fromW || !toW) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  const pairId = "xfer_" + crypto.randomUUID().slice(0, 12);
+  const outId = "tx_" + crypto.randomUUID();
+  const inId = "tx_" + crypto.randomUUID();
+  const amt = Number(amount);
+  const transferNote = note || `\u0E42\u0E2D\u0E19 ${fromW.name} \u2192 ${toW.name}`;
+  await env.DB.batch([
+    // Outgoing tx (expense from source wallet)
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(outId, user.workspace_id, user.id, fromWalletId, transferNote, amt, "expense", fromW.scope, date, note || null, pairId),
+    // Incoming tx (income to target wallet)
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(inId, user.workspace_id, user.id, toWalletId, transferNote, amt, "income", toW.scope, date, note || null, pairId),
+    // Update balances
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?").bind(amt, fromWalletId),
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?").bind(amt, toWalletId)
+  ]);
+  await logAudit(env, user, "transfer", "transaction", pairId, { fromWalletId, toWalletId, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "transfer.created", pairId, by: user.name });
+  return json({ ok: true, transferPairId: pairId, outgoingId: outId, incomingId: inId }, 201);
+}
+__name(createTransfer, "createTransfer");
+async function listCategories(env, user) {
+  const result = await env.DB.prepare("SELECT * FROM categories WHERE workspace_id = ? AND is_active = 1 ORDER BY parent_id NULLS FIRST, sort_order, name").bind(user.workspace_id).all();
+  return json({ categories: (result.results || []).map(formatCategory) });
+}
+__name(listCategories, "listCategories");
+async function createCategory(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const { name, color, type, parentId, parent_id } = await request.json();
+  if (!name) return json({ error: "name required" }, 400);
+  if (type && !["income", "expense", "both"].includes(type)) return json({ error: "invalid type" }, 400);
+  const parent = parentId || parent_id || null;
+  if (parent) {
+    const p = await env.DB.prepare("SELECT id FROM categories WHERE id = ? AND workspace_id = ? AND parent_id IS NULL").bind(parent, user.workspace_id).first();
+    if (!p) return json({ error: "parent category not found or is itself a sub-category" }, 400);
+  }
+  const id = "c_" + crypto.randomUUID().slice(0, 12);
+  await env.DB.prepare("INSERT INTO categories (id, workspace_id, parent_id, name, color, type) VALUES (?, ?, ?, ?, ?, ?)").bind(id, user.workspace_id, parent, name, color || "#9CA3AF", type || "both").run();
+  await broadcastChange(env, user.workspace_id, { event: "category.created", id, by: user.name });
+  const cat = await env.DB.prepare("SELECT * FROM categories WHERE id = ?").bind(id).first();
+  return json({ category: formatCategory(cat) }, 201);
+}
+__name(createCategory, "createCategory");
+async function updateCategory(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const cat = await env.DB.prepare("SELECT * FROM categories WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!cat) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E2B\u0E21\u0E27\u0E14\u0E2B\u0E21\u0E39\u0E48" }, 404);
+  const body = await request.json();
+  if (body.type !== void 0 && !["income", "expense", "both"].includes(body.type)) return json({ error: "invalid type" }, 400);
+  const fields = ["name", "color", "type", "sort_order", "parent_id"];
+  const updates = [], args = [];
+  for (const f of fields) {
+    const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val !== void 0) {
+      updates.push(`${f} = ?`);
+      args.push(val);
+    }
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  args.push(id);
+  await env.DB.prepare(`UPDATE categories SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  await broadcastChange(env, user.workspace_id, { event: "category.updated", id, by: user.name });
+  return json({ ok: true });
+}
+__name(updateCategory, "updateCategory");
+async function deleteCategory(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  await env.DB.prepare("UPDATE categories SET is_active = 0 WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
+  await env.DB.prepare("UPDATE categories SET is_active = 0 WHERE parent_id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
+  await broadcastChange(env, user.workspace_id, { event: "category.deleted", id, by: user.name });
+  return json({ ok: true });
+}
+__name(deleteCategory, "deleteCategory");
+async function listUsers(env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const result = await env.DB.prepare("SELECT id, email, name, role, is_active, last_login_at, created_at, workspace_id, language, theme, avatar_url, phone FROM users WHERE workspace_id = ? ORDER BY created_at").bind(user.workspace_id).all();
+  return json({ users: (result.results || []).map(formatUser) });
+}
+__name(listUsers, "listUsers");
+async function createUser(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const { email, password, name, role } = await request.json();
+  if (!email || !password || !name || !role) return json({ error: "fields required" }, 400);
+  if (!["admin", "staff", "viewer"].includes(role)) return json({ error: "invalid role" }, 400);
+  if (password.length < 6) return json({ error: "password must be at least 6 chars" }, 400);
+  const id = "u_" + crypto.randomUUID();
+  const hash = await hashPassword(password);
+  try {
+    await env.DB.prepare("INSERT INTO users (id, workspace_id, email, password_hash, name, role) VALUES (?, ?, ?, ?, ?, ?)").bind(id, user.workspace_id, email, hash, name, role).run();
+  } catch (e) {
+    if (String(e.message || "").includes("UNIQUE constraint")) {
+      return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E19\u0E35\u0E49\u0E16\u0E39\u0E01\u0E43\u0E0A\u0E49\u0E07\u0E32\u0E19\u0E41\u0E25\u0E49\u0E27" }, 409);
+    }
+    throw e;
+  }
+  await logAudit(env, user, "create", "user", id, { email, role });
+  return json({ user: formatUser({ id, email, name, role, workspace_id: user.workspace_id, is_active: 1, language: "th", theme: "light" }) }, 201);
+}
+__name(createUser, "createUser");
+async function updateUser(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const target = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!target) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A user" }, 404);
+  const body = await request.json();
+  const updates = [], args = [];
+  if (body.name !== void 0) {
+    updates.push("name = ?");
+    args.push(body.name);
+  }
+  if (body.role !== void 0) {
+    if (!["admin", "staff", "viewer"].includes(body.role)) return json({ error: "invalid role" }, 400);
+    updates.push("role = ?");
+    args.push(body.role);
+  }
+  if (body.isActive !== void 0) {
+    updates.push("is_active = ?");
+    args.push(body.isActive ? 1 : 0);
+  }
+  if (body.password) {
+    if (body.password.length < 6) return json({ error: "password too short" }, 400);
+    updates.push("password_hash = ?");
+    args.push(await hashPassword(body.password));
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  args.push(id);
+  await env.DB.prepare(`UPDATE users SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  await logAudit(env, user, "update", "user", id, body);
+  return json({ ok: true });
+}
+__name(updateUser, "updateUser");
+async function deleteUser(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  if (id === user.id) return json({ error: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07" }, 400);
+  await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
+  await logAudit(env, user, "delete", "user", id, {});
+  return json({ ok: true });
+}
+__name(deleteUser, "deleteUser");
+async function listRecurring(env, user) {
+  const result = await env.DB.prepare("SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1 ORDER BY next_due_date").bind(user.workspace_id).all();
+  return json({ recurring: (result.results || []).map(formatRecurring) });
+}
+__name(listRecurring, "listRecurring");
+async function createRecurring(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const body = await request.json();
+  const { name, amount, type, scope, frequency, dueDay, walletId, categoryId, subCategoryId, autoCreate, nextDueDate } = body;
+  if (!name || !amount || !type || !scope || !frequency || !dueDay || !walletId) {
+    return json({ error: "fields required" }, 400);
+  }
+  if (!["income", "expense"].includes(type)) return json({ error: "invalid type" }, 400);
+  if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
+  if (!["daily", "weekly", "monthly", "yearly"].includes(frequency)) return json({ error: "invalid frequency" }, 400);
+  const { draftMode } = body;
+  const id = "rec_" + crypto.randomUUID().slice(0, 12);
+  await env.DB.prepare(
+    "INSERT INTO recurring_templates (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, frequency, due_day, auto_create, next_due_date, draft_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, walletId, categoryId || null, subCategoryId || null, name, Number(amount), type, scope, frequency, dueDay, autoCreate ? 1 : 0, nextDueDate || null, draftMode ? 1 : 0).run();
+  const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ?").bind(id).first();
+  return json({ recurring: formatRecurring(rec) }, 201);
+}
+__name(createRecurring, "createRecurring");
+async function updateRecurring(id, request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!rec) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A recurring" }, 404);
+  const body = await request.json();
+  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode"];
+  const updates = [], args = [];
+  for (const f of fields) {
+    const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
+    const val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val !== void 0) {
+      updates.push(`${f} = ?`);
+      args.push(val);
+    }
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  args.push(id);
+  await env.DB.prepare(`UPDATE recurring_templates SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  return json({ ok: true });
+}
+__name(updateRecurring, "updateRecurring");
+async function deleteRecurring(id, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  await env.DB.prepare("UPDATE recurring_templates SET is_active = 0 WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
+  return json({ ok: true });
+}
+__name(deleteRecurring, "deleteRecurring");
+async function logAudit(env, user, action, entityType, entityId, details) {
+  try {
+    await env.DB.prepare("INSERT INTO audit_log (id, workspace_id, user_id, action, entity_type, entity_id, details) VALUES (?, ?, ?, ?, ?, ?, ?)").bind("a_" + crypto.randomUUID().slice(0, 12), user.workspace_id, user.id, action, entityType, entityId, JSON.stringify(details || {})).run();
+  } catch (e) {
+    console.error("audit log fail:", e);
+  }
+}
+__name(logAudit, "logAudit");
+async function toggleReconcile(id, env, user) {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);
+  if (user.role === "viewer") return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const newVal = tx.is_reconciled ? 0 : 1;
+  await env.DB.prepare("UPDATE transactions SET is_reconciled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newVal, id).run();
+  return json({ ok: true, isReconciled: !!newVal });
+}
+__name(toggleReconcile, "toggleReconcile");
+async function listAuditLog(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const url = new URL(request.url);
+  const limit = Math.min(parseInt(url.searchParams.get("limit") || "50"), 200);
+  const offset = parseInt(url.searchParams.get("offset") || "0");
+  const [result, countRow] = await Promise.all([
+    env.DB.prepare("SELECT a.*, u.name AS user_name FROM audit_log a LEFT JOIN users u ON a.user_id = u.id WHERE a.workspace_id = ? ORDER BY a.created_at DESC LIMIT ? OFFSET ?").bind(user.workspace_id, limit, offset).all(),
+    env.DB.prepare("SELECT COUNT(*) as cnt FROM audit_log WHERE workspace_id = ?").bind(user.workspace_id).first()
+  ]);
+  return json({
+    logs: (result.results || []).map((l) => ({
+      id: l.id,
+      userId: l.user_id,
+      userName: l.user_name || "?",
+      action: l.action,
+      entityType: l.entity_type,
+      entityId: l.entity_id,
+      details: l.details ? (() => {
+        try {
+          return JSON.parse(l.details);
+        } catch {
+          return {};
+        }
+      })() : {},
+      createdAt: l.created_at
+    })),
+    total: countRow?.cnt || 0
+  });
+}
+__name(listAuditLog, "listAuditLog");
+async function listBudgets(env, user) {
+  const result = await env.DB.prepare(
+    "SELECT b.*, c.name AS category_name, c.color AS category_color FROM budgets b LEFT JOIN categories c ON b.category_id = c.id WHERE b.workspace_id = ? AND b.is_active = 1 ORDER BY b.year DESC, b.month DESC"
+  ).bind(user.workspace_id).all();
+  return json({ budgets: (result.results || []).map(formatBudget) });
+}
+__name(listBudgets, "listBudgets");
+async function createBudget(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const { categoryId, year, month, amount } = await request.json();
+  if (!categoryId || !year || !month || !amount) return json({ error: "categoryId, year, month, amount required" }, 400);
+  if (Number(amount) <= 0) return json({ error: "amount must be positive" }, 400);
+  const id = "b_" + crypto.randomUUID().slice(0, 12);
+  try {
+    await env.DB.prepare("INSERT INTO budgets (id, workspace_id, category_id, year, month, amount) VALUES (?, ?, ?, ?, ?, ?)").bind(id, user.workspace_id, categoryId, year, month, Number(amount)).run();
+  } catch (e) {
+    if (String(e.message || "").includes("UNIQUE constraint")) {
+      await env.DB.prepare("UPDATE budgets SET amount = ?, updated_at = CURRENT_TIMESTAMP WHERE workspace_id = ? AND category_id = ? AND year = ? AND month = ? AND is_active = 1").bind(Number(amount), user.workspace_id, categoryId, year, month).run();
+      return json({ ok: true });
+    }
+    throw e;
+  }
+  return json({ ok: true, id }, 201);
+}
+__name(createBudget, "createBudget");
+async function updateBudget(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  const { amount } = await request.json();
+  if (!amount || Number(amount) <= 0) return json({ error: "amount must be positive" }, 400);
+  await env.DB.prepare("UPDATE budgets SET amount = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ?").bind(Number(amount), id, user.workspace_id).run();
+  return json({ ok: true });
+}
+__name(updateBudget, "updateBudget");
+async function deleteBudget(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  await env.DB.prepare("UPDATE budgets SET is_active = 0 WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
+  return json({ ok: true });
+}
+__name(deleteBudget, "deleteBudget");
+function formatBudget(b) {
+  if (!b) return null;
+  return {
+    id: b.id,
+    workspaceId: b.workspace_id,
+    categoryId: b.category_id,
+    categoryName: b.category_name || null,
+    categoryColor: b.category_color || null,
+    year: b.year,
+    month: b.month,
+    amount: Number(b.amount),
+    isActive: !!b.is_active,
+    createdAt: b.created_at,
+    updatedAt: b.updated_at
+  };
+}
+__name(formatBudget, "formatBudget");
+async function triggerRecurring(id, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(id, user.workspace_id).first();
+  if (!rec) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A recurring" }, 404);
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const txId = "tx_" + crypto.randomUUID();
+  const balanceChange = rec.type === "income" ? Number(rec.amount) : -Number(rec.amount);
+  const wallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND is_active = 1").bind(rec.wallet_id).first();
+  if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(txId, rec.workspace_id, user.id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (manual trigger)", Number(rec.amount), rec.type, rec.scope, today, "triggered manually"),
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, rec.wallet_id)
+  ]);
+  const nextDue = calcNextDueDate(rec.frequency, rec.due_day, today);
+  await env.DB.prepare("UPDATE recurring_templates SET next_due_date = ? WHERE id = ?").bind(nextDue, rec.id).run();
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, by: user.name });
+  return json({ ok: true, txId, nextDueDate: nextDue });
+}
+__name(triggerRecurring, "triggerRecurring");
+async function processRecurring(env) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const result = await env.DB.prepare(
+    "SELECT * FROM recurring_templates WHERE is_active = 1 AND auto_create = 1 AND (next_due_date IS NULL OR next_due_date <= ?)"
+  ).bind(today).all();
+  for (const rec of result.results || []) {
+    try {
+      const isDraft = !!rec.draft_mode;
+      if (isDraft) {
+        const existing = await env.DB.prepare(
+          "SELECT id FROM transactions WHERE recurring_id = ? AND date = ? AND is_draft = 1"
+        ).bind(rec.id, today).first();
+        if (existing) continue;
+      }
+      const txId = "tx_" + crypto.randomUUID();
+      if (isDraft) {
+        await env.DB.prepare(
+          "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, is_draft, recurring_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)"
+        ).bind(txId, rec.workspace_id, rec.created_by_user_id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name, Number(rec.amount), rec.type, rec.scope, today, "draft \u2014 \u0E23\u0E2D\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19", rec.id).run();
+      } else {
+        const balanceChange = rec.type === "income" ? Number(rec.amount) : -Number(rec.amount);
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(txId, rec.workspace_id, rec.created_by_user_id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (auto)", Number(rec.amount), rec.type, rec.scope, today, "auto-created from recurring template"),
+          env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, rec.wallet_id)
+        ]);
+      }
+      const nextDue = calcNextDueDate(rec.frequency, rec.due_day, today);
+      await env.DB.prepare("UPDATE recurring_templates SET next_due_date = ? WHERE id = ?").bind(nextDue, rec.id).run();
+    } catch (e) {
+      console.error("processRecurring failed for", rec.id, e);
+    }
+  }
+}
+__name(processRecurring, "processRecurring");
+async function cleanupDrafts(env) {
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  try {
+    const slips = await env.DB.prepare(`
+      SELECT s.file_key FROM slips s
+      JOIN transactions t ON s.transaction_id = t.id
+      WHERE t.is_draft = 1 AND t.date <= ?
+    `).bind(today).all();
+    for (const s of slips.results || []) {
+      try {
+        await env.SLIPS.delete(s.file_key);
+      } catch {
+      }
+    }
+    await env.DB.prepare(
+      "DELETE FROM slips WHERE transaction_id IN (SELECT id FROM transactions WHERE is_draft = 1 AND date <= ?)"
+    ).bind(today).run();
+    await env.DB.prepare("DELETE FROM transactions WHERE is_draft = 1 AND date <= ?").bind(today).run();
+  } catch (e) {
+    console.error("cleanupDrafts failed:", e);
+  }
+}
+__name(cleanupDrafts, "cleanupDrafts");
+async function confirmTransaction(id, request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  const tx = await env.DB.prepare(
+    "SELECT * FROM transactions WHERE id = ? AND workspace_id = ? AND is_draft = 1"
+  ).bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A draft \u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23\u0E19\u0E35\u0E49\u0E44\u0E21\u0E48\u0E43\u0E0A\u0E48 draft" }, 404);
+  const wallet = await env.DB.prepare(
+    "SELECT * FROM wallets WHERE id = ? AND is_active = 1"
+  ).bind(tx.wallet_id).first();
+  if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
+  const body = await request.json().catch(() => ({}));
+  const newAmount = body.amount ? Number(body.amount) : Number(tx.amount);
+  if (newAmount <= 0 || isNaN(newAmount)) return json({ error: "amount must be positive" }, 400);
+  const note = body.note !== void 0 ? body.note : tx.note;
+  const balanceChange = tx.type === "income" ? newAmount : -newAmount;
+  await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE transactions SET is_draft = 0, amount = ?, note = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind(newAmount, note || null, id),
+    env.DB.prepare(
+      "UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?"
+    ).bind(balanceChange, tx.wallet_id)
+  ]);
+  await logAudit(env, user, "confirm", "transaction", id, { amount: newAmount });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId: id, walletId: tx.wallet_id, by: user.name });
+  return json({ ok: true });
+}
+__name(confirmTransaction, "confirmTransaction");
+function calcNextDueDate(frequency, dueDay, fromDate) {
+  const d = new Date(fromDate);
+  switch (frequency) {
+    case "daily":
+      d.setDate(d.getDate() + 1);
+      break;
+    case "weekly":
+      d.setDate(d.getDate() + 7);
+      break;
+    case "monthly":
+      d.setMonth(d.getMonth() + 1);
+      d.setDate(Math.min(dueDay, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      break;
+    case "yearly":
+      d.setFullYear(d.getFullYear() + 1);
+      d.setDate(Math.min(dueDay, new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()));
+      break;
+  }
+  return d.toISOString().slice(0, 10);
+}
+__name(calcNextDueDate, "calcNextDueDate");
+async function listAllSlips(request, env, user) {
+  const params = new URL(request.url).searchParams;
+  const year = params.get("year");
+  const month = params.get("month");
+  const from = params.get("from");
+  const to = params.get("to");
+  let filter = "";
+  const args = [user.workspace_id];
+  if (from && to) {
+    filter = " AND t.date >= ? AND t.date <= ?";
+    args.push(from, to);
+  } else if (from) {
+    filter = " AND t.date >= ?";
+    args.push(from);
+  } else if (year && month) {
+    filter = " AND t.date LIKE ?";
+    args.push(`${year}-${String(month).padStart(2, "0")}-%`);
+  } else if (year) {
+    filter = " AND t.date LIKE ?";
+    args.push(`${year}-%`);
+  }
+  const rows = await env.DB.prepare(`
+    SELECT s.id, s.transaction_id, s.file_key, s.file_name, s.file_size,
+           s.mime_type, s.slip_type, s.created_at,
+           t.date AS tx_date, t.name AS tx_name, t.type AS tx_type, t.amount AS tx_amount
+    FROM slips s
+    JOIN transactions t ON s.transaction_id = t.id
+    WHERE s.workspace_id = ?${filter}
+    ORDER BY t.date DESC, s.created_at DESC
+  `).bind(...args).all();
+  return json({
+    slips: (rows.results || []).map((s) => ({
+      ...formatSlip(s),
+      txDate: s.tx_date,
+      txName: s.tx_name,
+      txType: s.tx_type,
+      txAmount: Number(s.tx_amount)
+    }))
+  });
+}
+__name(listAllSlips, "listAllSlips");
+// ── OCR helpers ──────────────────────────────────────────────
+function toBase64Worker(buffer) {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.length; i += 8192)
+    binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+  return btoa(binary);
+}
+async function ocrDocument(imageBuffer, mediaType, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const base64 = toBase64Worker(imageBuffer);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: `อ่านเอกสารการเงินนี้ ตอบเป็น JSON เท่านั้น ไม่มีข้อความอื่น:
+{
+  "doc_type": "tax_invoice" หรือ "receipt" หรือ "transfer" หรือ "other",
+  "vendor_name": "ชื่อร้าน/บริษัทผู้ขาย (ผู้ออกเอกสาร)" หรือ null,
+  "tax_id": "เลขประจำตัวผู้เสียภาษี 13 หลัก" หรือ null,
+  "address": "ที่อยู่ร้าน/บริษัท" หรือ null,
+  "phone": "เบอร์โทรศัพท์" หรือ null,
+  "doc_number": "เลขที่เอกสาร" หรือ null,
+  "doc_date": "YYYY-MM-DD" หรือ null,
+  "subtotal": ตัวเลขก่อน VAT หรือ null,
+  "vat": ตัวเลข VAT หรือ null,
+  "total": ตัวเลขยอดรวมสุดท้าย หรือ null,
+  "items": [{"name":"ชื่อสินค้า/บริการ","qty":จำนวน,"unit_price":ราคาต่อหน่วย,"amount":ราคารวม}] หรือ []
+}` }
+        ]}]
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch { return null; }
+}
+__name(ocrDocument, "ocrDocument");
+
+async function upsertVendorProfile(workspaceId, ocr, txCategoryId, txCategoryName, txSubCategoryId, txSubCategoryName, txWalletId, txWalletName, env) {
+  if (!ocr?.vendor_name) return;
+  const existing = await env.DB.prepare(
+    "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
+  ).bind(workspaceId, ocr.vendor_name).first();
+  const now = new Date().toISOString().slice(0, 10);
+  if (existing) {
+    await env.DB.prepare(`UPDATE vendor_profiles SET
+      tax_id = COALESCE(?, tax_id), address = COALESCE(?, address), phone = COALESCE(?, phone),
+      typical_category_id = COALESCE(?, typical_category_id),
+      typical_category_name = COALESCE(?, typical_category_name),
+      typical_sub_category_id = COALESCE(?, typical_sub_category_id),
+      typical_sub_category_name = COALESCE(?, typical_sub_category_name),
+      typical_wallet_id = COALESCE(?, typical_wallet_id),
+      typical_wallet_name = COALESCE(?, typical_wallet_name),
+      occurrence_count = occurrence_count + 1, last_seen = ?, updated_at = datetime('now')
+      WHERE id = ?`
+    ).bind(
+      ocr.tax_id || null, ocr.address || null, ocr.phone || null,
+      txCategoryId || null, txCategoryName || null,
+      txSubCategoryId || null, txSubCategoryName || null,
+      txWalletId || null, txWalletName || null,
+      now, existing.id
+    ).run();
+  } else {
+    const id = 'vp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+    await env.DB.prepare(`INSERT INTO vendor_profiles
+      (id, workspace_id, vendor_name, tax_id, address, phone,
+       typical_category_id, typical_category_name,
+       typical_sub_category_id, typical_sub_category_name,
+       typical_wallet_id, typical_wallet_name, last_seen)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(
+      id, workspaceId, ocr.vendor_name, ocr.tax_id || null, ocr.address || null, ocr.phone || null,
+      txCategoryId || null, txCategoryName || null,
+      txSubCategoryId || null, txSubCategoryName || null,
+      txWalletId || null, txWalletName || null, now
+    ).run();
+  }
+}
+__name(upsertVendorProfile, "upsertVendorProfile");
+
+async function listVendorProfiles(request, env, user) {
+  const name = new URL(request.url).searchParams.get('name') || '';
+  let rows;
+  if (name) {
+    rows = await env.DB.prepare(
+      "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name LIKE ? ORDER BY occurrence_count DESC LIMIT 10"
+    ).bind(user.workspace_id, `%${name}%`).all();
+  } else {
+    rows = await env.DB.prepare(
+      "SELECT * FROM vendor_profiles WHERE workspace_id = ? ORDER BY occurrence_count DESC, last_seen DESC LIMIT 50"
+    ).bind(user.workspace_id).all();
+  }
+  return json({ vendors: (rows.results || []).map(v => ({
+    id: v.id, vendorName: v.vendor_name, taxId: v.tax_id, address: v.address, phone: v.phone,
+    typicalCategoryId: v.typical_category_id, typicalCategoryName: v.typical_category_name,
+    typicalSubCategoryId: v.typical_sub_category_id, typicalSubCategoryName: v.typical_sub_category_name,
+    typicalWalletId: v.typical_wallet_id, typicalWalletName: v.typical_wallet_name,
+    occurrenceCount: v.occurrence_count, lastSeen: v.last_seen,
+  })) });
+}
+__name(listVendorProfiles, "listVendorProfiles");
+
+async function uploadSlip(transactionId, request, env, user) {
+  const tx = await env.DB.prepare(
+    "SELECT id FROM transactions WHERE id = ? AND workspace_id = ?"
+  ).bind(transactionId, user.workspace_id).first();
+  if (!tx) return json({ error: "Transaction not found" }, 404);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/") && contentType !== "application/pdf") {
+    return json({ error: "Only images and PDF allowed" }, 400);
+  }
+  const slipType = new URL(request.url).searchParams.get("type") || "receipt";
+  const fileName = new URL(request.url).searchParams.get("name") || "slip_" + Date.now();
+  const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const fileKey = `${user.workspace_id}/${transactionId}/${slipId}`;
+  const body = await request.arrayBuffer();
+  if (body.byteLength > 10 * 1024 * 1024) return json({ error: "File too large (max 10MB)" }, 400);
+  await env.SLIPS.put(fileKey, body, {
+    httpMetadata: { contentType },
+    customMetadata: { workspaceId: user.workspace_id, transactionId, fileName }
+  });
+
+  // OCR for receipt / tax_invoice (images only)
+  let ocrText = null, ocrData = null;
+  if ((slipType === 'receipt' || slipType === 'tax_invoice') && contentType.startsWith('image/') && env.ANTHROPIC_API_KEY) {
+    const ocr = await ocrDocument(body, contentType, env.ANTHROPIC_API_KEY);
+    if (ocr) {
+      ocrData = JSON.stringify(ocr);
+      ocrText = ocr.vendor_name || null;
+      // Learn vendor profile — fetch category/wallet names for context
+      const txFull = await env.DB.prepare(
+        `SELECT t.category_id, t.sub_category_id, t.wallet_id,
+                c.name AS cat_name, sc.name AS sub_cat_name, w.name AS wallet_name
+         FROM transactions t
+         LEFT JOIN categories c ON t.category_id = c.id
+         LEFT JOIN categories sc ON t.sub_category_id = sc.id
+         LEFT JOIN wallets w ON t.wallet_id = w.id
+         WHERE t.id = ?`
+      ).bind(transactionId).first();
+      await upsertVendorProfile(
+        user.workspace_id, ocr,
+        txFull?.category_id || null, txFull?.cat_name || null,
+        txFull?.sub_category_id || null, txFull?.sub_cat_name || null,
+        txFull?.wallet_id || null, txFull?.wallet_name || null,
+        env
+      );
+    }
+  }
+
+  await env.DB.prepare(
+    "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(slipId, user.workspace_id, transactionId, fileKey, fileName, body.byteLength, contentType, slipType, ocrText, ocrData).run();
+  return json({ slip: { id: slipId, fileName, slipType, mimeType: contentType, fileSize: body.byteLength, ocrData: ocrData ? JSON.parse(ocrData) : null } }, 201);
+}
+__name(uploadSlip, "uploadSlip");
+async function listSlips(transactionId, env, user) {
+  const tx = await env.DB.prepare("SELECT id FROM transactions WHERE id = ? AND workspace_id = ?").bind(transactionId, user.workspace_id).first();
+  if (!tx) return json({ error: "Transaction not found" }, 404);
+  const rows = await env.DB.prepare(
+    "SELECT * FROM slips WHERE transaction_id = ? ORDER BY created_at ASC"
+  ).bind(transactionId).all();
+  const slips = await Promise.all((rows.results || []).map(async (s) => {
+    const signed = await env.SLIPS.createPresignedUrl ? await env.SLIPS.createPresignedUrl(s.file_key, { expiresIn: 3600 }) : null;
+    return formatSlip(s, signed);
+  }));
+  return json({ slips });
+}
+__name(listSlips, "listSlips");
+async function getSlipUrl(slipId, env, user) {
+  const s = await env.DB.prepare("SELECT * FROM slips WHERE id = ? AND workspace_id = ?").bind(slipId, user.workspace_id).first();
+  if (!s) return json({ error: "Slip not found" }, 404);
+  const obj = await env.SLIPS.get(s.file_key);
+  if (!obj) return json({ error: "File not found in storage" }, 404);
+  const headers = new Headers();
+  headers.set("Content-Type", s.mime_type || "image/jpeg");
+  headers.set("Content-Disposition", `inline; filename="${s.file_name}"`);
+  headers.set("Cache-Control", "private, max-age=3600");
+  return cors(new Response(obj.body, { headers }));
+}
+__name(getSlipUrl, "getSlipUrl");
+async function deleteSlip(slipId, env, user) {
+  const s = await env.DB.prepare("SELECT * FROM slips WHERE id = ? AND workspace_id = ?").bind(slipId, user.workspace_id).first();
+  if (!s) return json({ error: "Slip not found" }, 404);
+  await env.SLIPS.delete(s.file_key);
+  await env.DB.prepare("DELETE FROM slips WHERE id = ?").bind(slipId).run();
+  return json({ ok: true });
+}
+__name(deleteSlip, "deleteSlip");
+function formatSlip(s, url = null) {
+  return {
+    id: s.id,
+    transactionId: s.transaction_id,
+    fileName: s.file_name,
+    fileSize: s.file_size,
+    mimeType: s.mime_type,
+    slipType: s.slip_type,
+    ocrData: s.ocr_data ? (() => { try { return JSON.parse(s.ocr_data); } catch { return null; } })() : null,
+    url: url || null,
+    createdAt: s.created_at
+  };
+}
+__name(formatSlip, "formatSlip");
+
+// ── LINE User Mappings ────────────────────────────────────────
+async function listLineUsers(env, user) {
+  const rows = await env.DB.prepare(
+    "SELECT * FROM line_user_mappings WHERE workspace_id = ? ORDER BY created_at DESC"
+  ).bind(user.workspace_id).all();
+  return json({ lineUsers: (rows.results || []).map(r => ({
+    id: r.id, lineUserId: r.line_user_id, employeeName: r.employee_name,
+    lineDisplayName: r.line_display_name, createdAt: r.created_at,
+  })) });
+}
+__name(listLineUsers, "listLineUsers");
+
+async function upsertLineUser(request, env, user) {
+  const { lineUserId, employeeName, lineDisplayName } = await request.json();
+  if (!lineUserId || !employeeName) return json({ error: "lineUserId and employeeName required" }, 400);
+  const existing = await env.DB.prepare(
+    "SELECT id FROM line_user_mappings WHERE line_user_id = ?"
+  ).bind(lineUserId).first();
+  if (existing) {
+    await env.DB.prepare(
+      "UPDATE line_user_mappings SET employee_name = ?, line_display_name = ? WHERE id = ?"
+    ).bind(employeeName, lineDisplayName || null, existing.id).run();
+    return json({ ok: true, updated: true });
+  }
+  const id = "lu_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  await env.DB.prepare(
+    "INSERT INTO line_user_mappings (id, workspace_id, line_user_id, employee_name, line_display_name) VALUES (?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, lineUserId, employeeName, lineDisplayName || null).run();
+  return json({ ok: true, id });
+}
+__name(upsertLineUser, "upsertLineUser");
+
+async function deleteLineUser(id, env, user) {
+  const r = await env.DB.prepare(
+    "SELECT id FROM line_user_mappings WHERE id = ? AND workspace_id = ?"
+  ).bind(id, user.workspace_id).first();
+  if (!r) return json({ error: "Not found" }, 404);
+  await env.DB.prepare("DELETE FROM line_user_mappings WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+}
+__name(deleteLineUser, "deleteLineUser");
+
+async function lookupLineUser(request, env, user) {
+  const lineUserId = new URL(request.url).searchParams.get("lid") || "";
+  if (!lineUserId) return json({ employee: null });
+  const r = await env.DB.prepare(
+    "SELECT employee_name, line_display_name FROM line_user_mappings WHERE line_user_id = ? AND workspace_id = ?"
+  ).bind(lineUserId, user.workspace_id).first();
+  return json({ employee: r ? { name: r.employee_name, displayName: r.line_display_name } : null });
+}
+__name(lookupLineUser, "lookupLineUser");
+
+async function handleWebSocket(request, env) {
+  const url = new URL(request.url);
+  const token = url.searchParams.get("token");
+  if (!token) return new Response("Token required", { status: 401 });
+  const payload = await verifyJWT(token, env);
+  if (!payload) return new Response("Invalid token", { status: 401 });
+  const id = env.REALTIME.idFromName(payload.ws);
+  const stub = env.REALTIME.get(id);
+  return stub.fetch(request);
+}
+__name(handleWebSocket, "handleWebSocket");
+async function broadcastChange(env, workspaceId, message) {
+  try {
+    const id = env.REALTIME.idFromName(workspaceId);
+    const stub = env.REALTIME.get(id);
+    await stub.fetch("https://internal/broadcast", { method: "POST", body: JSON.stringify(message) });
+  } catch (e) {
+    console.error("broadcast fail:", e);
+  }
+}
+__name(broadcastChange, "broadcastChange");
+var WorkspaceRoom = class {
+  static {
+    __name(this, "WorkspaceRoom");
+  }
+  constructor(state, env) {
+    this.state = state;
+    this.sessions = /* @__PURE__ */ new Set();
+  }
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (url.pathname === "/broadcast") {
+      const message = await request.json();
+      const data = JSON.stringify({ ...message, ts: (/* @__PURE__ */ new Date()).toISOString() });
+      for (const ws of this.sessions) {
+        try {
+          ws.send(data);
+        } catch {
+          this.sessions.delete(ws);
+        }
+      }
+      return new Response("ok");
+    }
+    if (request.headers.get("Upgrade") === "websocket") {
+      const pair = new WebSocketPair();
+      await this.handleSession(pair[1]);
+      return new Response(null, { status: 101, webSocket: pair[0] });
+    }
+    return new Response("Expected websocket or /broadcast", { status: 400 });
+  }
+  async handleSession(ws) {
+    ws.accept();
+    this.sessions.add(ws);
+    ws.send(JSON.stringify({ event: "connected", ts: (/* @__PURE__ */ new Date()).toISOString() }));
+    ws.addEventListener("close", () => this.sessions.delete(ws));
+    ws.addEventListener("error", () => this.sessions.delete(ws));
+    ws.addEventListener("message", (msg) => {
+      try {
+        const data = JSON.parse(msg.data);
+        if (data.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
+      } catch {
+      }
+    });
+  }
+};
+function formatUser(u) {
+  if (!u) return null;
+  let settings = null;
+  if (u.settings) {
+    try {
+      settings = JSON.parse(u.settings);
+    } catch {
+    }
+  }
+  return {
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    workspaceId: u.workspace_id,
+    isActive: u.is_active === void 0 ? true : !!u.is_active,
+    avatarUrl: u.avatar_url || null,
+    phone: u.phone || null,
+    language: u.language || "th",
+    theme: u.theme || "light",
+    settings,
+    lastLoginAt: u.last_login_at || null,
+    createdAt: u.created_at || null
+  };
+}
+__name(formatUser, "formatUser");
+function formatWallet(w) {
+  if (!w) return null;
+  return {
+    id: w.id,
+    workspaceId: w.workspace_id,
+    name: w.name,
+    scope: w.scope,
+    type: w.type,
+    currentBalance: Number(w.current_balance),
+    initialBalance: Number(w.initial_balance),
+    creditLimit: w.credit_limit !== null ? Number(w.credit_limit) : null,
+    color: w.color,
+    icon: w.icon,
+    sortOrder: w.sort_order,
+    isActive: !!w.is_active,
+    staffVisible: w.staff_visible === void 0 ? true : !!w.staff_visible,
+    createdAt: w.created_at,
+    updatedAt: w.updated_at
+  };
+}
+__name(formatWallet, "formatWallet");
+function formatCategory(c) {
+  if (!c) return null;
+  return {
+    id: c.id,
+    workspaceId: c.workspace_id,
+    parentId: c.parent_id,
+    name: c.name,
+    color: c.color,
+    type: c.type,
+    sortOrder: c.sort_order,
+    isActive: c.is_active === void 0 ? true : !!c.is_active
+  };
+}
+__name(formatCategory, "formatCategory");
+function formatTransaction(t) {
+  if (!t) return null;
+  return {
+    id: t.id,
+    workspaceId: t.workspace_id,
+    createdByUserId: t.created_by_user_id,
+    createdByName: t.created_by_name || null,
+    walletId: t.wallet_id,
+    walletName: t.wallet_name || null,
+    walletColor: t.wallet_color || null,
+    walletType: t.wallet_type || null,
+    categoryId: t.category_id,
+    categoryName: t.category_name || null,
+    categoryColor: t.category_color || null,
+    subCategoryId: t.sub_category_id,
+    subCategoryName: t.sub_category_name || null,
+    subCategoryColor: t.sub_category_color || null,
+    name: t.name,
+    amount: Number(t.amount),
+    type: t.type,
+    scope: t.scope,
+    date: t.date,
+    note: t.note,
+    transferPairId: t.transfer_pair_id || null,
+    isReconciled: !!t.is_reconciled,
+    isDraft: !!t.is_draft,
+    recurringId: t.recurring_id || null,
+    submittedBy: t.submitted_by || null,
+    createdAt: t.created_at,
+    updatedAt: t.updated_at
+  };
+}
+__name(formatTransaction, "formatTransaction");
+function formatRecurring(r) {
+  if (!r) return null;
+  return {
+    id: r.id,
+    workspaceId: r.workspace_id,
+    walletId: r.wallet_id,
+    categoryId: r.category_id,
+    subCategoryId: r.sub_category_id,
+    name: r.name,
+    amount: Number(r.amount),
+    type: r.type,
+    scope: r.scope,
+    frequency: r.frequency,
+    dueDay: r.due_day,
+    autoCreate: !!r.auto_create,
+    draftMode: !!r.draft_mode,
+    nextDueDate: r.next_due_date,
+    isActive: !!r.is_active,
+    createdAt: r.created_at
+  };
+}
+__name(formatRecurring, "formatRecurring");
+function json(data, status = 200) {
+  return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
+}
+__name(json, "json");
+function cors(response) {
+  const h = new Headers(response.headers);
+  h.set("Access-Control-Allow-Origin", "*");
+  h.set("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS");
+  h.set("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  h.set("Access-Control-Max-Age", "86400");
+  return new Response(response.body, { status: response.status, headers: h });
+}
+__name(cors, "cors");
+async function hashPassword(password) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]);
+  const hash = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 1e5, hash: "SHA-256" }, key, 256);
+  return b64(salt) + ":" + b64(new Uint8Array(hash));
+}
+__name(hashPassword, "hashPassword");
+async function verifyPassword(password, stored) {
+  const [saltB64, hashB64] = stored.split(":");
+  if (!saltB64 || !hashB64) return false;
+  const salt = unb64(saltB64);
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(password), { name: "PBKDF2" }, false, ["deriveBits"]);
+  const hash = await crypto.subtle.deriveBits({ name: "PBKDF2", salt, iterations: 1e5, hash: "SHA-256" }, key, 256);
+  return b64(new Uint8Array(hash)) === hashB64;
+}
+__name(verifyPassword, "verifyPassword");
+function b64(bytes) {
+  return btoa(String.fromCharCode(...bytes));
+}
+__name(b64, "b64");
+function unb64(str) {
+  return new Uint8Array(atob(str).split("").map((c) => c.charCodeAt(0)));
+}
+__name(unb64, "unb64");
+async function signJWT(payload, env) {
+  const header = { alg: "HS256", typ: "JWT" };
+  const now = Math.floor(Date.now() / 1e3);
+  const fullPayload = { ...payload, iat: now, exp: now + JWT_EXPIRY_HOURS * 3600 };
+  const encoder = new TextEncoder();
+  const headerB64 = b64url(encoder.encode(JSON.stringify(header)));
+  const payloadB64 = b64url(encoder.encode(JSON.stringify(fullPayload)));
+  const data = `${headerB64}.${payloadB64}`;
+  const key = await crypto.subtle.importKey("raw", encoder.encode(env.JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  const sig = await crypto.subtle.sign("HMAC", key, encoder.encode(data));
+  return `${data}.${b64url(new Uint8Array(sig))}`;
+}
+__name(signJWT, "signJWT");
+async function verifyJWT(token, env) {
+  try {
+    const [headerB64, payloadB64, sigB64] = token.split(".");
+    if (!headerB64 || !payloadB64 || !sigB64) return null;
+    const data = `${headerB64}.${payloadB64}`;
+    const encoder = new TextEncoder();
+    const key = await crypto.subtle.importKey("raw", encoder.encode(env.JWT_SECRET), { name: "HMAC", hash: "SHA-256" }, false, ["verify"]);
+    const sig = unb64url(sigB64);
+    const ok = await crypto.subtle.verify("HMAC", key, sig, encoder.encode(data));
+    if (!ok) return null;
+    const payload = JSON.parse(new TextDecoder().decode(unb64url(payloadB64)));
+    if (payload.exp < Math.floor(Date.now() / 1e3)) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+__name(verifyJWT, "verifyJWT");
+function b64url(bytes) {
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+__name(b64url, "b64url");
+function unb64url(str) {
+  str = str.replace(/-/g, "+").replace(/_/g, "/");
+  while (str.length % 4) str += "=";
+  return new Uint8Array(atob(str).split("").map((c) => c.charCodeAt(0)));
+}
+__name(unb64url, "unb64url");
+export {
+  WorkspaceRoom,
+  worker_default as default
+};
+//# sourceMappingURL=worker.js.map
+

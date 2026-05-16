@@ -1,0 +1,21 @@
+name = "fintrack-api"
+main = "worker.js"
+compatibility_date = "2024-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fintrack-db"
+database_id = "dd65e542-131c-490f-bb98-9bc618d5d831"
+
+[[r2_buckets]]
+binding = "SLIPS"
+bucket_name = "fintrack-slips"
+
+[[durable_objects.bindings]]
+name = "REALTIME"
+class_name = "WorkspaceRoom"
+
+[[migrations]]
+tag = "v1"
+new_classes = ["WorkspaceRoom"]
