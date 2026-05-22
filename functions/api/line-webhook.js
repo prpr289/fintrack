@@ -260,7 +260,7 @@ async function suggestCategoryAI(name, amount, categories, apiKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
+        model: 'claude-sonnet-4-6',
         max_tokens: 120,
         messages: [{
           role: 'user',
