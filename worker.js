@@ -86,6 +86,7 @@ var worker_default = {
       if (slipMatch && method === "GET") return cors(await getSlipUrl(slipMatch[1], env, user));
       if (slipMatch && method === "DELETE") return cors(await deleteSlip(slipMatch[1], env, user));
       if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
+      if (path === "/vendor-profiles" && method === "POST") return cors(await learnVendorProfile(request, env, user));
       if (path === "/line-users" && method === "GET") return cors(await listLineUsers(env, user));
       if (path === "/line-users" && method === "POST") return cors(await upsertLineUser(request, env, user));
       const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
@@ -1003,6 +1004,38 @@ async function listVendorProfiles(request, env, user) {
   })) });
 }
 __name(listVendorProfiles, "listVendorProfiles");
+
+// Learn / correct a vendor profile from a confirmed transaction (e.g. LINE bot
+// after the user picks or fixes the category). Keyed on the exact vendorName the
+// bot later searches by, so it works for transfer slips too — not just receipts.
+async function learnVendorProfile(request, env, user) {
+  const { vendorName, categoryId, subCategoryId, walletId, taxId } = await request.json();
+  if (!vendorName) return json({ error: "vendorName required" }, 400);
+  // Resolve names from DB so the profile carries human-readable labels.
+  let catName = null, subName = null, walName = null;
+  if (categoryId) {
+    const c = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(categoryId, user.workspace_id).first();
+    catName = c?.name || null;
+  }
+  if (subCategoryId) {
+    const sc = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(subCategoryId, user.workspace_id).first();
+    subName = sc?.name || null;
+  }
+  if (walletId) {
+    const w = await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(walletId, user.workspace_id).first();
+    walName = w?.name || null;
+  }
+  await upsertVendorProfile(
+    user.workspace_id,
+    { vendor_name: vendorName, tax_id: taxId || null },
+    categoryId || null, catName,
+    subCategoryId || null, subName,
+    walletId || null, walName,
+    env
+  );
+  return json({ ok: true }, 201);
+}
+__name(learnVendorProfile, "learnVendorProfile");
 
 async function uploadSlip(transactionId, request, env, user) {
   const tx = await env.DB.prepare(

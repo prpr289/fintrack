@@ -959,6 +959,21 @@ async function handlePostback(event, env) {
       }
       const txData = await fintrack('POST', '/transactions', txBody, baseUrl, env.FINTRACK_TOKEN)
 
+      // Remember this recipient → category/wallet so next time the bot auto-fills it
+      // (incl. corrections the user just made). Works for transfer slips too.
+      if (data.n && (data.c || data.wi)) {
+        try {
+          await fintrack('POST', '/vendor-profiles', {
+            vendorName: data.n,
+            categoryId: data.c || null,
+            subCategoryId: data.s || null,
+            walletId: data.wi || null,
+          }, baseUrl, env.FINTRACK_TOKEN)
+        } catch (e) {
+          console.error('vendor-profile learn error:', e)
+        }
+      }
+
       const txId = txData.transaction?.id
       let slipId = null
       let imageBuffer = null
