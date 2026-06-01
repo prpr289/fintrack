@@ -407,6 +407,20 @@ async function updateTransaction(id, request, env, user) {
   }
   await env.DB.batch(stmts);
   await logAudit(env, user, "update", "transaction", id, body);
+  // Learn vendor → category when a category edit lands on a slip-derived tx, so
+  // corrections made in the web app teach the LINE bot just like LINE edits do.
+  const touchedCategory = body.categoryId !== void 0 || body.category_id !== void 0;
+  const finalCategoryId = touchedCategory ? (body.categoryId !== void 0 ? body.categoryId : body.category_id) : tx.category_id;
+  if (touchedCategory && finalCategoryId) {
+    const finalName = body.name !== void 0 ? body.name : tx.name;
+    const vendorName = recipientFromTxName(finalName);
+    if (vendorName) {
+      const finalSubId = body.subCategoryId !== void 0 ? body.subCategoryId : body.sub_category_id !== void 0 ? body.sub_category_id : tx.sub_category_id;
+      try {
+        await learnVendorByName(env, user.workspace_id, vendorName, finalCategoryId, finalSubId || null, newWalletId || null, null);
+      } catch (e) { console.error("learnVendorByName (update):", e); }
+    }
+  }
   await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
   const updated = await env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
   return json({ transaction: formatTransaction(updated) });
@@ -1005,37 +1019,53 @@ async function listVendorProfiles(request, env, user) {
 }
 __name(listVendorProfiles, "listVendorProfiles");
 
-// Learn / correct a vendor profile from a confirmed transaction (e.g. LINE bot
-// after the user picks or fixes the category). Keyed on the exact vendorName the
-// bot later searches by, so it works for transfer slips too — not just receipts.
-async function learnVendorProfile(request, env, user) {
-  const { vendorName, categoryId, subCategoryId, walletId, taxId } = await request.json();
-  if (!vendorName) return json({ error: "vendorName required" }, 400);
-  // Resolve names from DB so the profile carries human-readable labels.
+// Shared: upsert a vendor profile from a vendor name + chosen category/wallet,
+// resolving human-readable names from the DB. Used by the LINE bot endpoint and
+// by web-app category edits so the bot learns from corrections made anywhere.
+async function learnVendorByName(env, workspaceId, vendorName, categoryId, subCategoryId, walletId, taxId) {
+  if (!vendorName) return;
   let catName = null, subName = null, walName = null;
   if (categoryId) {
-    const c = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(categoryId, user.workspace_id).first();
+    const c = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(categoryId, workspaceId).first();
     catName = c?.name || null;
   }
   if (subCategoryId) {
-    const sc = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(subCategoryId, user.workspace_id).first();
+    const sc = await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(subCategoryId, workspaceId).first();
     subName = sc?.name || null;
   }
   if (walletId) {
-    const w = await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(walletId, user.workspace_id).first();
+    const w = await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(walletId, workspaceId).first();
     walName = w?.name || null;
   }
   await upsertVendorProfile(
-    user.workspace_id,
+    workspaceId,
     { vendor_name: vendorName, tax_id: taxId || null },
     categoryId || null, catName,
     subCategoryId || null, subName,
     walletId || null, walName,
     env
   );
+}
+__name(learnVendorByName, "learnVendorByName");
+
+// LINE bot calls this after the user confirms / fixes a slip's category.
+async function learnVendorProfile(request, env, user) {
+  const { vendorName, categoryId, subCategoryId, walletId, taxId } = await request.json();
+  if (!vendorName) return json({ error: "vendorName required" }, 400);
+  await learnVendorByName(env, user.workspace_id, vendorName, categoryId || null, subCategoryId || null, walletId || null, taxId || null);
   return json({ ok: true }, 201);
 }
 __name(learnVendorProfile, "learnVendorProfile");
+
+// Extract the recipient/vendor name from a slip-derived transaction name
+// ("โอนให้ X" / "รับจาก X"). Returns null for manually-named transactions so we
+// only learn from real slip records and stay key-compatible with the LINE bot.
+function recipientFromTxName(name) {
+  if (!name) return null;
+  const m = String(name).match(/^(?:โอนให้|รับจาก)\s+(.+)$/);
+  return m ? m[1].trim().slice(0, 25) : null;
+}
+__name(recipientFromTxName, "recipientFromTxName");
 
 async function uploadSlip(transactionId, request, env, user) {
   const tx = await env.DB.prepare(
