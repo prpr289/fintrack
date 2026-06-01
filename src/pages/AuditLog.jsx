@@ -7,7 +7,7 @@ const PAGE_SIZE = 50
 
 const ACTION_COLOR = { create: '#34d399', update: '#60a5fa', delete: '#f87171', transfer: '#c084fc', update_password: '#f59e0b', confirm: '#34d399', edit_pending: '#60a5fa', confirm_edit: '#34d399', cancel_edit: '#94a3b8', print: '#a78bfa' }
 const ACTION_LABEL = { create: 'สร้าง', update: 'แก้ไข', delete: 'ลบ', transfer: 'โอนเงิน', update_password: 'เปลี่ยนรหัส', confirm: 'ยืนยัน', edit_pending: 'แก้ไข (รอยืนยัน)', confirm_edit: 'ยืนยันการแก้ไข', cancel_edit: 'ยกเลิกการแก้ไข', print: 'พิมพ์เอกสาร' }
-const ENTITY_LABEL = { transaction: 'ธุรกรรม', user: 'ผู้ใช้', wallet: 'กระเป๋า', category: 'หมวดหมู่' }
+const ENTITY_LABEL = { transaction: 'ธุรกรรม', user: 'ผู้ใช้', wallet: 'กระเป๋า', category: 'หมวดหมู่', vendor: 'Vendor' }
 
 export default function AuditLog() {
   const [logs, setLogs] = useState([])

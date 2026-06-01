@@ -12,6 +12,7 @@ import AuditLog from './pages/AuditLog'
 import Budget from './pages/Budget'
 import Recurring from './pages/Recurring'
 import SlipsGallery from './pages/SlipsGallery'
+import Vendors from './pages/Vendors'
 import Voucher from './pages/Voucher'
 
 function RequireAuth({ children }) {
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="budget"       element={<RequireAdmin><Budget /></RequireAdmin>} />
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />
             <Route path="slips"        element={<SlipsGallery />} />
+            <Route path="vendors"      element={<RequireAdmin><Vendors /></RequireAdmin>} />
             <Route path="users"        element={<RequireAdmin><Users /></RequireAdmin>} />
             <Route path="audit-log"    element={<RequireAdmin><AuditLog /></RequireAdmin>} />
             <Route path="profile"      element={<Profile />} />

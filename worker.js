@@ -93,6 +93,9 @@ var worker_default = {
       if (slipMatch && method === "DELETE") return cors(await deleteSlip(slipMatch[1], env, user));
       if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
       if (path === "/vendor-profiles" && method === "POST") return cors(await learnVendorProfile(request, env, user));
+      const vendorMatch = path.match(/^\/vendor-profiles\/([a-zA-Z0-9_-]+)$/);
+      if (vendorMatch && method === "PATCH") return cors(await updateVendorProfile(vendorMatch[1], request, env, user));
+      if (vendorMatch && method === "DELETE") return cors(await deleteVendorProfile(vendorMatch[1], env, user));
       if (path === "/line-users" && method === "GET") return cors(await listLineUsers(env, user));
       if (path === "/line-users" && method === "POST") return cors(await upsertLineUser(request, env, user));
       const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
@@ -1083,15 +1086,74 @@ async function listVendorProfiles(request, env, user) {
       "SELECT * FROM vendor_profiles WHERE workspace_id = ? ORDER BY occurrence_count DESC, last_seen DESC LIMIT 50"
     ).bind(user.workspace_id).all();
   }
-  return json({ vendors: (rows.results || []).map(v => ({
+  return json({ vendors: (rows.results || []).map(formatVendor) });
+}
+__name(listVendorProfiles, "listVendorProfiles");
+
+function formatVendor(v) {
+  return {
     id: v.id, vendorName: v.vendor_name, taxId: v.tax_id, address: v.address, phone: v.phone,
     typicalCategoryId: v.typical_category_id, typicalCategoryName: v.typical_category_name,
     typicalSubCategoryId: v.typical_sub_category_id, typicalSubCategoryName: v.typical_sub_category_name,
     typicalWalletId: v.typical_wallet_id, typicalWalletName: v.typical_wallet_name,
     occurrenceCount: v.occurrence_count, lastSeen: v.last_seen,
-  })) });
+  };
 }
-__name(listVendorProfiles, "listVendorProfiles");
+__name(formatVendor, "formatVendor");
+
+// Manage a learned vendor profile (admin) — correct the category/wallet the AI
+// stored, fix details, or rename. Empty string clears a field; undefined leaves it.
+async function updateVendorProfile(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const v = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!v) return json({ error: "ไม่พบ vendor" }, 404);
+  const body = await request.json();
+  const updates = [], args = [];
+  const setField = (col, val) => { updates.push(`${col} = ?`); args.push(val); };
+  if (body.vendorName !== void 0) {
+    if (!String(body.vendorName).trim()) return json({ error: "ชื่อ vendor ห้ามว่าง" }, 400);
+    setField("vendor_name", String(body.vendorName).trim());
+  }
+  if (body.taxId !== void 0) setField("tax_id", body.taxId || null);
+  if (body.address !== void 0) setField("address", body.address || null);
+  if (body.phone !== void 0) setField("phone", body.phone || null);
+  if (body.categoryId !== void 0) {
+    const c = body.categoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.categoryId, user.workspace_id).first() : null;
+    if (body.categoryId && !c) return json({ error: "ไม่พบหมวดหมู่" }, 404);
+    setField("typical_category_id", body.categoryId || null);
+    setField("typical_category_name", c?.name || null);
+  }
+  if (body.subCategoryId !== void 0) {
+    const sc = body.subCategoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.subCategoryId, user.workspace_id).first() : null;
+    if (body.subCategoryId && !sc) return json({ error: "ไม่พบหมวดย่อย" }, 404);
+    setField("typical_sub_category_id", body.subCategoryId || null);
+    setField("typical_sub_category_name", sc?.name || null);
+  }
+  if (body.walletId !== void 0) {
+    const w = body.walletId ? await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(body.walletId, user.workspace_id).first() : null;
+    if (body.walletId && !w) return json({ error: "ไม่พบกระเป๋า" }, 404);
+    setField("typical_wallet_id", body.walletId || null);
+    setField("typical_wallet_name", w?.name || null);
+  }
+  if (updates.length === 0) return json({ error: "no fields" }, 400);
+  updates.push("updated_at = datetime('now')");
+  args.push(id);
+  await env.DB.prepare(`UPDATE vendor_profiles SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  await logAudit(env, user, "update", "vendor", id, body);
+  const updated = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ?").bind(id).first();
+  return json({ vendor: formatVendor(updated) });
+}
+__name(updateVendorProfile, "updateVendorProfile");
+
+async function deleteVendorProfile(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const v = await env.DB.prepare("SELECT id FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!v) return json({ error: "ไม่พบ vendor" }, 404);
+  await env.DB.prepare("DELETE FROM vendor_profiles WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "delete", "vendor", id, {});
+  return json({ ok: true });
+}
+__name(deleteVendorProfile, "deleteVendorProfile");
 
 // Shared: upsert a vendor profile from a vendor name + chosen category/wallet,
 // resolving human-readable names from the DB. Used by the LINE bot endpoint and

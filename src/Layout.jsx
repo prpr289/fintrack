@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 
@@ -48,6 +48,7 @@ export default function Layout() {
         { to: '/recurring',    icon: RefreshCw,       label: 'รายการประจำ' },
         { to: '/slips',        icon: Paperclip,       label: 'สลิปทั้งหมด' },
         ...(isAdmin ? [
+          { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
           { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
           { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
         ] : []),

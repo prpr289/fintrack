@@ -61,6 +61,10 @@ export const api = {
 
   auditLog: (params) => req('GET', '/audit-log?' + new URLSearchParams(params || {})),
 
+  vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
+  updateVendor: (id, body) => req('PATCH', `/vendor-profiles/${id}`, body),
+  deleteVendor: (id) => req('DELETE', `/vendor-profiles/${id}`),
+
   budgets: () => req('GET', '/budgets'),
   createBudget: (body) => req('POST', '/budgets', body),
   updateBudget: (id, body) => req('PATCH', `/budgets/${id}`, body),
