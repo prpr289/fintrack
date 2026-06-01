@@ -72,6 +72,12 @@ var worker_default = {
       if (reconcileMatch && method === "PATCH") return cors(await toggleReconcile(reconcileMatch[1], env, user));
       const confirmMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm$/);
       if (confirmMatch && method === "POST") return cors(await confirmTransaction(confirmMatch[1], request, env, user));
+      const confirmEditMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm-edit$/);
+      if (confirmEditMatch && method === "POST") return cors(await confirmEditTransaction(confirmEditMatch[1], env, user));
+      const cancelEditMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/cancel-edit$/);
+      if (cancelEditMatch && method === "POST") return cors(await cancelEditTransaction(cancelEditMatch[1], env, user));
+      const printMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/print$/);
+      if (printMatch && method === "POST") return cors(await printTransaction(printMatch[1], env, user));
       if (path === "/audit-log" && method === "GET") return cors(await listAuditLog(request, env, user));
       if (path === "/budgets" && method === "GET") return cors(await listBudgets(env, user));
       if (path === "/budgets" && method === "POST") return cors(await createBudget(request, env, user));
@@ -379,53 +385,121 @@ async function updateTransaction(id, request, env, user) {
     if (!newWallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32\u0E1B\u0E25\u0E32\u0E22\u0E17\u0E32\u0E07" }, 404);
   }
   const fields = ["name", "amount", "type", "scope", "date", "note", "category_id", "sub_category_id", "wallet_id"];
-  const updates = [], args = [];
+  const changes = {};
   for (const f of fields) {
     const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-    const val = body[f] !== void 0 ? body[f] : body[camelKey];
-    if (val !== void 0) {
-      updates.push(`${f} = ?`);
-      args.push(val);
-    }
+    let val = body[f] !== void 0 ? body[f] : body[camelKey];
+    if (val === void 0) continue;
+    if (f === "amount") val = Number(val);
+    const same = f === "amount" ? Number(tx[f]) === val : String(tx[f] ?? "") === String(val ?? "");
+    if (!same) changes[f] = val;
   }
-  if (updates.length === 0) return json({ error: "no fields" }, 400);
-  updates.push("updated_at = CURRENT_TIMESTAMP");
-  args.push(id);
+  if (Object.keys(changes).length === 0) return json({ error: "no changes" }, 400);
+
+  // Draft tx isn't reflected in the balance yet -> edit fields directly (no staging).
+  if (tx.is_draft) {
+    const updates = [], args = [];
+    for (const [f, val] of Object.entries(changes)) { updates.push(`${f} = ?`); args.push(val); }
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+    args.push(id);
+    await env.DB.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+    await logAudit(env, user, "update", "transaction", id, changes);
+    await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+    return json({ transaction: formatTransaction(await fetchTxFull(env, id)) });
+  }
+
+  // Live tx -> stage the edit; it takes effect only after the owner/admin confirms.
+  await env.DB.prepare("UPDATE transactions SET pending_changes = ?, edited_by = ?, edited_at = datetime('now'), updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(JSON.stringify(changes), user.name, id).run();
+  await logAudit(env, user, "edit_pending", "transaction", id, changes);
+  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+  return json({ transaction: formatTransaction(await fetchTxFull(env, id)), pending: true });
+}
+__name(updateTransaction, "updateTransaction");
+
+// Full transaction row with joined names — used by update/confirm paths.
+async function fetchTxFull(env, id) {
+  return env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
+}
+__name(fetchTxFull, "fetchTxFull");
+
+// Apply a validated change set to a LIVE transaction: update columns, move wallet
+// balance, clear the pending edit, and learn vendor->category from slip edits.
+async function applyTxChanges(env, user, tx, changes) {
+  const oldAmount = Number(tx.amount), oldType = tx.type, oldWalletId = tx.wallet_id;
+  const newAmount = changes.amount !== void 0 ? Number(changes.amount) : oldAmount;
+  const newType = changes.type !== void 0 ? changes.type : oldType;
+  const newWalletId = changes.wallet_id !== void 0 ? changes.wallet_id : oldWalletId;
+  const updates = [], args = [];
+  for (const [f, val] of Object.entries(changes)) { updates.push(`${f} = ?`); args.push(val); }
+  updates.push("pending_changes = NULL", "edited_by = NULL", "edited_at = NULL", "updated_at = CURRENT_TIMESTAMP");
+  args.push(tx.id);
   const oldEffect = oldType === "income" ? oldAmount : -oldAmount;
   const newEffect = newType === "income" ? newAmount : -newAmount;
-  const stmts = [
-    env.DB.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).bind(...args)
-  ];
+  const stmts = [env.DB.prepare(`UPDATE transactions SET ${updates.join(", ")} WHERE id = ?`).bind(...args)];
   if (newWalletId === oldWalletId) {
     const delta = newEffect - oldEffect;
-    if (delta !== 0) {
-      stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(delta, oldWalletId));
-    }
+    if (delta !== 0) stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(delta, oldWalletId));
   } else {
     stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(oldEffect, oldWalletId));
     stmts.push(env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newEffect, newWalletId));
   }
   await env.DB.batch(stmts);
-  await logAudit(env, user, "update", "transaction", id, body);
-  // Learn vendor → category when a category edit lands on a slip-derived tx, so
-  // corrections made in the web app teach the LINE bot just like LINE edits do.
-  const touchedCategory = body.categoryId !== void 0 || body.category_id !== void 0;
-  const finalCategoryId = touchedCategory ? (body.categoryId !== void 0 ? body.categoryId : body.category_id) : tx.category_id;
-  if (touchedCategory && finalCategoryId) {
-    const finalName = body.name !== void 0 ? body.name : tx.name;
-    const vendorName = recipientFromTxName(finalName);
+  const finalCategoryId = changes.category_id !== void 0 ? changes.category_id : tx.category_id;
+  if (changes.category_id !== void 0 && finalCategoryId) {
+    const vendorName = recipientFromTxName(changes.name !== void 0 ? changes.name : tx.name);
     if (vendorName) {
-      const finalSubId = body.subCategoryId !== void 0 ? body.subCategoryId : body.sub_category_id !== void 0 ? body.sub_category_id : tx.sub_category_id;
-      try {
-        await learnVendorByName(env, user.workspace_id, vendorName, finalCategoryId, finalSubId || null, newWalletId || null, null);
-      } catch (e) { console.error("learnVendorByName (update):", e); }
+      const finalSubId = changes.sub_category_id !== void 0 ? changes.sub_category_id : tx.sub_category_id;
+      try { await learnVendorByName(env, user.workspace_id, vendorName, finalCategoryId, finalSubId || null, newWalletId || null, null); } catch (e) { console.error("learnVendorByName:", e); }
     }
   }
-  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
-  const updated = await env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
-  return json({ transaction: formatTransaction(updated) });
 }
-__name(updateTransaction, "updateTransaction");
+__name(applyTxChanges, "applyTxChanges");
+
+// Confirm a staged edit — owner of the record or an admin. Applies it + moves balance.
+async function confirmEditTransaction(id, env, user) {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "ไม่พบรายการ" }, 404);
+  if (!tx.pending_changes) return json({ error: "ไม่มีการแก้ไขที่รอยืนยัน" }, 400);
+  if (user.role !== "admin" && tx.created_by_user_id !== user.id) return json({ error: "ยืนยันได้เฉพาะรายการของตัวเอง" }, 403);
+  let changes;
+  try { changes = JSON.parse(tx.pending_changes); } catch { return json({ error: "pending data corrupt" }, 400); }
+  if (changes.wallet_id) {
+    const w = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(changes.wallet_id, user.workspace_id).first();
+    if (!w) return json({ error: "ไม่พบกระเป๋าปลายทาง" }, 404);
+  }
+  await applyTxChanges(env, user, tx, changes);
+  await logAudit(env, user, "confirm_edit", "transaction", id, changes);
+  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+  return json({ transaction: formatTransaction(await fetchTxFull(env, id)) });
+}
+__name(confirmEditTransaction, "confirmEditTransaction");
+
+// Discard a staged edit without applying it — owner or admin.
+async function cancelEditTransaction(id, env, user) {
+  const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "ไม่พบรายการ" }, 404);
+  if (!tx.pending_changes) return json({ error: "ไม่มีการแก้ไขที่รอยืนยัน" }, 400);
+  if (user.role !== "admin" && tx.created_by_user_id !== user.id) return json({ error: "ยกเลิกได้เฉพาะรายการของตัวเอง" }, 403);
+  await env.DB.prepare("UPDATE transactions SET pending_changes = NULL, edited_by = NULL, edited_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "cancel_edit", "transaction", id, {});
+  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+  return json({ ok: true });
+}
+__name(cancelEditTransaction, "cancelEditTransaction");
+
+// Record a print event (admin + staff, any record in the workspace). viewer is blocked.
+async function printTransaction(id, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์พิมพ์เอกสาร" }, 403);
+  const tx = await env.DB.prepare("SELECT id, name FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "ไม่พบรายการ" }, 404);
+  await env.DB.prepare("UPDATE transactions SET printed_by = ?, printed_at = datetime('now'), print_count = print_count + 1 WHERE id = ?").bind(user.name, id).run();
+  await logAudit(env, user, "print", "transaction", id, { name: tx.name });
+  await broadcastChange(env, user.workspace_id, { event: "tx.updated", txId: id, by: user.name });
+  const row = await env.DB.prepare("SELECT printed_by, printed_at, print_count FROM transactions WHERE id = ?").bind(id).first();
+  return json({ printedBy: row.printed_by, printedAt: row.printed_at, printCount: row.print_count });
+}
+__name(printTransaction, "printTransaction");
 async function deleteTransaction(id, env, user) {
   const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);
@@ -1374,6 +1448,12 @@ function formatTransaction(t) {
     isDraft: !!t.is_draft,
     recurringId: t.recurring_id || null,
     submittedBy: t.submitted_by || null,
+    pendingChanges: t.pending_changes ? (() => { try { return JSON.parse(t.pending_changes); } catch { return null; } })() : null,
+    editedBy: t.edited_by || null,
+    editedAt: t.edited_at || null,
+    printedBy: t.printed_by || null,
+    printedAt: t.printed_at || null,
+    printCount: t.print_count || 0,
     createdAt: t.created_at,
     updatedAt: t.updated_at
   };

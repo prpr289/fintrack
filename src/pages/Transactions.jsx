@@ -346,6 +346,91 @@ function ConfirmDraftModal({ tx, onClose, onDone }) {
   )
 }
 
+const EDIT_FIELD_LABELS = {
+  name: 'ชื่อรายการ', amount: 'จำนวนเงิน', type: 'ประเภท', scope: 'Scope',
+  date: 'วันที่', note: 'หมายเหตุ', category_id: 'หมวดหมู่', sub_category_id: 'หมวดย่อย', wallet_id: 'กระเป๋า',
+}
+
+function EditConfirmModal({ tx, cats, wallets, onClose, onDone }) {
+  const [busy, setBusy] = useState('')
+  const [err, setErr] = useState('')
+  const changes = tx.pendingChanges || {}
+  const keys = Object.keys(changes)
+
+  const catName = (id) => cats.find(c => c.id === id)?.name || (id || '— ไม่ระบุ —')
+  const walName = (id) => wallets.find(w => w.id === id)?.name || (id || '— ไม่ระบุ —')
+  const fmtVal = (field, val) => {
+    if (val === null || val === '' || val === undefined) return '— ว่าง —'
+    if (field === 'amount') return `฿${thb(Number(val))}`
+    if (field === 'type') return val === 'income' ? 'รายรับ' : 'รายจ่าย'
+    if (field === 'scope') return val === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'
+    if (field === 'category_id' || field === 'sub_category_id') return catName(val)
+    if (field === 'wallet_id') return walName(val)
+    return String(val)
+  }
+  const curVal = (field) => ({
+    name: tx.name, amount: tx.amount, type: tx.type, scope: tx.scope, date: tx.date,
+    note: tx.note, category_id: tx.categoryId, sub_category_id: tx.subCategoryId, wallet_id: tx.walletId,
+  }[field])
+
+  const run = async (which) => {
+    setBusy(which); setErr('')
+    try {
+      if (which === 'confirm') await api.confirmEdit(tx.id)
+      else await api.cancelEdit(tx.id)
+      onDone(); onClose()
+    } catch (e) { setErr(e.message); setBusy('') }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50">
+      <div className="w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-2xl max-h-[92vh] flex flex-col"
+        style={{ background: '#161b2e', border: '1px solid #2e3349' }}>
+        <div className="sm:hidden flex justify-center pt-3 pb-1 flex-shrink-0">
+          <div className="w-10 h-1 rounded-full bg-slate-700" />
+        </div>
+        <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
+          <div>
+            <h3 className="font-semibold text-slate-200">ยืนยันการแก้ไข</h3>
+            <p className="text-xs text-slate-500 mt-0.5 truncate max-w-[220px]">{tx.name}</p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 p-1"><X className="w-5 h-5" /></button>
+        </div>
+        <div className="p-5 space-y-4 overflow-y-auto">
+          <div className="rounded-lg px-3 py-2.5 text-xs text-blue-300" style={{ background: 'rgba(96,165,250,0.08)', border: '1px solid rgba(96,165,250,0.2)' }}>
+            <Pencil className="w-3 h-3 inline mr-1.5" />
+            {tx.editedBy ? `${tx.editedBy} แก้ไขรายการนี้ — ` : ''}ตรวจสอบแล้วกดยืนยัน ระบบจะอัปเดตยอดในกระเป๋า
+          </div>
+          <div className="space-y-2">
+            {keys.map(f => (
+              <div key={f} className="text-sm">
+                <p className="text-xs text-slate-500 mb-0.5">{EDIT_FIELD_LABELS[f] || f}</p>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-slate-500 line-through">{fmtVal(f, curVal(f))}</span>
+                  <span className="text-slate-600">→</span>
+                  <span className="text-emerald-300 font-medium">{fmtVal(f, changes[f])}</span>
+                </div>
+              </div>
+            ))}
+            {keys.length === 0 && <p className="text-sm text-slate-500">ไม่มีรายละเอียดการแก้ไข</p>}
+          </div>
+          {err && <p className="text-red-400 text-sm">{err}</p>}
+          <div className="flex gap-2 pt-1">
+            <button onClick={() => run('cancel')} disabled={!!busy}
+              className="flex-1 rounded-lg py-3 text-sm font-semibold transition-colors text-slate-300 border border-slate-600 hover:bg-white/5 disabled:opacity-50">
+              {busy === 'cancel' ? 'กำลังยกเลิก...' : 'ยกเลิกการแก้ไข'}
+            </button>
+            <button onClick={() => run('confirm')} disabled={!!busy}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
+              {busy === 'confirm' ? 'กำลังยืนยัน...' : '✓ ยืนยันการแก้ไข'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function ExportModal({ onClose, currentFilter, currentSearch }) {
   const now = new Date()
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
@@ -605,6 +690,7 @@ export default function Transactions() {
   const [showExport, setShowExport] = useState(false)
   const [slipTx, setSlipTx] = useState(null)
   const [confirmTx, setConfirmTx] = useState(null)
+  const [editConfirmTx, setEditConfirmTx] = useState(null)
 
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
 
@@ -668,8 +754,10 @@ export default function Transactions() {
       if (!body.walletId) delete body.walletId
       if (!body.note) delete body.note
       if (editing) {
-        await api.updateTransaction(editing.id, body)
+        const res = await api.updateTransaction(editing.id, body)
         setShowForm(false)
+        // Staged edit (non-draft) → open the confirm dialog so the change can be applied.
+        if (res?.pending && res.transaction) setEditConfirmTx(res.transaction)
       } else {
         const res = await api.createTransaction(body)
         setShowForm(false)
@@ -690,6 +778,8 @@ export default function Transactions() {
     const ref = t.note?.startsWith('อ้างอิง: ') ? t.note.slice(9) : (t.note || '')
     let slipId = ''
     try { const d = await api.listSlips(t.id); slipId = d.slips?.[0]?.id || '' } catch {}
+    // Record who printed (server logs printed_by + audit). Non-blocking.
+    try { await api.printTransaction(t.id); load() } catch (e) { console.error('print log:', e) }
     const payload = encodeURIComponent(JSON.stringify({
       id: t.id, n: payee, amt: t.amount, d: t.date, b: '', r: ref, si: slipId, ty: t.type, mo: t.note || '',
     }))
@@ -783,11 +873,17 @@ export default function Transactions() {
             <div className="md:hidden divide-y" style={{ borderColor: '#1f2937' }}>
               {txs.map(t => {
                 const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
+                const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                 return (
-                  <div key={t.id} className="p-4" style={t.isDraft ? { background: 'rgba(251,191,36,0.04)' } : {}}>
+                  <div key={t.id} className="p-4" style={t.isDraft ? { background: 'rgba(251,191,36,0.04)' } : (t.pendingChanges ? { background: 'rgba(96,165,250,0.05)' } : {})}>
                     {t.isDraft && (
                       <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium mb-2">
                         <Clock className="w-3 h-3" /> Draft — รอยืนยัน
+                      </div>
+                    )}
+                    {t.pendingChanges && (
+                      <div className="flex items-center gap-1.5 text-xs text-blue-300 font-medium mb-2">
+                        <Pencil className="w-3 h-3" /> แก้ไข-รอยืนยัน{t.editedBy ? ` · ${t.editedBy}` : ''}
                       </div>
                     )}
                     <div className="flex items-start justify-between gap-2 mb-1">
@@ -808,6 +904,7 @@ export default function Transactions() {
                       {t.walletName && <span>· {t.walletName}</span>}
                       {t.submittedBy && <span className="text-green-500/70">👤 {t.submittedBy}</span>}
                       {t.isReconciled && <span className="text-emerald-500">✓ ยืนยันแล้ว</span>}
+                      {t.printedBy && <span className="text-slate-500">🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
                     </div>
                     <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: '1px solid #1f2937' }}>
                       <div className="flex items-center gap-1.5">
@@ -817,13 +914,19 @@ export default function Transactions() {
                             <Check className="w-3 h-3" /> ยืนยัน
                           </button>
                         )}
+                        {!t.isDraft && t.pendingChanges && canConfirmEdit && (
+                          <button onClick={() => setEditConfirmTx(t)}
+                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors">
+                            <Check className="w-3 h-3" /> ยืนยันการแก้ไข
+                          </button>
+                        )}
                         {!t.isDraft && (
                           <button onClick={() => setSlipTx(t)}
                             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg text-slate-400 border border-slate-700 hover:border-slate-500 hover:text-slate-200 transition-colors">
                             <Paperclip className="w-3 h-3" /> สลิป
                           </button>
                         )}
-                        {!t.isDraft && (t.type === 'expense' || t.type === 'income') && (
+                        {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
                           <button onClick={() => openVoucher(t)}
                             className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg text-slate-400 border border-slate-700 hover:border-slate-500 hover:text-emerald-300 transition-colors">
                             <FileText className="w-3 h-3" /> {t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญ'}
@@ -872,21 +975,28 @@ export default function Transactions() {
                 <tbody>
                   {txs.map((t, i) => {
                     const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
+                    const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                     return (
                       <tr key={t.id} className="hover:bg-white/[0.02] transition-colors"
-                        style={{ borderBottom: i < txs.length - 1 ? '1px solid #1a2035' : 'none', background: t.isDraft ? 'rgba(251,191,36,0.03)' : undefined }}>
+                        style={{ borderBottom: i < txs.length - 1 ? '1px solid #1a2035' : 'none', background: t.isDraft ? 'rgba(251,191,36,0.03)' : (t.pendingChanges ? 'rgba(96,165,250,0.04)' : undefined) }}>
                         <td className="px-4 py-3 text-slate-400 whitespace-nowrap">{date(t.date)}</td>
                         <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <p className="font-medium text-slate-200">{t.name}</p>
                             {t.isDraft && (
                               <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">
                                 <Clock className="w-2.5 h-2.5" /> Draft
                               </span>
                             )}
+                            {t.pendingChanges && (
+                              <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
+                                <Pencil className="w-2.5 h-2.5" /> แก้ไข-รอยืนยัน
+                              </span>
+                            )}
                           </div>
                           {t.note && t.note !== 'draft — รอยืนยัน' && <p className="text-xs text-slate-500">{t.note}</p>}
                           {t.submittedBy && <p className="text-xs text-green-500/70">👤 {t.submittedBy}</p>}
+                          {t.printedBy && <p className="text-xs text-slate-500">🖨️ พิมพ์โดย {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</p>}
                         </td>
                         <td className="px-4 py-3 text-slate-400">
                           {t.categoryName || '-'}
@@ -918,6 +1028,13 @@ export default function Transactions() {
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            {!t.isDraft && t.pendingChanges && canConfirmEdit && (
+                              <button onClick={() => setEditConfirmTx(t)}
+                                title="ยืนยันการแก้ไข"
+                                className="p-1.5 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded-lg transition-colors font-bold">
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
                             {!t.isDraft && (
                               <button onClick={() => setSlipTx(t)}
                                 title="แนบสลิป/ใบเสร็จ"
@@ -925,7 +1042,7 @@ export default function Transactions() {
                                 <Paperclip className="w-3.5 h-3.5" />
                               </button>
                             )}
-                            {!t.isDraft && (t.type === 'expense' || t.type === 'income') && (
+                            {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
                               <button onClick={() => openVoucher(t)}
                                 title={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'}
                                 className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors">
@@ -1063,6 +1180,7 @@ export default function Transactions() {
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={load} />}
       {slipTx && <SlipModal tx={slipTx} onClose={() => setSlipTx(null)} />}
       {confirmTx && <ConfirmDraftModal tx={confirmTx} onClose={() => setConfirmTx(null)} onDone={load} />}
+      {editConfirmTx && <EditConfirmModal tx={editConfirmTx} cats={categories} wallets={wallets} onClose={() => setEditConfirmTx(null)} onDone={load} />}
     </div>
   )
 }

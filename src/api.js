@@ -37,6 +37,9 @@ export const api = {
   deleteTransaction: (id) => req('DELETE', `/transactions/${id}`),
   reconcileTransaction: (id) => req('PATCH', `/transactions/${id}/reconcile`),
   confirmTransaction: (id, body) => req('POST', `/transactions/${id}/confirm`, body),
+  confirmEdit: (id) => req('POST', `/transactions/${id}/confirm-edit`),
+  cancelEdit: (id) => req('POST', `/transactions/${id}/cancel-edit`),
+  printTransaction: (id) => req('POST', `/transactions/${id}/print`),
 
   createTransfer: (body) => req('POST', '/transfers', body),
 
