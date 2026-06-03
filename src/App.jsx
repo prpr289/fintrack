@@ -14,6 +14,8 @@ import Recurring from './pages/Recurring'
 import SlipsGallery from './pages/SlipsGallery'
 import Vendors from './pages/Vendors'
 import Voucher from './pages/Voucher'
+import VouchersPrint from './pages/VouchersPrint'
+import BulkUpload from './pages/BulkUpload'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -41,9 +43,11 @@ export default function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/voucher" element={<Voucher />} />
+          <Route path="/vouchers/print" element={<VouchersPrint />} />
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<HomeRedirect />} />
             <Route path="transactions" element={<Transactions />} />
+            <Route path="bulk-upload"  element={<BulkUpload />} />
             <Route path="wallets"      element={<RequireAdmin><Wallets /></RequireAdmin>} />
             <Route path="categories"   element={<Categories />} />
             <Route path="budget"       element={<RequireAdmin><Budget /></RequireAdmin>} />

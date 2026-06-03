@@ -85,6 +85,7 @@ var worker_default = {
       if (budgetMatch && method === "PATCH") return cors(await updateBudget(budgetMatch[1], request, env, user));
       if (budgetMatch && method === "DELETE") return cors(await deleteBudget(budgetMatch[1], env, user));
       if (path === "/slips" && method === "GET") return cors(await listAllSlips(request, env, user));
+      if (path === "/slips/ocr" && method === "POST") return cors(await ocrSlipAnalyze(request, env, user));
       const slipsTxMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/slips$/);
       if (slipsTxMatch && method === "GET") return cors(await listSlips(slipsTxMatch[1], env, user));
       if (slipsTxMatch && method === "POST") return cors(await uploadSlip(slipsTxMatch[1], request, env, user));
@@ -1031,6 +1032,207 @@ async function ocrDocument(imageBuffer, mediaType, apiKey) {
   } catch { return null; }
 }
 __name(ocrDocument, "ocrDocument");
+
+// ── Bulk slip OCR + vendor suggestion (web bulk-upload) ─────────
+// Analyze ONE slip without writing anything: OCR the image, then suggest a
+// vendor/category/wallet match from learned profiles + history + bank. The web
+// client renders these as an editable review row and only calls POST
+// /transactions on confirm, so the create path stays the battle-tested one.
+async function ocrSlipAnalyze(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (!env.ANTHROPIC_API_KEY) return json({ error: "OCR ยังไม่พร้อมใช้งาน (ไม่มี API key)" }, 503);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/")) {
+    return json({ error: "รองรับเฉพาะรูปภาพสำหรับการอ่านอัตโนมัติ" }, 400);
+  }
+  const buffer = await request.arrayBuffer();
+  if (buffer.byteLength > 10 * 1024 * 1024) return json({ error: "ไฟล์ใหญ่เกิน 10MB" }, 400);
+
+  const ocr = await ocrSlipUnified(buffer, contentType, env.ANTHROPIC_API_KEY);
+  if (!ocr || !ocr.is_slip || !ocr.amount) {
+    return json({ ok: true, isSlip: false, ocr: ocr || null });
+  }
+
+  const slipType = ocr.slip_type === "receipt" ? "receipt" : ocr.slip_type === "transfer" ? "transfer" : "other";
+  const recipientName = ocr.recipient_name ? String(ocr.recipient_name).slice(0, 60) : null;
+  const txType = "expense"; // default — user can flip to income in the review grid
+  const suggest = await matchSuggest(env, user.workspace_id, recipientName, txType, ocr.bank);
+
+  return json({
+    ok: true,
+    isSlip: true,
+    slipType,
+    ocr: {
+      amount: Number(ocr.amount) || 0,
+      date: ocr.date || null,
+      recipientName,
+      bank: ocr.bank || null,
+      reference: ocr.reference || null,
+      taxId: ocr.tax_id || null,
+      address: ocr.address || null,
+      phone: ocr.phone || null,
+    },
+    suggest,
+  });
+}
+__name(ocrSlipAnalyze, "ocrSlipAnalyze");
+
+// Unified slip OCR — discriminates transfer (payer vs payee) and receipt, and
+// also pulls vendor detail fields used for learning. Prompt ported from the
+// proven LINE-bot reader (functions/api/line-webhook.js ocrSlip).
+async function ocrSlipUnified(imageBuffer, mediaType, apiKey) {
+  if (!apiKey) return null;
+  try {
+    const base64 = toBase64Worker(imageBuffer);
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        messages: [{ role: 'user', content: [
+          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+          { type: 'text', text: `คุณคือผู้เชี่ยวชาญอ่านเอกสารการเงินไทย อ่านรูปนี้แล้วระบุข้อมูลให้ถูกต้อง
+
+== ประเภทเอกสารที่รองรับ ==
+1. สลิปโอนเงินธนาคาร (transfer)
+2. ใบกำกับภาษี / ใบเสร็จรับเงิน / ใบแจ้งหนี้ (receipt)
+
+== สลิปโอนเงิน: วิธีระบุผู้รับเงิน (สำคัญมาก) ==
+สลิปโอนเงินมี 2 ฝั่งเสมอ:
+• ต้นทาง/ผู้โอน/From/จาก = คนส่งเงิน → "ไม่ใช่" recipient_name
+• ปลายทาง/ผู้รับ/To/ถึง/ไปยัง = คนรับเงิน → นี่คือ recipient_name
+ถ้าเห็นลูกศร (→) ชื่อที่อยู่หลังลูกศร = ผู้รับ
+รูปแบบสลิปธนาคารไทย: SCB / KBank / Krungthai / BBL / PromptPay
+
+== ใบกำกับภาษี / ใบเสร็จรับเงิน ==
+• recipient_name = ชื่อร้านค้า/บริษัทผู้ขาย (ผู้ออกเอกสาร) ไม่ใช่ผู้ซื้อ
+• amount = ยอดรวมทั้งสิ้น (รวม VAT ถ้ามี)
+• reference = เลขที่ใบกำกับภาษี / เลขที่ใบเสร็จ
+• slip_type = "receipt"
+
+ตอบเป็น JSON เท่านั้น ห้ามมีข้อความอื่นนอกจาก JSON:
+{
+  "is_slip": true หรือ false,
+  "slip_type": "transfer" หรือ "receipt",
+  "amount": ตัวเลข (บาท ไม่มี comma ไม่มีหน่วย),
+  "date": "YYYY-MM-DD" หรือ null,
+  "recipient_name": "ชื่อผู้รับเงิน หรือ ชื่อร้านค้า/บริษัทผู้ขาย" หรือ null,
+  "bank": "ธนาคารของผู้รับ (เฉพาะสลิปโอนเงิน)" หรือ null,
+  "reference": "เลขที่รายการ / เลขที่ใบกำกับ / เลขที่ใบเสร็จ" หรือ null,
+  "tax_id": "เลขประจำตัวผู้เสียภาษี 13 หลัก (ถ้ามี)" หรือ null,
+  "address": "ที่อยู่ร้าน/บริษัท (ใบเสร็จ)" หรือ null,
+  "phone": "เบอร์โทร (ถ้ามี)" หรือ null
+}
+ถ้าไม่ใช่เอกสารการเงิน ตอบ {"is_slip":false}` }
+        ]}]
+      })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const text = data.content?.[0]?.text || '';
+    const match = text.match(/\{[\s\S]*\}/);
+    return match ? JSON.parse(match[0]) : null;
+  } catch { return null; }
+}
+__name(ocrSlipUnified, "ocrSlipUnified");
+
+// Bank name → wallet matching (mirrors the LINE bot's BANK_ALIASES table).
+var BANK_ALIASES_WORKER = [
+  ['กสิกร', 'kbank', 'kasikorn'],
+  ['ไทยพาณิชย์', 'scb'],
+  ['กรุงเทพ', 'bbl', 'bangkok'],
+  ['กรุงไทย', 'ktb', 'krungthai'],
+  ['ทหารไทย', 'ttb', 'tmb'],
+  ['ออมสิน', 'gsb'],
+  ['ธกส', 'baac'],
+  ['ยูโอบี', 'uob'],
+  ['ซีไอเอ็มบี', 'cimb'],
+  ['ซิตี้', 'citi'],
+];
+
+function matchWalletByBank(bank, wallets) {
+  if (!bank || !wallets.length) return null;
+  const b = String(bank).toLowerCase();
+  const group = BANK_ALIASES_WORKER.find(aliases => aliases.some(a => b.includes(a)));
+  return wallets.find(w => {
+    const name = (w.name || '').toLowerCase();
+    if (group) return group.some(a => name.includes(a));
+    return name.includes(b);
+  }) || null;
+}
+__name(matchWalletByBank, "matchWalletByBank");
+
+// Suggest vendor/category/wallet for a slip, read-only: learned vendor profile
+// first, then transaction history, then a bank→wallet guess. Never writes.
+async function matchSuggest(env, workspaceId, recipientName, txType, bank) {
+  const walletRows = await env.DB.prepare(
+    "SELECT id, name FROM wallets WHERE workspace_id = ? AND is_active = 1"
+  ).bind(workspaceId).all();
+  const wallets = walletRows.results || [];
+  const bankWallet = matchWalletByBank(bank, wallets);
+
+  let result = {
+    vendorId: null, vendorName: recipientName, taxId: null,
+    categoryId: null, categoryName: null, subCategoryId: null, subCategoryName: null,
+    walletId: bankWallet ? bankWallet.id : null,
+    walletName: bankWallet ? bankWallet.name : null,
+    source: null,
+  };
+  if (!recipientName) return result;
+
+  // 1) Learned vendor profile — exact (case-insensitive) first, else best fuzzy
+  let vendor = await env.DB.prepare(
+    "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
+  ).bind(workspaceId, recipientName).first();
+  if (!vendor) {
+    vendor = await env.DB.prepare(
+      "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name LIKE ? ORDER BY occurrence_count DESC LIMIT 1"
+    ).bind(workspaceId, `%${recipientName}%`).first();
+  }
+  if (vendor) {
+    result = {
+      vendorId: vendor.id,
+      vendorName: vendor.vendor_name,
+      taxId: vendor.tax_id || null,
+      categoryId: vendor.typical_category_id || null,
+      categoryName: vendor.typical_category_name || null,
+      subCategoryId: vendor.typical_sub_category_id || null,
+      subCategoryName: vendor.typical_sub_category_name || null,
+      walletId: vendor.typical_wallet_id || result.walletId,
+      walletName: vendor.typical_wallet_id ? vendor.typical_wallet_name : result.walletName,
+      source: 'vendor_profile',
+    };
+    if (result.categoryId || result.walletId) return result;
+  }
+
+  // 2) History fallback — most frequent cat/wallet on past tx with this name
+  const hist = await env.DB.prepare(
+    `SELECT t.category_id, t.sub_category_id, t.wallet_id,
+            c.name AS category_name, sc.name AS sub_category_name, w.name AS wallet_name,
+            COUNT(*) AS cnt
+     FROM transactions t
+     LEFT JOIN categories c ON t.category_id = c.id
+     LEFT JOIN categories sc ON t.sub_category_id = sc.id
+     LEFT JOIN wallets w ON t.wallet_id = w.id
+     WHERE t.workspace_id = ? AND t.type = ? AND t.name LIKE ?
+       AND (t.category_id IS NOT NULL OR t.wallet_id IS NOT NULL)
+     GROUP BY t.category_id, t.sub_category_id, t.wallet_id
+     ORDER BY cnt DESC LIMIT 1`
+  ).bind(workspaceId, txType, `%${recipientName}%`).first();
+  if (hist) {
+    result.categoryId = result.categoryId || hist.category_id || null;
+    result.categoryName = result.categoryName || hist.category_name || null;
+    result.subCategoryId = result.subCategoryId || hist.sub_category_id || null;
+    result.subCategoryName = result.subCategoryName || hist.sub_category_name || null;
+    result.walletId = result.walletId || hist.wallet_id || null;
+    result.walletName = result.walletName || hist.wallet_name || null;
+    result.source = result.source === 'vendor_profile' ? 'vendor_profile+history' : 'history';
+  }
+
+  return result;
+}
+__name(matchSuggest, "matchSuggest");
 
 async function upsertVendorProfile(workspaceId, ocr, txCategoryId, txCategoryName, txSubCategoryId, txSubCategoryName, txWalletId, txWalletName, env) {
   if (!ocr?.vendor_name) return;

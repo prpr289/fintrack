@@ -62,6 +62,7 @@ export const api = {
   auditLog: (params) => req('GET', '/audit-log?' + new URLSearchParams(params || {})),
 
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
+  learnVendor: (body) => req('POST', '/vendor-profiles', body),
   updateVendor: (id, body) => req('PATCH', `/vendor-profiles/${id}`, body),
   deleteVendor: (id) => req('DELETE', `/vendor-profiles/${id}`),
 
@@ -71,6 +72,18 @@ export const api = {
   deleteBudget: (id) => req('DELETE', `/budgets/${id}`),
 
   allSlips: (params) => req('GET', '/slips?' + new URLSearchParams(params || {})),
+  // Bulk upload: analyze one slip (OCR + vendor suggestion), no DB write.
+  ocrSlip: (file) => {
+    const t = token()
+    const headers = { 'Content-Type': file.type }
+    if (t) headers['Authorization'] = `Bearer ${t}`
+    return fetch(`${BASE}/slips/ocr`, { method: 'POST', headers, body: file })
+      .then(async r => {
+        const d = await r.json()
+        if (!r.ok) throw new Error(d.error || 'อ่านสลิปไม่สำเร็จ')
+        return d
+      })
+  },
   listSlips: (transactionId) => req('GET', `/transactions/${transactionId}/slips`),
   uploadSlip: (transactionId, file, slipType = 'receipt') => {
     const t = token()

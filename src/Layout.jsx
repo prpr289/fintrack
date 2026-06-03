@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 
@@ -35,6 +35,7 @@ export default function Layout() {
   const navItems = isStaff
     ? [
         { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
+        { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
         { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
         { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
         { to: '/profile',      icon: User,           label: 'โปรไฟล์' },
@@ -42,6 +43,7 @@ export default function Layout() {
     : [
         { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
         { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
+        { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
         { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
         { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },
         { to: '/budget',       icon: Target,          label: 'งบประมาณ' },
