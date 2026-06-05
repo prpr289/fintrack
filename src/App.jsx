@@ -16,6 +16,7 @@ import Vendors from './pages/Vendors'
 import Voucher from './pages/Voucher'
 import VouchersPrint from './pages/VouchersPrint'
 import BulkUpload from './pages/BulkUpload'
+import Reports from './pages/Reports'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="budget"       element={<RequireAdmin><Budget /></RequireAdmin>} />
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />
             <Route path="slips"        element={<SlipsGallery />} />
+            <Route path="reports"      element={<RequireAdmin><Reports /></RequireAdmin>} />
             <Route path="vendors"      element={<RequireAdmin><Vendors /></RequireAdmin>} />
             <Route path="users"        element={<RequireAdmin><Users /></RequireAdmin>} />
             <Route path="audit-log"    element={<RequireAdmin><AuditLog /></RequireAdmin>} />

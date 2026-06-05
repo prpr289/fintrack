@@ -81,6 +81,7 @@ var worker_default = {
       if (path === "/audit-log" && method === "GET") return cors(await listAuditLog(request, env, user));
       if (path === "/budgets" && method === "GET") return cors(await listBudgets(env, user));
       if (path === "/budgets" && method === "POST") return cors(await createBudget(request, env, user));
+      if (path === "/reports/wallets" && method === "GET") return cors(await reportWallets(request, env, user));
       const budgetMatch = path.match(/^\/budgets\/([a-zA-Z0-9_-]+)$/);
       if (budgetMatch && method === "PATCH") return cors(await updateBudget(budgetMatch[1], request, env, user));
       if (budgetMatch && method === "DELETE") return cors(await deleteBudget(budgetMatch[1], env, user));
@@ -548,6 +549,79 @@ async function createTransfer(request, env, user) {
   return json({ ok: true, transferPairId: pairId, outgoingId: outId, incomingId: inId }, 201);
 }
 __name(createTransfer, "createTransfer");
+
+// Per-wallet report (admin): separates real income/expense from transfer legs
+// (transfer_pair_id IS NULL = real) over a date range, plus an all-time
+// reconcile check (initial + lifetime net vs current balance) to surface drift.
+async function reportWallets(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const url = new URL(request.url);
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  const scope = url.searchParams.get("scope");
+  const ws = user.workspace_id;
+
+  const conds = ["workspace_id = ?"];
+  const args = [ws];
+  if (from) { conds.push("date >= ?"); args.push(from); }
+  if (to) { conds.push("date <= ?"); args.push(to); }
+  if (scope === "business" || scope === "personal") { conds.push("scope = ?"); args.push(scope); }
+
+  const [rangeRes, lifeRes, walletRes] = await Promise.all([
+    env.DB.prepare(
+      `SELECT wallet_id,
+         SUM(CASE WHEN type='income'  AND transfer_pair_id IS NULL THEN amount ELSE 0 END) AS real_income,
+         SUM(CASE WHEN type='expense' AND transfer_pair_id IS NULL THEN amount ELSE 0 END) AS real_expense,
+         SUM(CASE WHEN type='income'  AND transfer_pair_id IS NOT NULL THEN amount ELSE 0 END) AS transfer_in,
+         SUM(CASE WHEN type='expense' AND transfer_pair_id IS NOT NULL THEN amount ELSE 0 END) AS transfer_out,
+         COUNT(*) AS cnt
+       FROM transactions WHERE ${conds.join(" AND ")} GROUP BY wallet_id`
+    ).bind(...args).all(),
+    env.DB.prepare(
+      `SELECT wallet_id,
+         SUM(CASE WHEN type='income' THEN amount ELSE 0 END) - SUM(CASE WHEN type='expense' THEN amount ELSE 0 END) AS lifetime_net
+       FROM transactions WHERE workspace_id = ? GROUP BY wallet_id`
+    ).bind(ws).all(),
+    env.DB.prepare(
+      `SELECT id, name, color, scope, type, is_active, current_balance, initial_balance
+       FROM wallets WHERE workspace_id = ? ORDER BY scope, sort_order, name`
+    ).bind(ws).all(),
+  ]);
+
+  const rangeMap = {}; (rangeRes.results || []).forEach(r => { rangeMap[r.wallet_id] = r; });
+  const lifeMap = {}; (lifeRes.results || []).forEach(r => { lifeMap[r.wallet_id] = Number(r.lifetime_net) || 0; });
+
+  const wallets = (walletRes.results || []).map(w => {
+    const r = rangeMap[w.id] || {};
+    const realIncome = Number(r.real_income) || 0;
+    const realExpense = Number(r.real_expense) || 0;
+    const transferIn = Number(r.transfer_in) || 0;
+    const transferOut = Number(r.transfer_out) || 0;
+    const initial = Number(w.initial_balance) || 0;
+    const current = Number(w.current_balance) || 0;
+    const expected = initial + (lifeMap[w.id] || 0);
+    const diff = current - expected;
+    return {
+      id: w.id, name: w.name, color: w.color, scope: w.scope, type: w.type,
+      isActive: !!w.is_active, currentBalance: current, initialBalance: initial,
+      realIncome, realExpense, transferIn, transferOut,
+      net: realIncome + transferIn - realExpense - transferOut,
+      count: Number(r.cnt) || 0,
+      reconcile: { expected, diff, ok: Math.abs(diff) < 0.005 },
+    };
+  });
+
+  const totals = wallets.reduce((a, w) => ({
+    realIncome: a.realIncome + w.realIncome,
+    realExpense: a.realExpense + w.realExpense,
+    transferIn: a.transferIn + w.transferIn,
+    transferOut: a.transferOut + w.transferOut,
+    net: a.net + w.net,
+  }), { realIncome: 0, realExpense: 0, transferIn: 0, transferOut: 0, net: 0 });
+
+  return json({ wallets, totals, range: { from: from || null, to: to || null } });
+}
+__name(reportWallets, "reportWallets");
 async function listCategories(env, user) {
   const result = await env.DB.prepare("SELECT * FROM categories WHERE workspace_id = ? AND is_active = 1 ORDER BY parent_id NULLS FIRST, sort_order, name").bind(user.workspace_id).all();
   return json({ categories: (result.results || []).map(formatCategory) });
