@@ -7,7 +7,7 @@ import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
   CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
   MoreVertical, Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
-  ArrowLeftRight, ArrowUp, ArrowDown, SearchX, Wallet,
+  ArrowLeftRight, ArrowUp, ArrowDown, SearchX, Wallet, Calendar, ChevronDown,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 
@@ -55,6 +55,106 @@ function SummaryCard({ label, value, color, icon: Icon, signed }) {
       <div className="text-base sm:text-xl font-bold tabular-nums truncate" style={{ color }}>
         {signed && value > 0 ? '+' : ''}{thb(value)}
       </div>
+    </div>
+  )
+}
+
+// ── Date-range filter ──────────────────────────────────────────
+function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+const TX_PERIODS = [
+  { key: 'thisMonth', label: 'เดือนนี้' },
+  { key: 'lastMonth', label: 'เดือนที่แล้ว' },
+  { key: '7d',  label: '7 วันล่าสุด' },
+  { key: '30d', label: '30 วันล่าสุด' },
+  { key: 'all', label: 'ทั้งหมด' },
+  { key: 'custom', label: 'กำหนดเอง...' },
+]
+
+// Returns { from, to } for the API, or null when no date filter (show all).
+function txRangeOf(key, custom) {
+  const now = new Date()
+  const y = now.getFullYear(), m = now.getMonth()
+  const ago = (n) => { const d = new Date(now); d.setDate(d.getDate() - n); return d }
+  switch (key) {
+    case 'thisMonth': return { from: ymd(new Date(y, m, 1)), to: ymd(now) }
+    case 'lastMonth': return { from: ymd(new Date(y, m - 1, 1)), to: ymd(new Date(y, m, 0)) }
+    case '7d':  return { from: ymd(ago(6)), to: ymd(now) }
+    case '30d': return { from: ymd(ago(29)), to: ymd(now) }
+    case 'custom': return (custom.from && custom.to) ? custom : null
+    case 'all':
+    default: return null
+  }
+}
+
+function periodLabelOf(period, custom) {
+  if (period === 'custom' && custom.from && custom.to) return `${custom.from} → ${custom.to}`
+  return TX_PERIODS.find(p => p.key === period)?.label || 'ช่วงเวลา'
+}
+
+function PeriodControl({ period, customRange, onPick, onApplyCustom }) {
+  const [open, setOpen] = useState(false)
+  const [showCustom, setShowCustom] = useState(period === 'custom')
+  const [draft, setDraft] = useState(customRange)
+  const ref = useRef()
+
+  useEffect(() => {
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) { setOpen(false); setShowCustom(false) } }
+    document.addEventListener('mousedown', h)
+    return () => document.removeEventListener('mousedown', h)
+  }, [])
+
+  const select = (key) => {
+    if (key === 'custom') { setDraft(customRange); setShowCustom(true); setOpen(false) }
+    else { onPick(key); setShowCustom(false); setOpen(false) }
+  }
+  const apply = () => { if (draft.from && draft.to) { onApplyCustom(draft); setShowCustom(false) } }
+
+  const ddStyle = { background: '#1e2538', border: '1px solid #2e3349' }
+
+  return (
+    <div ref={ref} className="relative w-full sm:w-auto">
+      <button type="button" onClick={() => { setOpen(o => !o); setShowCustom(false) }}
+        className="flex items-center gap-2 justify-between rounded-lg px-3 py-2 text-sm text-slate-200 w-full sm:w-auto sm:min-w-[150px] transition-colors"
+        style={{ border: '1px solid #2e3349', background: '#0d1120' }}>
+        <span className="flex items-center gap-2 truncate"><Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />{periodLabelOf(period, customRange)}</span>
+        <ChevronDown className={`w-4 h-4 text-slate-500 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-1 rounded-xl shadow-2xl z-30 py-1 min-w-[180px]" style={ddStyle}>
+          {TX_PERIODS.map(p => (
+            <button key={p.key} type="button" onClick={() => select(p.key)}
+              className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/5 ${period === p.key ? 'text-emerald-400 font-semibold' : 'text-slate-300'}`}>
+              {p.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {showCustom && (
+        <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-1 z-30 p-3 rounded-xl flex flex-col gap-2 w-[260px]" style={ddStyle}>
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <p className="text-xs text-slate-500 mb-1">จาก</p>
+              <input type="date" value={draft.from} onChange={e => setDraft(d => ({ ...d, from: e.target.value }))}
+                className="w-full rounded-lg px-2 py-1.5 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500" style={{ background: '#0d1120' }} />
+            </div>
+            <div className="flex-1">
+              <p className="text-xs text-slate-500 mb-1">ถึง</p>
+              <input type="date" value={draft.to} onChange={e => setDraft(d => ({ ...d, to: e.target.value }))}
+                className="w-full rounded-lg px-2 py-1.5 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500" style={{ background: '#0d1120' }} />
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <button type="button" onClick={apply} disabled={!draft.from || !draft.to}
+              className="flex-1 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded-lg py-1.5 text-sm font-semibold transition-colors">ดู</button>
+            <button type="button" onClick={() => setShowCustom(false)} className="px-2 text-slate-500 hover:text-slate-300"><X className="w-4 h-4" /></button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -710,8 +810,13 @@ export default function Transactions() {
   const [confirmTx, setConfirmTx] = useState(null)
   const [editConfirmTx, setEditConfirmTx] = useState(null)
   const [summary, setSummary] = useState(null) // { income, expense, net } across current filter
+  const [period, setPeriod] = useState('thisMonth') // default to the current month
+  const [customRange, setCustomRange] = useState({ from: '', to: '' })
 
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
+
+  const pickPeriod = (key) => { setPeriod(key); setPage(1) }
+  const applyCustom = (r) => { setCustomRange(r); setPeriod('custom'); setPage(1) }
 
   useEffect(() => {
     const t = setTimeout(() => { setDebouncedSearch(search); setPage(1) }, 400)
@@ -722,10 +827,12 @@ export default function Transactions() {
 
   const load = useCallback(async () => {
     setLoading(true)
+    const range = txRangeOf(period, customRange)
     const params = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
     if (filter.type) params.type = filter.type
     if (filter.scope) params.scope = filter.scope
     if (debouncedSearch) params.search = debouncedSearch
+    if (range) { params.from = range.from; params.to = range.to }
     const [td, wd, cd] = await Promise.all([
       api.transactions(params),
       api.wallets(),
@@ -736,7 +843,7 @@ export default function Transactions() {
     setWallets(wd.wallets || [])
     setCategories(cd.categories || [])
     setLoading(false)
-  }, [filter, page, debouncedSearch])
+  }, [filter, page, debouncedSearch, period, customRange])
 
   useEffect(() => { load() }, [load])
   useWs((msg) => { if (['tx.created', 'tx.updated', 'tx.deleted'].includes(msg.event)) load() })
@@ -745,10 +852,12 @@ export default function Transactions() {
   // Re-runs when the filter/search changes or the row count changes (add/delete).
   useEffect(() => {
     let cancelled = false
+    const range = txRangeOf(period, customRange)
     const params = { limit: 5000 }
     if (filter.type) params.type = filter.type
     if (filter.scope) params.scope = filter.scope
     if (debouncedSearch) params.search = debouncedSearch
+    if (range) { params.from = range.from; params.to = range.to }
     api.transactions(params).then(d => {
       if (cancelled) return
       const list = d.transactions || []
@@ -757,7 +866,7 @@ export default function Transactions() {
       setSummary({ income, expense, net: income - expense })
     }).catch(() => {})
     return () => { cancelled = true }
-  }, [filter, debouncedSearch, total])
+  }, [filter, debouncedSearch, total, period, customRange])
 
   const mainCats = categories.filter(c => !c.parentId)
   const subCatsOf = (parentId) => categories.filter(c => c.parentId === parentId)
@@ -858,7 +967,9 @@ export default function Transactions() {
           </div>
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white leading-tight">รายการธุรกรรม</h2>
-            <p className="text-sm text-slate-500">รวม <span className="tabular-nums">{total}</span> รายการ</p>
+            <p className="text-sm text-slate-500 truncate">
+              รวม <span className="tabular-nums">{total}</span> รายการ · <span className="text-slate-400">{periodLabelOf(period, customRange)}</span>
+            </p>
           </div>
         </div>
         <div className="flex gap-1.5 flex-shrink-0">
@@ -902,6 +1013,7 @@ export default function Transactions() {
             </button>
           )}
         </div>
+        <PeriodControl period={period} customRange={customRange} onPick={pickPeriod} onApplyCustom={applyCustom} />
         <div className="flex gap-2">
           {[
             { key: 'type', options: [['', 'ทุกประเภท'], ['income', 'รายรับ'], ['expense', 'รายจ่าย']] },
@@ -939,7 +1051,7 @@ export default function Transactions() {
             </div>
             <p className="text-slate-300 text-sm font-medium">ไม่พบรายการ</p>
             <p className="text-slate-600 text-xs">
-              {debouncedSearch || filter.type || filter.scope ? 'ลองปรับคำค้นหาหรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
+              {(debouncedSearch || filter.type || filter.scope || period !== 'all') ? 'ลองปรับช่วงเวลา / คำค้นหา หรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
             </p>
           </div>
         ) : (
