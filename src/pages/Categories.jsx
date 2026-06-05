@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, GripVertical } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, GripVertical, Tag } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
@@ -286,14 +286,30 @@ export default function Categories() {
   )
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="categories-page p-5 space-y-4">
+      <style>{`
+        .categories-page button:focus-visible, .categories-page input:focus-visible, .categories-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .categories-page *, .categories-page *::before, .categories-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">หมวดหมู่</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {mainCats.length} หมวดหลัก · {cats.length - mainCats.length} หมวดย่อย
-            {savingOrder && <span className="ml-2 text-emerald-400">กำลังบันทึกลำดับ...</span>}
-          </p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <Tag className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">หมวดหมู่</h2>
+            <p className="text-sm text-slate-500">
+              {mainCats.length} หมวดหลัก · {cats.length - mainCats.length} หมวดย่อย
+              {savingOrder && <span className="ml-2 text-emerald-400">กำลังบันทึกลำดับ...</span>}
+            </p>
+          </div>
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (

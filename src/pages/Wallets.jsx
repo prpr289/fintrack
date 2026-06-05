@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { thb, today } from '../fmt'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, ArrowRightLeft, Lock, Unlock } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ArrowRightLeft, Lock, Unlock, Wallet } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -113,11 +113,27 @@ export default function Wallets() {
   )
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="wallets-page p-5 space-y-4">
+      <style>{`
+        .wallets-page button:focus-visible, .wallets-page input:focus-visible, .wallets-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .wallets-page *, .wallets-page *::before, .wallets-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-white">กระเป๋าเงิน</h2>
-          <p className="text-sm text-slate-500 mt-0.5">ยอดรวม {thb(totalBalance)}</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <Wallet className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">กระเป๋าเงิน</h2>
+            <p className="text-sm text-slate-500">ยอดรวม <span className="tabular-nums">{thb(totalBalance)}</span></p>
+          </div>
         </div>
         <div className="flex gap-2 flex-wrap">
           {canTransfer && (
@@ -166,7 +182,7 @@ export default function Wallets() {
                 </div>
               )}
             </div>
-            <div className={`text-2xl font-bold mb-3 ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
+            <div className={`text-2xl font-bold mb-3 tabular-nums ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
               {thb(w.currentBalance || 0)}
             </div>
             <div className="flex gap-2">
