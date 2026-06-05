@@ -67,10 +67,20 @@ export default function Layout() {
           <span className="text-xl">💼</span>
           <span className="font-bold text-white text-sm leading-tight">บัญชีธุรกิจ<br/>ของฉัน</span>
         </div>
-        <div className="text-xs text-slate-500 mt-2 truncate">{user?.name}</div>
-        <span className="text-xs bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full">
-          {user?.role}
-        </span>
+        <div className="flex items-center gap-2 mt-2.5">
+          <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-sm font-bold flex-shrink-0"
+            style={{ background: 'rgba(16,185,129,0.2)', color: '#34d399' }}>
+            {user?.avatarUrl
+              ? <img src={user.avatarUrl} alt={user?.name} className="w-full h-full object-cover" />
+              : (user?.name?.[0]?.toUpperCase() || '?')}
+          </div>
+          <div className="min-w-0">
+            <div className="text-xs text-slate-300 truncate">{user?.name}</div>
+            <span className="text-[0.65rem] bg-emerald-500/15 text-emerald-400 border border-emerald-500/20 px-1.5 py-0.5 rounded-full">
+              {user?.role}
+            </span>
+          </div>
+        </div>
       </div>
       <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
         {navItems.map(item => <NavItem key={item.to} {...item} onClick={mobile ? close : undefined} />)}
