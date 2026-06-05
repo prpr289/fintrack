@@ -7,7 +7,7 @@ import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
   CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
   MoreVertical, Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
-  ArrowLeftRight, ArrowUp, ArrowDown, SearchX,
+  ArrowLeftRight, ArrowUp, ArrowDown, SearchX, Wallet,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 
@@ -40,6 +40,23 @@ function Modal({ title, onClose, children, wide = false }) {
 
 function Label({ children }) {
   return <label className="block text-xs font-medium text-slate-400 mb-1.5">{children}</label>
+}
+
+// Summary card for the totals strip above the table (income / expense / net).
+function SummaryCard({ label, value, color, icon: Icon, signed }) {
+  return (
+    <div className="rounded-xl p-3 sm:p-4" style={CARD}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: color + '22' }}>
+          <Icon className="w-4 h-4" style={{ color }} />
+        </div>
+        <span className="text-xs text-slate-400">{label}</span>
+      </div>
+      <div className="text-base sm:text-xl font-bold tabular-nums truncate" style={{ color }}>
+        {signed && value > 0 ? '+' : ''}{thb(value)}
+      </div>
+    </div>
+  )
 }
 
 const DOC_TYPE_LABELS = {
@@ -692,6 +709,7 @@ export default function Transactions() {
   const [slipTx, setSlipTx] = useState(null)
   const [confirmTx, setConfirmTx] = useState(null)
   const [editConfirmTx, setEditConfirmTx] = useState(null)
+  const [summary, setSummary] = useState(null) // { income, expense, net } across current filter
 
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
 
@@ -722,6 +740,24 @@ export default function Transactions() {
 
   useEffect(() => { load() }, [load])
   useWs((msg) => { if (['tx.created', 'tx.updated', 'tx.deleted'].includes(msg.event)) load() })
+
+  // Totals across the whole filtered set (not just the current page).
+  // Re-runs when the filter/search changes or the row count changes (add/delete).
+  useEffect(() => {
+    let cancelled = false
+    const params = { limit: 5000 }
+    if (filter.type) params.type = filter.type
+    if (filter.scope) params.scope = filter.scope
+    if (debouncedSearch) params.search = debouncedSearch
+    api.transactions(params).then(d => {
+      if (cancelled) return
+      const list = d.transactions || []
+      const income = list.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+      const expense = list.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+      setSummary({ income, expense, net: income - expense })
+    }).catch(() => {})
+    return () => { cancelled = true }
+  }, [filter, debouncedSearch, total])
 
   const mainCats = categories.filter(c => !c.parentId)
   const subCatsOf = (parentId) => categories.filter(c => c.parentId === parentId)
@@ -880,6 +916,15 @@ export default function Transactions() {
           ))}
         </div>
       </div>
+
+      {/* Summary totals (current filter) */}
+      {summary && (
+        <div className="grid grid-cols-3 gap-2 sm:gap-3">
+          <SummaryCard label="รายรับ" value={summary.income} color="#34d399" icon={ArrowUp} />
+          <SummaryCard label="รายจ่าย" value={summary.expense} color="#f87171" icon={ArrowDown} />
+          <SummaryCard label="คงเหลือ" value={summary.net} color={summary.net >= 0 ? '#34d399' : '#f87171'} icon={Wallet} signed />
+        </div>
+      )}
 
       {/* Transaction list */}
       <div className="rounded-xl overflow-hidden" style={CARD}>

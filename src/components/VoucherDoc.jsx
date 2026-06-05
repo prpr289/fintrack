@@ -131,10 +131,10 @@ export default function VoucherDoc({ data }) {
   const defaultDesc = isIncome ? 'รับชำระค่าสินค้า/บริการ' : 'ชำระค่าสินค้า/บริการ'
 
   return (
-    <div className="voucher-doc" style={{ background: '#fff', borderRadius: '0.75rem', boxShadow: '0 4px 16px rgba(0,0,0,.1)', padding: '2rem 2.5rem', fontFamily: '"Sarabun", "Noto Sans Thai", sans-serif', color: '#111', lineHeight: 1.6 }}>
+    <div className="voucher-doc" style={{ background: '#fff', borderRadius: '0.75rem', boxShadow: '0 4px 16px rgba(0,0,0,.1)', borderTop: '4px solid #059669', padding: '2rem 2.5rem', fontFamily: '"Sarabun", "Noto Sans Thai", sans-serif', color: '#111', lineHeight: 1.6 }}>
 
       {/* Header */}
-      <div style={{ textAlign: 'center', marginBottom: '1.5rem', borderBottom: '2px solid #111', paddingBottom: '0.875rem' }}>
+      <div style={{ textAlign: 'center', marginBottom: '1.5rem', borderBottom: '2px solid #059669', paddingBottom: '0.875rem' }}>
         <div className="v-title" style={{ fontSize: '1.5rem', fontWeight: 700 }}>{docTitle}</div>
         <div style={{ color: '#6b7280', fontSize: '0.85rem' }}>{docSubtitle}</div>
       </div>
@@ -146,7 +146,7 @@ export default function VoucherDoc({ data }) {
           <div style={{ color: '#6b7280', fontSize: '0.78rem', marginTop: '0.2rem', lineHeight: 1.5 }}>{SHOP_ADDRESS}</div>
         </div>
         <div className="v-meta-right" style={{ textAlign: 'right', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: '0.2rem', fontSize: '0.85rem' }}>
-          <div><span style={{ color: '#6b7280' }}>เลขที่: </span><strong>{voucherNo}</strong></div>
+          <div><span style={{ color: '#6b7280' }}>เลขที่: </span><strong style={{ color: '#059669', fontVariantNumeric: 'tabular-nums' }}>{voucherNo}</strong></div>
           <div><span style={{ color: '#6b7280' }}>วันที่: </span>{formatDateThai(data.d)}</div>
         </div>
       </div>
@@ -177,11 +177,11 @@ export default function VoucherDoc({ data }) {
                 {data.mo || (data.r ? `อ้างอิง: ${data.r}` : defaultDesc)}
               </td>
               <td style={td()}>{data.n || '-'}</td>
-              <td style={td({ textAlign: 'right', fontWeight: 600 })}>{thb(amount)}</td>
+              <td style={td({ textAlign: 'right', fontWeight: 600, fontVariantNumeric: 'tabular-nums' })}>{thb(amount)}</td>
             </tr>
-            <tr style={{ background: '#f9fafb', fontWeight: 700 }}>
+            <tr style={{ background: '#ecfdf5', fontWeight: 700 }}>
               <td style={td({ textAlign: 'right' })} colSpan={3}>รวมทั้งสิ้น / Total</td>
-              <td style={td({ textAlign: 'right' })}>{thb(amount)}</td>
+              <td style={td({ textAlign: 'right', color: '#047857', fontVariantNumeric: 'tabular-nums' })}>{thb(amount)}</td>
             </tr>
           </tbody>
         </table>

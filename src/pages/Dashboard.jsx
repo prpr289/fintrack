@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { thb, date } from '../fmt'
 import { useWs } from '../useWs'
-import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, ReferenceLine,
@@ -187,7 +187,7 @@ function StatCard({ icon: Icon, iconBg, iconColor, label, value, valueColor, pre
         </div>
         <span className="text-sm text-slate-400">{label}</span>
       </div>
-      <div className="text-2xl font-bold" style={{ color: valueColor || '#f1f5f9' }}>{value}</div>
+      <div className="text-2xl font-bold tabular-nums" style={{ color: valueColor || '#f1f5f9' }}>{value}</div>
       {change !== null && (
         <div className={`text-xs mt-1.5 flex items-center gap-1 ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
           {change >= 0 ? '↑' : '↓'} {Math.abs(change)}% vs ช่วงก่อน
@@ -285,14 +285,34 @@ export default function Dashboard() {
     : PERIODS.find(p => p.key === period)?.label || ''
 
   return (
-    <div className="p-5 space-y-5">
+    <div className="dash-page p-5 space-y-5">
+      <style>{`
+        .dash-page button:focus-visible,
+        .dash-page input:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55);
+          outline-offset: 2px;
+          border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .dash-page *, .dash-page *::before, .dash-page *::after {
+            animation-duration: 0.01ms !important;
+            transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-white">ภาพรวม</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            รายงาน: <span className="text-slate-300">{periodLabel}</span>
-            {loading && <span className="ml-2 inline-block w-3 h-3 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin align-middle" />}
-          </p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <LayoutDashboard className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">ภาพรวม</h2>
+            <p className="text-sm text-slate-500">
+              รายงาน: <span className="text-slate-300">{periodLabel}</span>
+              {loading && <span className="ml-2 inline-block w-3 h-3 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin align-middle" />}
+            </p>
+          </div>
         </div>
         <PeriodPicker
           period={period} custom={custom} appliedCustom={appliedCustom}
@@ -374,7 +394,7 @@ export default function Dashboard() {
                 <p className="text-sm font-medium text-slate-200 truncate">{w.name}</p>
                 <p className="text-xs text-slate-500">{w.type} · {w.scope}</p>
               </div>
-              <div className={`text-sm font-bold ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
+              <div className={`text-sm font-bold tabular-nums ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
                 {thb(w.currentBalance || 0)}
               </div>
             </div>
@@ -399,7 +419,7 @@ export default function Dashboard() {
                   <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
                   <p className="text-xs text-slate-500">{t.categoryName || '-'} · {t.walletName || '-'} · {date(t.date)}</p>
                 </div>
-                <div className={`text-sm font-semibold flex-shrink-0 ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+                <div className={`text-sm font-semibold flex-shrink-0 tabular-nums ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
                   {t.type === 'income' ? '+' : '-'}{thb(t.amount)}
                 </div>
               </div>
