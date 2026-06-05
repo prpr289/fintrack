@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const PAGE_SIZE = 50
@@ -39,10 +39,26 @@ export default function AuditLog() {
   const totalPages = Math.ceil(total / PAGE_SIZE)
 
   return (
-    <div className="p-4 sm:p-5 space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-white">ประวัติการใช้งาน</h2>
-        <p className="text-sm text-slate-500 mt-0.5">บันทึกการกระทำทั้งหมดในระบบ · รวม {total} รายการ</p>
+    <div className="audit-page p-4 sm:p-5 space-y-4">
+      <style>{`
+        .audit-page button:focus-visible, .audit-page input:focus-visible, .audit-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .audit-page *, .audit-page *::before, .audit-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+          style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+          <ClipboardList className="w-5 h-5 text-white" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-white leading-tight">ประวัติการใช้งาน</h2>
+          <p className="text-sm text-slate-500 mt-0.5">บันทึกการกระทำทั้งหมดในระบบ · รวม <span className="tabular-nums">{total}</span> รายการ</p>
+        </div>
       </div>
 
       <div className="rounded-xl overflow-hidden" style={CARD}>
@@ -51,7 +67,13 @@ export default function AuditLog() {
             <div className="w-5 h-5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto" />
           </div>
         ) : logs.length === 0 ? (
-          <p className="p-8 text-center text-slate-500 text-sm">ยังไม่มีบันทึกการใช้งาน</p>
+          <div className="p-12 text-center flex flex-col items-center gap-2">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
+              <ClipboardList className="w-6 h-6 text-slate-600" />
+            </div>
+            <p className="text-slate-300 text-sm font-medium">ยังไม่มีบันทึกการใช้งาน</p>
+            <p className="text-slate-600 text-xs">การกระทำต่างๆ ในระบบจะถูกบันทึกที่นี่</p>
+          </div>
         ) : (
           <>
             {/* Mobile cards */}
@@ -116,7 +138,7 @@ export default function AuditLog() {
 
       {totalPages > 1 && (
         <div className="flex items-center justify-between">
-          <p className="text-xs sm:text-sm text-slate-500">
+          <p className="text-xs sm:text-sm text-slate-500 tabular-nums">
             {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)} จาก {total}
           </p>
           <div className="flex items-center gap-2">
@@ -125,7 +147,7 @@ export default function AuditLog() {
               style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
               <ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">ก่อนหน้า</span>
             </button>
-            <span className="text-sm text-slate-500">{page}/{totalPages}</span>
+            <span className="text-sm text-slate-500 tabular-nums">{page}/{totalPages}</span>
             <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
               className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
               style={{ border: '1px solid #2e3349', background: '#161b2e' }}>

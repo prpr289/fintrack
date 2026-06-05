@@ -53,7 +53,7 @@ function SlipCard({ slip, onDelete }) {
       )}
       <div className="px-3 pb-3 text-center">
         <p className="text-xs text-slate-500 truncate">{slip.txName}</p>
-        <p className={`text-xs font-semibold mt-0.5 ${slip.txType === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+        <p className={`text-xs font-semibold mt-0.5 tabular-nums ${slip.txType === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
           {slip.txType === 'income' ? '+' : '-'}{thb(slip.txAmount)}
         </p>
       </div>
@@ -263,12 +263,28 @@ export default function SlipsGallery() {
   }
 
   return (
-    <div className="p-4 sm:p-5 space-y-4">
+    <div className="slips-page p-4 sm:p-5 space-y-4">
+      <style>{`
+        .slips-page button:focus-visible, .slips-page input:focus-visible, .slips-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .slips-page *, .slips-page *::before, .slips-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-white">สลิปทั้งหมด</h2>
-          <p className="text-sm text-slate-500 mt-0.5">รวม {slips.length} ไฟล์ · {MONTH_NAMES[month - 1]} {year}</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <Paperclip className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">สลิปทั้งหมด</h2>
+            <p className="text-sm text-slate-500 mt-0.5">รวม <span className="tabular-nums">{slips.length}</span> ไฟล์ · {MONTH_NAMES[month - 1]} {year}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {/* Download button */}
@@ -317,8 +333,10 @@ export default function SlipsGallery() {
           <Loader2 className="w-6 h-6 text-emerald-500 animate-spin" />
         </div>
       ) : slips.length === 0 ? (
-        <div className="rounded-xl p-12 text-center" style={CARD}>
-          <Paperclip className="w-10 h-10 text-slate-700 mx-auto mb-3" />
+        <div className="rounded-xl p-12 text-center flex flex-col items-center gap-2" style={CARD}>
+          <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
+            <Paperclip className="w-6 h-6 text-slate-600" />
+          </div>
           <p className="text-slate-400 text-sm font-medium">ยังไม่มีสลิปใน{MONTH_NAMES[month - 1]}นี้</p>
           <p className="text-slate-600 text-xs mt-1">ไปที่หน้ารายการธุรกรรม แล้วกดปุ่ม 📎 เพื่อแนบสลิป</p>
         </div>
@@ -329,7 +347,7 @@ export default function SlipsGallery() {
               <div className="flex items-center gap-3 mb-3">
                 <div className="text-sm font-semibold text-slate-300">{fmtDate(dateStr)}</div>
                 <div className="flex-1 h-px" style={{ background: '#1f2937' }} />
-                <span className="text-xs text-slate-600">{byDate[dateStr].length} ไฟล์</span>
+                <span className="text-xs text-slate-600 tabular-nums">{byDate[dateStr].length} ไฟล์</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {byDate[dateStr].map(s => (

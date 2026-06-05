@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, MessageCircle } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, MessageCircle, Users as UsersIcon } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -85,11 +85,27 @@ export default function Users() {
   )
 
   return (
-    <div className="p-4 sm:p-5 space-y-4">
+    <div className="users-page p-4 sm:p-5 space-y-4">
+      <style>{`
+        .users-page button:focus-visible, .users-page input:focus-visible, .users-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .users-page *, .users-page *::before, .users-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">จัดการผู้ใช้</h2>
-          <p className="text-sm text-slate-500 mt-0.5">{users.length} ผู้ใช้ในระบบ</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <UsersIcon className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">จัดการผู้ใช้</h2>
+            <p className="text-sm text-slate-500 mt-0.5"><span className="tabular-nums">{users.length}</span> ผู้ใช้ในระบบ</p>
+          </div>
         </div>
         <button onClick={openCreate}
           className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm px-3 sm:px-4 py-2 rounded-lg transition-colors">

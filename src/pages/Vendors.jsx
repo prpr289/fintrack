@@ -143,10 +143,26 @@ export default function Vendors() {
   const fmtDate = (s) => s ? new Date(s).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'
 
   return (
-    <div className="p-4 sm:p-5 space-y-4">
-      <div>
-        <h2 className="text-xl font-bold text-white">Vendor ที่ AI จำ</h2>
-        <p className="text-sm text-slate-500 mt-0.5">ชื่อผู้รับเงิน → หมวด/กระเป๋าที่บอทเติมให้อัตโนมัติ · แก้/ลบได้ที่นี่</p>
+    <div className="vendors-page p-4 sm:p-5 space-y-4">
+      <style>{`
+        .vendors-page button:focus-visible, .vendors-page input:focus-visible, .vendors-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .vendors-page *, .vendors-page *::before, .vendors-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
+      <div className="flex items-center gap-3 min-w-0">
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+          style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+          <Store className="w-5 h-5 text-white" />
+        </div>
+        <div className="min-w-0">
+          <h2 className="text-xl font-bold text-white leading-tight">Vendor ที่ AI จำ</h2>
+          <p className="text-sm text-slate-500 mt-0.5">ชื่อผู้รับเงิน → หมวด/กระเป๋าที่บอทเติมให้อัตโนมัติ · แก้/ลบได้ที่นี่</p>
+        </div>
       </div>
 
       <div className="relative">
@@ -160,9 +176,12 @@ export default function Vendors() {
         {loading ? (
           <div className="p-8 text-center"><Loader2 className="w-5 h-5 text-emerald-500 animate-spin mx-auto" /></div>
         ) : vendors.length === 0 ? (
-          <div className="p-8 text-center text-slate-500 text-sm">
-            <Store className="w-8 h-8 mx-auto mb-2 opacity-40" />
-            {debounced ? 'ไม่พบ vendor ที่ค้นหา' : 'ยังไม่มี vendor ที่จำไว้ — บอทจะเริ่มจำเมื่อมีการบันทึกสลิป'}
+          <div className="p-12 text-center flex flex-col items-center gap-2">
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
+              <Store className="w-6 h-6 text-slate-600" />
+            </div>
+            <p className="text-slate-300 text-sm font-medium">{debounced ? 'ไม่พบ vendor ที่ค้นหา' : 'ยังไม่มี vendor ที่จำไว้'}</p>
+            {!debounced && <p className="text-slate-600 text-xs">บอทจะเริ่มจำเมื่อมีการบันทึกสลิป</p>}
           </div>
         ) : (
           <>
@@ -180,7 +199,7 @@ export default function Vendors() {
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
                     <span>{v.typicalCategoryName || '— ไม่ระบุหมวด —'}{v.typicalSubCategoryName && <span className="text-slate-600"> › {v.typicalSubCategoryName}</span>}</span>
                     {v.typicalWalletName && <span>· {v.typicalWalletName}</span>}
-                    <span>· เจอ {v.occurrenceCount || 0} ครั้ง</span>
+                    <span>· เจอ <span className="tabular-nums">{v.occurrenceCount || 0}</span> ครั้ง</span>
                     <span>· ล่าสุด {fmtDate(v.lastSeen)}</span>
                   </div>
                   {v.taxId && <p className="text-xs text-slate-600 font-mono">เลขภาษี {v.taxId}</p>}
@@ -210,7 +229,7 @@ export default function Vendors() {
                         {v.typicalSubCategoryName && <span className="text-xs text-slate-600 ml-1">› {v.typicalSubCategoryName}</span>}
                       </td>
                       <td className="px-4 py-3 text-slate-400">{v.typicalWalletName || <span className="text-slate-600">—</span>}</td>
-                      <td className="px-4 py-3 text-center text-slate-400">{v.occurrenceCount || 0}</td>
+                      <td className="px-4 py-3 text-center text-slate-400 tabular-nums">{v.occurrenceCount || 0}</td>
                       <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap text-xs">{fmtDate(v.lastSeen)}</td>
                       <td className="px-4 py-3">
                         <div className="flex gap-1 justify-end">

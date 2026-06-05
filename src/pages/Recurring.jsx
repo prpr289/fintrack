@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { thb } from '../fmt'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, Play, Pause, Zap } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Play, Pause, Zap, RefreshCw } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -111,11 +111,27 @@ export default function Recurring() {
   )
 
   return (
-    <div className="p-5 space-y-4">
+    <div className="recurring-page p-5 space-y-4">
+      <style>{`
+        .recurring-page button:focus-visible, .recurring-page input:focus-visible, .recurring-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .recurring-page *, .recurring-page *::before, .recurring-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-xl font-bold text-white">รายการประจำ</h2>
-          <p className="text-sm text-slate-500 mt-0.5">รายรับ/รายจ่ายที่เกิดซ้ำอัตโนมัติ · {items.length} รายการ</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <RefreshCw className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">รายการประจำ</h2>
+            <p className="text-sm text-slate-500 mt-0.5">รายรับ/รายจ่ายที่เกิดซ้ำอัตโนมัติ · {items.length} รายการ</p>
+          </div>
         </div>
         {canWrite && (
           <button onClick={openCreate} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-sm px-4 py-2 rounded-lg transition-colors">
@@ -153,7 +169,7 @@ export default function Recurring() {
                       </span>
                       {!r.isActive && <span className="text-xs text-slate-600 bg-slate-700 px-2 py-0.5 rounded-full">หยุดพัก</span>}
                     </div>
-                    <p className={`text-xl font-bold ${r.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
+                    <p className={`text-xl font-bold tabular-nums ${r.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
                       {r.type === 'income' ? '+' : '-'}{thb(r.amount)}
                     </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2 text-xs text-slate-500">

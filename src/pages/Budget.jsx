@@ -74,11 +74,27 @@ export default function Budget() {
   const totalRemain  = totalBudget - totalActual
 
   return (
-    <div className="p-4 sm:p-5 space-y-4">
+    <div className="budget-page p-4 sm:p-5 space-y-4">
+      <style>{`
+        .budget-page button:focus-visible, .budget-page input:focus-visible, .budget-page select:focus-visible {
+          outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
+        }
+        @media (prefers-reduced-motion: reduce) {
+          .budget-page *, .budget-page *::before, .budget-page *::after {
+            animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
+          }
+        }
+      `}</style>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-white">งบประมาณ</h2>
-          <p className="text-sm text-slate-500 mt-0.5">กำหนดงบประมาณรายจ่ายต่อหมวดหมู่รายเดือน</p>
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
+            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
+            <Target className="w-5 h-5 text-white" />
+          </div>
+          <div className="min-w-0">
+            <h2 className="text-xl font-bold text-white leading-tight">งบประมาณ</h2>
+            <p className="text-sm text-slate-500 mt-0.5">กำหนดงบประมาณรายจ่ายต่อหมวดหมู่รายเดือน</p>
+          </div>
         </div>
         <div className="flex gap-2 items-center flex-wrap">
           <select value={month} onChange={e => setMonth(Number(e.target.value))} className={INPUT} style={{ ...INPUT_STYLE, width: 'auto' }}>
@@ -99,15 +115,15 @@ export default function Budget() {
         <div className="rounded-xl p-4 grid grid-cols-3 gap-4 text-center" style={CARD}>
           <div>
             <p className="text-xs text-slate-500 mb-1">งบทั้งหมด</p>
-            <p className="text-lg font-bold text-white">{thb(totalBudget)}</p>
+            <p className="text-lg font-bold text-white tabular-nums">{thb(totalBudget)}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500 mb-1">ใช้แล้ว</p>
-            <p className={`text-lg font-bold ${totalActual > totalBudget ? 'text-red-400' : 'text-yellow-400'}`}>{thb(totalActual)}</p>
+            <p className={`text-lg font-bold tabular-nums ${totalActual > totalBudget ? 'text-red-400' : 'text-yellow-400'}`}>{thb(totalActual)}</p>
           </div>
           <div>
             <p className="text-xs text-slate-500 mb-1">คงเหลือ</p>
-            <p className={`text-lg font-bold ${totalRemain < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{thb(totalRemain)}</p>
+            <p className={`text-lg font-bold tabular-nums ${totalRemain < 0 ? 'text-red-400' : 'text-emerald-400'}`}>{thb(totalRemain)}</p>
           </div>
         </div>
       )}
@@ -139,10 +155,10 @@ export default function Budget() {
                   </div>
                   <div className="flex items-center gap-3">
                     <div className="text-right">
-                      <p className={`text-sm font-semibold ${isOver ? 'text-red-400' : 'text-slate-200'}`}>
+                      <p className={`text-sm font-semibold tabular-nums ${isOver ? 'text-red-400' : 'text-slate-200'}`}>
                         {thb(actual)} / {thb(b.amount)}
                       </p>
-                      <p className={`text-xs ${isOver ? 'text-red-400' : 'text-emerald-400'}`}>
+                      <p className={`text-xs tabular-nums ${isOver ? 'text-red-400' : 'text-emerald-400'}`}>
                         {isOver ? `เกินงบ ${thb(Math.abs(remaining))}` : `เหลือ ${thb(remaining)}`}
                       </p>
                     </div>
@@ -156,8 +172,8 @@ export default function Budget() {
                 </div>
                 <div className="flex justify-between mt-1">
                   <span className="text-xs text-slate-600">0</span>
-                  <span className="text-xs font-semibold" style={{ color: barColor }}>{pct}%</span>
-                  <span className="text-xs text-slate-600">{thb(b.amount)}</span>
+                  <span className="text-xs font-semibold tabular-nums" style={{ color: barColor }}>{pct}%</span>
+                  <span className="text-xs text-slate-600 tabular-nums">{thb(b.amount)}</span>
                 </div>
               </div>
             )

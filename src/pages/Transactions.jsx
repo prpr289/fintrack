@@ -549,13 +549,13 @@ function EditConfirmModal({ tx, cats, wallets, onClose, onDone }) {
   )
 }
 
-function ExportModal({ onClose, currentFilter, currentSearch }) {
+function ExportModal({ onClose, currentFilter, currentSearch, defaultRange }) {
   const now = new Date()
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
   const todayStr = now.toISOString().slice(0, 10)
 
-  const [from, setFrom] = useState(firstOfMonth)
-  const [to, setTo] = useState(todayStr)
+  const [from, setFrom] = useState(defaultRange?.from || firstOfMonth)
+  const [to, setTo] = useState(defaultRange?.to || todayStr)
   const [fmt, setFmt] = useState('excel')
   const [exporting, setExporting] = useState(false)
 
@@ -1368,7 +1368,7 @@ export default function Transactions() {
         </Modal>
       )}
 
-      {showExport && <ExportModal onClose={() => setShowExport(false)} currentFilter={filter} currentSearch={debouncedSearch} />}
+      {showExport && <ExportModal onClose={() => setShowExport(false)} currentFilter={filter} currentSearch={debouncedSearch} defaultRange={txRangeOf(period, customRange)} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={load} />}
       {slipTx && <SlipModal tx={slipTx} onClose={() => setSlipTx(null)} />}
       {confirmTx && <ConfirmDraftModal tx={confirmTx} onClose={() => setConfirmTx(null)} onDone={load} />}
