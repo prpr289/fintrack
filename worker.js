@@ -98,6 +98,11 @@ var worker_default = {
       const vendorMatch = path.match(/^\/vendor-profiles\/([a-zA-Z0-9_-]+)$/);
       if (vendorMatch && method === "PATCH") return cors(await updateVendorProfile(vendorMatch[1], request, env, user));
       if (vendorMatch && method === "DELETE") return cors(await deleteVendorProfile(vendorMatch[1], env, user));
+      if (path === "/category-rules" && method === "GET") return cors(await listCategoryRules(env, user));
+      if (path === "/category-rules" && method === "POST") return cors(await createCategoryRule(request, env, user));
+      const ruleMatch = path.match(/^\/category-rules\/([a-zA-Z0-9_-]+)$/);
+      if (ruleMatch && method === "PATCH") return cors(await updateCategoryRule(ruleMatch[1], request, env, user));
+      if (ruleMatch && method === "DELETE") return cors(await deleteCategoryRule(ruleMatch[1], env, user));
       if (path === "/line-users" && method === "GET") return cors(await listLineUsers(env, user));
       if (path === "/line-users" && method === "POST") return cors(await upsertLineUser(request, env, user));
       const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
@@ -1237,8 +1242,11 @@ function matchWalletByBank(bank, wallets) {
 }
 __name(matchWalletByBank, "matchWalletByBank");
 
-// Suggest vendor/category/wallet for a slip, read-only: learned vendor profile
-// first, then transaction history, then a bank→wallet guess. Never writes.
+// Suggest vendor/category/wallet for a slip, read-only. Priority for CATEGORY:
+// (1) explicit keyword rules → (2) EXACT learned vendor → (3) history.
+// Wallet: vendor's typical → bank guess → history. Never writes.
+// Note: vendor matching is EXACT-name only (no fuzzy LIKE) to stop wrong-vendor
+// matches that produced bogus categories.
 async function matchSuggest(env, workspaceId, recipientName, txType, bank) {
   const walletRows = await env.DB.prepare(
     "SELECT id, name FROM wallets WHERE workspace_id = ? AND is_active = 1"
@@ -1246,7 +1254,7 @@ async function matchSuggest(env, workspaceId, recipientName, txType, bank) {
   const wallets = walletRows.results || [];
   const bankWallet = matchWalletByBank(bank, wallets);
 
-  let result = {
+  const result = {
     vendorId: null, vendorName: recipientName, taxId: null,
     categoryId: null, categoryName: null, subCategoryId: null, subCategoryName: null,
     walletId: bankWallet ? bankWallet.id : null,
@@ -1255,53 +1263,66 @@ async function matchSuggest(env, workspaceId, recipientName, txType, bank) {
   };
   if (!recipientName) return result;
 
-  // 1) Learned vendor profile — exact (case-insensitive) first, else best fuzzy
-  let vendor = await env.DB.prepare(
-    "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
-  ).bind(workspaceId, recipientName).first();
-  if (!vendor) {
-    vendor = await env.DB.prepare(
-      "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name LIKE ? ORDER BY occurrence_count DESC LIMIT 1"
-    ).bind(workspaceId, `%${recipientName}%`).first();
-  }
-  if (vendor) {
-    result = {
-      vendorId: vendor.id,
-      vendorName: vendor.vendor_name,
-      taxId: vendor.tax_id || null,
-      categoryId: vendor.typical_category_id || null,
-      categoryName: vendor.typical_category_name || null,
-      subCategoryId: vendor.typical_sub_category_id || null,
-      subCategoryName: vendor.typical_sub_category_name || null,
-      walletId: vendor.typical_wallet_id || result.walletId,
-      walletName: vendor.typical_wallet_id ? vendor.typical_wallet_name : result.walletName,
-      source: 'vendor_profile',
-    };
-    if (result.categoryId || result.walletId) return result;
+  // 1) Explicit keyword rules — deterministic, highest priority
+  const rule = await matchCategoryRule(env, workspaceId, recipientName);
+  if (rule && rule.categoryId) {
+    result.categoryId = rule.categoryId;
+    result.categoryName = rule.categoryName;
+    result.subCategoryId = rule.subCategoryId;
+    result.subCategoryName = rule.subCategoryName;
+    result.source = 'rule';
   }
 
-  // 2) History fallback — most frequent cat/wallet on past tx with this name
-  const hist = await env.DB.prepare(
-    `SELECT t.category_id, t.sub_category_id, t.wallet_id,
-            c.name AS category_name, sc.name AS sub_category_name, w.name AS wallet_name,
-            COUNT(*) AS cnt
-     FROM transactions t
-     LEFT JOIN categories c ON t.category_id = c.id
-     LEFT JOIN categories sc ON t.sub_category_id = sc.id
-     LEFT JOIN wallets w ON t.wallet_id = w.id
-     WHERE t.workspace_id = ? AND t.type = ? AND t.name LIKE ?
-       AND (t.category_id IS NOT NULL OR t.wallet_id IS NOT NULL)
-     GROUP BY t.category_id, t.sub_category_id, t.wallet_id
-     ORDER BY cnt DESC LIMIT 1`
-  ).bind(workspaceId, txType, `%${recipientName}%`).first();
-  if (hist) {
-    result.categoryId = result.categoryId || hist.category_id || null;
-    result.categoryName = result.categoryName || hist.category_name || null;
-    result.subCategoryId = result.subCategoryId || hist.sub_category_id || null;
-    result.subCategoryName = result.subCategoryName || hist.sub_category_name || null;
-    result.walletId = result.walletId || hist.wallet_id || null;
-    result.walletName = result.walletName || hist.wallet_name || null;
-    result.source = result.source === 'vendor_profile' ? 'vendor_profile+history' : 'history';
+  // 2) Learned vendor profile — EXACT name match only (no fuzzy)
+  const vendor = await env.DB.prepare(
+    "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
+  ).bind(workspaceId, recipientName).first();
+  if (vendor) {
+    result.vendorId = vendor.id;
+    result.vendorName = vendor.vendor_name;
+    result.taxId = vendor.tax_id || null;
+    if (!result.categoryId) { // a rule already won → keep it
+      result.categoryId = vendor.typical_category_id || null;
+      result.categoryName = vendor.typical_category_name || null;
+      result.subCategoryId = vendor.typical_sub_category_id || null;
+      result.subCategoryName = vendor.typical_sub_category_name || null;
+      if (result.categoryId && !result.source) result.source = 'vendor_profile';
+    }
+    if (vendor.typical_wallet_id) {
+      result.walletId = vendor.typical_wallet_id;
+      result.walletName = vendor.typical_wallet_name;
+    }
+    if (!result.source) result.source = 'vendor_profile';
+  }
+
+  // 3) History fallback — only fills gaps that rule + vendor left empty
+  if (!result.categoryId || !result.walletId) {
+    const hist = await env.DB.prepare(
+      `SELECT t.category_id, t.sub_category_id, t.wallet_id,
+              c.name AS category_name, sc.name AS sub_category_name, w.name AS wallet_name,
+              COUNT(*) AS cnt
+       FROM transactions t
+       LEFT JOIN categories c ON t.category_id = c.id
+       LEFT JOIN categories sc ON t.sub_category_id = sc.id
+       LEFT JOIN wallets w ON t.wallet_id = w.id
+       WHERE t.workspace_id = ? AND t.type = ? AND t.name LIKE ?
+         AND (t.category_id IS NOT NULL OR t.wallet_id IS NOT NULL)
+       GROUP BY t.category_id, t.sub_category_id, t.wallet_id
+       ORDER BY cnt DESC LIMIT 1`
+    ).bind(workspaceId, txType, `%${recipientName}%`).first();
+    if (hist) {
+      if (!result.categoryId) {
+        result.categoryId = hist.category_id || null;
+        result.categoryName = hist.category_name || null;
+        result.subCategoryId = hist.sub_category_id || null;
+        result.subCategoryName = hist.sub_category_name || null;
+        if (result.categoryId && !result.source) result.source = 'history';
+      }
+      if (!result.walletId) {
+        result.walletId = hist.wallet_id || null;
+        result.walletName = hist.wallet_name || null;
+      }
+    }
   }
 
   return result;
@@ -1468,6 +1489,97 @@ async function learnVendorProfile(request, env, user) {
   return json({ ok: true }, 201);
 }
 __name(learnVendorProfile, "learnVendorProfile");
+
+// ── Category rules ─────────────────────────────────────────────
+// User-defined keyword → category mappings. Deterministic and highest
+// priority — applied before vendor memory / history / AI so the bot stops
+// guessing the wrong category.
+function formatCategoryRule(r) {
+  return {
+    id: r.id, keyword: r.keyword,
+    categoryId: r.category_id, categoryName: r.cat_name || null,
+    subCategoryId: r.sub_category_id, subCategoryName: r.sub_name || null,
+    priority: r.priority || 0, createdAt: r.created_at,
+  };
+}
+__name(formatCategoryRule, "formatCategoryRule");
+
+async function listCategoryRules(env, user) {
+  const rows = await env.DB.prepare(
+    `SELECT r.*, c.name AS cat_name, sc.name AS sub_name
+     FROM category_rules r
+     LEFT JOIN categories c ON r.category_id = c.id
+     LEFT JOIN categories sc ON r.sub_category_id = sc.id
+     WHERE r.workspace_id = ?
+     ORDER BY r.priority DESC, length(r.keyword) DESC, r.keyword`
+  ).bind(user.workspace_id).all();
+  return json({ rules: (rows.results || []).map(formatCategoryRule) });
+}
+__name(listCategoryRules, "listCategoryRules");
+
+async function createCategoryRule(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const { keyword, categoryId, subCategoryId, priority } = await request.json();
+  if (!keyword || !keyword.trim()) return json({ error: "keyword required" }, 400);
+  if (!categoryId) return json({ error: "categoryId required" }, 400);
+  const id = "cr_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  await env.DB.prepare(
+    "INSERT INTO category_rules (id, workspace_id, keyword, category_id, sub_category_id, priority) VALUES (?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, keyword.trim(), categoryId, subCategoryId || null, Number(priority) || 0).run();
+  return json({ ok: true, id }, 201);
+}
+__name(createCategoryRule, "createCategoryRule");
+
+async function updateCategoryRule(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const existing = await env.DB.prepare("SELECT id FROM category_rules WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!existing) return json({ error: "Rule not found" }, 404);
+  const body = await request.json();
+  const updates = [], args = [];
+  if (body.keyword !== void 0) { updates.push("keyword = ?"); args.push(String(body.keyword).trim()); }
+  if (body.categoryId !== void 0) { updates.push("category_id = ?"); args.push(body.categoryId || null); }
+  if (body.subCategoryId !== void 0) { updates.push("sub_category_id = ?"); args.push(body.subCategoryId || null); }
+  if (body.priority !== void 0) { updates.push("priority = ?"); args.push(Number(body.priority) || 0); }
+  if (!updates.length) return json({ error: "no fields" }, 400);
+  args.push(id);
+  await env.DB.prepare(`UPDATE category_rules SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
+  return json({ ok: true });
+}
+__name(updateCategoryRule, "updateCategoryRule");
+
+async function deleteCategoryRule(id, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const r = await env.DB.prepare("SELECT id FROM category_rules WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!r) return json({ error: "Rule not found" }, 404);
+  await env.DB.prepare("DELETE FROM category_rules WHERE id = ?").bind(id).run();
+  return json({ ok: true });
+}
+__name(deleteCategoryRule, "deleteCategoryRule");
+
+// Find the best keyword rule whose keyword is contained in `text`
+// (case-insensitive). Most specific wins: higher priority, then longer keyword.
+async function matchCategoryRule(env, workspaceId, text) {
+  if (!text) return null;
+  const rows = await env.DB.prepare(
+    `SELECT r.*, c.name AS cat_name, sc.name AS sub_name
+     FROM category_rules r
+     LEFT JOIN categories c ON r.category_id = c.id
+     LEFT JOIN categories sc ON r.sub_category_id = sc.id
+     WHERE r.workspace_id = ?`
+  ).bind(workspaceId).all();
+  const t = String(text).toLowerCase();
+  let best = null;
+  for (const r of (rows.results || [])) {
+    const kw = (r.keyword || "").toLowerCase().trim();
+    if (!kw || !t.includes(kw)) continue;
+    const better = !best
+      || (r.priority || 0) > (best.priority || 0)
+      || ((r.priority || 0) === (best.priority || 0) && kw.length > (best.keyword || "").length);
+    if (better) best = r;
+  }
+  return best ? formatCategoryRule(best) : null;
+}
+__name(matchCategoryRule, "matchCategoryRule");
 
 // Extract the recipient/vendor name from a slip-derived transaction name
 // ("โอนให้ X" / "รับจาก X"). Returns null for manually-named transactions so we

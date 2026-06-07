@@ -306,7 +306,10 @@ async function matchVendorProfile(name, baseUrl, token) {
     const res = await fintrack('GET', `/vendor-profiles?${q}`, null, baseUrl, token)
     const vendors = res.vendors || []
     if (!vendors.length) return null
-    const v = vendors[0]
+    // EXACT name match only — the API search is fuzzy (LIKE), and taking the
+    // first fuzzy hit was matching the wrong vendor → wrong category.
+    const v = vendors.find(x => (x.vendorName || '').toLowerCase() === name.toLowerCase())
+    if (!v) return null
     if (!v.typicalCategoryId && !v.typicalWalletId) return null
     return {
       categoryId: v.typicalCategoryId || null,
@@ -321,12 +324,41 @@ async function matchVendorProfile(name, baseUrl, token) {
   } catch { return null }
 }
 
+// Keyword rules first (deterministic, user-defined) — stops the bot guessing
+// the wrong category from fuzzy vendor memory.
+async function matchCategoryRuleLine(name, baseUrl, token) {
+  if (!name) return null
+  try {
+    const res = await fintrack('GET', '/category-rules', null, baseUrl, token)
+    const rules = res.rules || []
+    if (!rules.length) return null
+    const t = name.toLowerCase()
+    let best = null
+    for (const r of rules) {
+      const kw = (r.keyword || '').toLowerCase().trim()
+      if (!kw || !t.includes(kw) || !r.categoryId) continue
+      const better = !best
+        || (r.priority || 0) > (best.priority || 0)
+        || ((r.priority || 0) === (best.priority || 0) && kw.length > (best.keyword || '').length)
+      if (better) best = r
+    }
+    if (!best) return null
+    return {
+      categoryId: best.categoryId, subCategoryId: best.subCategoryId || null,
+      categoryName: best.categoryName || '', subCategoryName: best.subCategoryName || null,
+      source: 'rule',
+    }
+  } catch { return null }
+}
+
 async function resolveCat(name, amount, txType = 'expense', baseUrl, token, apiKey, preloadedCats = null) {
-  const [fromProfile, fromHistory, cats] = await Promise.all([
+  const [fromRule, fromProfile, fromHistory, cats] = await Promise.all([
+    matchCategoryRuleLine(name, baseUrl, token),
     matchVendorProfile(name, baseUrl, token),
     matchVendorHistory(name, txType, baseUrl, token),
     preloadedCats ? Promise.resolve(preloadedCats) : getCategories(baseUrl, token),
   ])
+  if (fromRule) return fromRule
   if (fromProfile) return fromProfile
   if (fromHistory) return fromHistory
   return suggestCategoryAI(name, amount, cats, apiKey)

@@ -65,6 +65,11 @@ export const api = {
 
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   learnVendor: (body) => req('POST', '/vendor-profiles', body),
+
+  categoryRules: () => req('GET', '/category-rules'),
+  createCategoryRule: (body) => req('POST', '/category-rules', body),
+  updateCategoryRule: (id, body) => req('PATCH', `/category-rules/${id}`, body),
+  deleteCategoryRule: (id) => req('DELETE', `/category-rules/${id}`),
   updateVendor: (id, body) => req('PATCH', `/vendor-profiles/${id}`, body),
   deleteVendor: (id) => req('DELETE', `/vendor-profiles/${id}`),
 

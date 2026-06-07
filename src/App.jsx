@@ -17,6 +17,7 @@ import Voucher from './pages/Voucher'
 import VouchersPrint from './pages/VouchersPrint'
 import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
+import CategoryRules from './pages/CategoryRules'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -56,6 +57,7 @@ export default function App() {
             <Route path="slips"        element={<SlipsGallery />} />
             <Route path="reports"      element={<RequireAdmin><Reports /></RequireAdmin>} />
             <Route path="vendors"      element={<RequireAdmin><Vendors /></RequireAdmin>} />
+            <Route path="category-rules" element={<RequireAdmin><CategoryRules /></RequireAdmin>} />
             <Route path="users"        element={<RequireAdmin><Users /></RequireAdmin>} />
             <Route path="audit-log"    element={<RequireAdmin><AuditLog /></RequireAdmin>} />
             <Route path="profile"      element={<Profile />} />
