@@ -6,8 +6,8 @@ import { useAuth } from '../AuthContext'
 import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
   CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
-  MoreVertical, Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
-  ArrowLeftRight, ArrowUp, ArrowDown, SearchX, Wallet, Calendar, ChevronDown,
+  Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
+  ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 
@@ -16,6 +16,50 @@ const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-
 const INPUT_STYLE = { background: '#0d1120' }
 const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', date: today(), walletId: '', categoryId: '', subCategoryId: '', note: '' }
 const PAGE_SIZE = 50
+
+// ── Luxe theme tokens (mirrors the standalone design) ──────────────
+const FONT_SERIF = "'Noto Serif Thai', serif"
+const FONT_MONO = "'JetBrains Mono', monospace"
+// Frosted-glass surface used across cards / table.
+const GLASS = {
+  background: 'linear-gradient(160deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))',
+  border: '1px solid rgba(255,255,255,0.07)',
+  backdropFilter: 'blur(26px) saturate(130%)',
+  WebkitBackdropFilter: 'blur(26px) saturate(130%)',
+  boxShadow: 'inset 0 1px 0 rgba(255,255,255,0.06)',
+}
+const CAT_PALETTE = ['#34d399', '#86b8a0', '#9d93c4', '#c98e98', '#5fb8d9', '#e6b980', '#7c9fd6', '#c98ec0', '#8fcf9d', '#d6a07c']
+function hashColor(str) {
+  let h = 0
+  for (let i = 0; i < (str || '').length; i++) h = (h * 31 + str.charCodeAt(i)) >>> 0
+  return CAT_PALETTE[h % CAT_PALETTE.length]
+}
+// Signed currency string "+฿1,234.00" / "−฿1,234.00" (uses thb()'s ฿ + grouping).
+function signedThb(type, amount) {
+  return (type === 'income' ? '+' : '−') + thb(amount)
+}
+// Small wallet/card glyph used in the wallet column (matches the design).
+function CreditCardIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(148,163,184,0.55)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ flex: 'none' }}>
+      <rect x="2" y="6" width="20" height="13" rx="2" /><path d="M2 10.5h20" />
+    </svg>
+  )
+}
+
+// Group an already-date-sorted tx list into day buckets with a running net.
+function groupByDate(list) {
+  const groups = []
+  const idx = {}
+  for (const t of list) {
+    const k = t.date
+    if (!(k in idx)) { idx[k] = groups.length; groups.push({ key: k, items: [], net: 0 }) }
+    const g = groups[idx[k]]
+    g.items.push(t)
+    g.net += t.type === 'income' ? t.amount : -t.amount
+  }
+  return groups
+}
 
 function Modal({ title, onClose, children, wide = false }) {
   return (
@@ -42,19 +86,73 @@ function Label({ children }) {
   return <label className="block text-xs font-medium text-slate-400 mb-1.5">{children}</label>
 }
 
-// Summary card for the totals strip above the table (income / expense / net).
-function SummaryCard({ label, value, color, icon: Icon, signed }) {
+// ── Hero "net balance" card with profit-margin badge ───────────────
+function NetHeroCard({ net, income, periodLabel }) {
+  const pos = net >= 0
+  const margin = income > 0 ? (net / income) * 100 : 0
+  const accent = pos ? '#aef5da' : '#fda4af'
   return (
-    <div className="rounded-xl p-3 sm:p-4" style={CARD}>
-      <div className="flex items-center gap-2 mb-1.5">
-        <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: color + '22' }}>
-          <Icon className="w-4 h-4" style={{ color }} />
+    <div className="relative overflow-hidden rounded-3xl p-5 sm:p-7"
+      style={{
+        background: pos
+          ? 'linear-gradient(150deg,rgba(16,185,129,0.13),rgba(16,185,129,0.02) 60%,rgba(255,255,255,0.012))'
+          : 'linear-gradient(150deg,rgba(251,113,133,0.12),rgba(251,113,133,0.02) 60%,rgba(255,255,255,0.012))',
+        border: `1px solid ${pos ? 'rgba(52,211,153,0.22)' : 'rgba(251,113,133,0.22)'}`,
+        backdropFilter: 'blur(30px) saturate(140%)', WebkitBackdropFilter: 'blur(30px) saturate(140%)',
+        boxShadow: `0 30px 70px -38px ${pos ? 'rgba(16,185,129,0.45)' : 'rgba(251,113,133,0.4)'},inset 0 1px 0 rgba(255,255,255,0.1)`,
+      }}>
+      <div className="absolute pointer-events-none" style={{ bottom: -90, right: -40, width: 260, height: 260, borderRadius: '50%', background: `radial-gradient(circle,${pos ? 'rgba(52,211,153,0.16)' : 'rgba(251,113,133,0.16)'},transparent 64%)`, filter: 'blur(30px)' }} />
+      <div className="relative">
+        <div className="uppercase mb-3" style={{ fontSize: 11, letterSpacing: '2.5px', color: pos ? 'rgba(167,243,208,0.7)' : 'rgba(253,164,175,0.7)' }}>
+          ยอดคงเหลือสุทธิ · {periodLabel}
         </div>
-        <span className="text-xs text-slate-400">{label}</span>
+        <div className="leading-none" style={{ fontFamily: FONT_SERIF, fontWeight: 600, color: accent, letterSpacing: '-0.5px' }}>
+          <span className="inline-flex items-baseline flex-wrap">
+            <span style={{ fontFamily: 'inherit', fontSize: 'clamp(2.25rem,9vw,3.1rem)' }}>{signedThb(pos ? 'income' : 'expense', Math.abs(net))}</span>
+          </span>
+        </div>
+        <div className="flex items-center gap-2 mt-4 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1" style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 500, color: pos ? '#6ee7c7' : '#fda4af', background: pos ? 'rgba(52,211,153,0.12)' : 'rgba(251,113,133,0.12)', border: `1px solid ${pos ? 'rgba(52,211,153,0.22)' : 'rgba(251,113,133,0.22)'}` }}>
+            {pos ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />}{Math.abs(margin).toFixed(1)}%
+          </span>
+          <span className="text-xs sm:text-[12.5px]" style={{ color: pos ? 'rgba(167,243,208,0.65)' : 'rgba(253,164,175,0.65)' }}>
+            อัตรากำไรสุทธิจากรายรับช่วงนี้
+          </span>
+        </div>
       </div>
-      <div className="text-base sm:text-xl font-bold tabular-nums truncate" style={{ color }}>
-        {signed && value > 0 ? '+' : ''}{thb(value)}
+    </div>
+  )
+}
+
+// Income / Expense stat card (glass) with optional ratio bar.
+function StatCard({ label, value, count, color, icon: Icon, sign, ratio }) {
+  return (
+    <div className="relative overflow-hidden rounded-2xl p-4 sm:p-5" style={GLASS}>
+      <div className="flex items-center justify-between mb-3">
+        <span className="uppercase" style={{ fontSize: 11, letterSpacing: '2px', color: 'rgba(148,163,184,0.65)' }}>{label}</span>
+        <span className="flex items-center justify-center rounded-lg" style={{ width: 26, height: 26, background: color + '1f', border: `1px solid ${color}38` }}>
+          <Icon className="w-3.5 h-3.5" style={{ color }} />
+        </span>
       </div>
+      <div className="whitespace-nowrap leading-none" style={{ fontFamily: FONT_SERIF, fontWeight: 600, fontSize: 'clamp(1.25rem,5.5vw,1.7rem)', color: '#eef6f1' }}>
+        <span className="inline-flex items-baseline">
+          <span style={{ fontFamily: 'Anuphan,sans-serif', fontSize: '0.5em', fontWeight: 500, color: 'rgba(238,246,241,0.5)', marginRight: '0.18em' }}>{sign} ฿</span>
+          {thb(value).replace('฿', '')}
+        </span>
+      </div>
+      {ratio != null && (
+        <div className="flex items-center gap-2 mt-3">
+          <div className="flex-1 rounded-full overflow-hidden" style={{ height: 5, background: 'rgba(255,255,255,0.06)' }}>
+            <div style={{ width: `${Math.min(100, Math.max(0, ratio))}%`, height: '100%', borderRadius: 99, background: `linear-gradient(90deg,${color}b3,${color})` }} />
+          </div>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: color + 'e6' }}>{ratio.toFixed(0)}%</span>
+        </div>
+      )}
+      {count != null && (
+        <div className="mt-2.5" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.6)' }}>
+          จาก <span style={{ fontFamily: FONT_MONO, color: '#9fb0c2' }}>{count}</span> รายการ
+        </div>
+      )}
     </div>
   )
 }
@@ -117,10 +215,10 @@ function PeriodControl({ period, customRange, onPick, onApplyCustom }) {
   return (
     <div ref={ref} className="relative w-full sm:w-auto">
       <button type="button" onClick={() => { setOpen(o => !o); setShowCustom(false) }}
-        className="flex items-center gap-2 justify-between rounded-lg px-3 py-2 text-sm text-slate-200 w-full sm:w-auto sm:min-w-[150px] transition-colors"
-        style={{ border: '1px solid #2e3349', background: '#0d1120' }}>
-        <span className="flex items-center gap-2 truncate"><Calendar className="w-4 h-4 text-slate-500 flex-shrink-0" />{periodLabelOf(period, customRange)}</span>
-        <ChevronDown className={`w-4 h-4 text-slate-500 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} />
+        className="flex items-center gap-2 justify-between rounded-xl px-4 py-3 w-full sm:w-auto sm:min-w-[150px] transition-all"
+        style={{ fontSize: 13, fontWeight: 500, color: '#cdd6e1', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.035)' }}>
+        <span className="flex items-center gap-2 truncate"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: '#6ee7c7' }} strokeWidth={1.8} />{periodLabelOf(period, customRange)}</span>
+        <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'rgba(148,163,184,0.7)' }} />
       </button>
 
       {open && (
@@ -861,9 +959,11 @@ export default function Transactions() {
     api.transactions(params).then(d => {
       if (cancelled) return
       const list = d.transactions || []
-      const income = list.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-      const expense = list.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-      setSummary({ income, expense, net: income - expense })
+      const inc = list.filter(t => t.type === 'income')
+      const exp = list.filter(t => t.type === 'expense')
+      const income = inc.reduce((s, t) => s + t.amount, 0)
+      const expense = exp.reduce((s, t) => s + t.amount, 0)
+      setSummary({ income, expense, net: income - expense, incomeCount: inc.length, expenseCount: exp.length })
     }).catch(() => {})
     return () => { cancelled = true }
   }, [filter, debouncedSearch, total, period, customRange])
@@ -940,9 +1040,16 @@ export default function Transactions() {
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
+  const groups = groupByDate(txs)
+  // Colored dot per category: income → emerald, else the category's own color (or a stable hash).
+  const dotColor = (t) => {
+    if (t.type === 'income') return '#34d399'
+    const c = categories.find(x => x.id === t.categoryId)
+    return c?.color || hashColor(t.categoryName || t.name || '')
+  }
 
   return (
-    <div className="tx-page p-4 sm:p-5 space-y-4">
+    <div className="tx-page relative p-4 sm:p-6" style={{ background: '#06080c', minHeight: '100%', fontFamily: "'Anuphan', sans-serif", color: '#dbe2ea' }}>
       <style>{`
         .tx-page button:focus-visible,
         .tx-page input:focus-visible,
@@ -951,6 +1058,12 @@ export default function Transactions() {
           outline-offset: 2px;
           border-radius: 0.5rem;
         }
+        .tx-page select option { background: #0d1322; color: #e2e8f0; }
+        .tx-page ::-webkit-scrollbar { width: 9px; height: 9px; }
+        .tx-page ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.08); border-radius: 8px; border: 2px solid transparent; background-clip: content-box; }
+        .tx-page ::-webkit-scrollbar-thumb:hover { background: rgba(52,211,153,0.25); background-clip: content-box; }
+        @keyframes txRise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .tx-rise { animation: txRise .4s ease-out both; }
         @media (prefers-reduced-motion: reduce) {
           .tx-page *, .tx-page *::before, .tx-page *::after {
             animation-duration: 0.01ms !important;
@@ -958,71 +1071,89 @@ export default function Transactions() {
           }
         }
       `}</style>
+
+      {/* Ambient background */}
+      <div className="pointer-events-none" style={{ position: 'absolute', inset: 0, zIndex: 0, overflow: 'hidden' }}>
+        <div style={{ position: 'absolute', bottom: -440, left: '8%', width: 820, height: 820, borderRadius: '50%', background: 'radial-gradient(circle,rgba(16,185,129,0.07),transparent 60%)', filter: 'blur(100px)' }} />
+        <div style={{ position: 'absolute', top: -320, right: -160, width: 680, height: 680, borderRadius: '50%', background: 'radial-gradient(circle,rgba(30,52,66,0.32),transparent 64%)', filter: 'blur(90px)' }} />
+        <div style={{ position: 'absolute', inset: 0, backgroundImage: 'linear-gradient(rgba(255,255,255,0.012) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.012) 1px,transparent 1px)', backgroundSize: '56px 56px' }} />
+        <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(140% 105% at 50% 30%,transparent 36%,rgba(3,5,8,0.82) 100%)' }} />
+      </div>
+
+      <div className="relative z-10 space-y-5">
       {/* Header */}
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3 min-w-0">
-          <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
-            style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
-            <ArrowLeftRight className="w-5 h-5 text-white" />
+      <div className="flex items-end justify-between gap-3 flex-wrap">
+        <div className="min-w-0">
+          <div className="uppercase mb-1.5" style={{ fontSize: 10.5, letterSpacing: '3px', color: 'rgba(110,231,199,0.7)' }}>
+            Ledger · {periodLabelOf(period, customRange)}
           </div>
-          <div className="min-w-0">
-            <h2 className="text-xl font-bold text-white leading-tight">รายการธุรกรรม</h2>
-            <p className="text-sm text-slate-500 truncate">
-              รวม <span className="tabular-nums">{total}</span> รายการ · <span className="text-slate-400">{periodLabelOf(period, customRange)}</span>
-            </p>
+          <h2 className="m-0 leading-none" style={{ fontFamily: FONT_SERIF, fontWeight: 600, color: '#f5f9fc', fontSize: 'clamp(1.75rem,7vw,2.25rem)', letterSpacing: '0.2px' }}>
+            รายการธุรกรรม
+          </h2>
+          <div className="flex items-center gap-2.5 mt-2.5 text-sm" style={{ color: 'rgba(148,163,184,0.8)' }}>
+            <span style={{ fontFamily: FONT_MONO, fontWeight: 500, color: '#9fb0c2' }}>{total}</span> รายการทั้งหมด
+            <span style={{ width: 3, height: 3, borderRadius: '50%', background: 'rgba(148,163,184,0.5)' }} />
+            <span className="inline-flex items-center gap-1.5"><span style={{ width: 6, height: 6, borderRadius: '50%', background: '#34d399' }} />กระทบยอด</span>
           </div>
         </div>
-        <div className="flex gap-1.5 flex-shrink-0">
+        <div className="flex gap-2 flex-shrink-0">
           <button onClick={() => setShowExport(true)}
-            className="p-2 sm:px-3 sm:py-2 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center gap-1.5"
-            style={{ border: '1px solid #2e3349', background: '#161b2e' }} title="Export">
+            className="inline-flex items-center gap-2 rounded-xl transition-all p-2.5 sm:px-4 sm:py-2.5"
+            style={{ fontSize: 13, fontWeight: 600, color: '#c4cfdb', background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.08)' }} title="Export">
             <Download className="w-4 h-4" />
-            <span className="hidden sm:inline text-sm">Export</span>
+            <span className="hidden sm:inline">Export</span>
           </button>
           {canWrite && (
             <button onClick={() => setShowImport(true)}
-              className="p-2 sm:px-3 sm:py-2 text-slate-300 hover:text-white rounded-lg transition-colors flex items-center gap-1.5"
-              style={{ border: '1px solid #2e3349', background: '#161b2e' }} title="Import CSV">
+              className="inline-flex items-center gap-2 rounded-xl transition-all p-2.5 sm:px-4 sm:py-2.5"
+              style={{ fontSize: 13, fontWeight: 600, color: '#c4cfdb', background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.08)' }} title="Import CSV">
               <Upload className="w-4 h-4" />
-              <span className="hidden sm:inline text-sm">Import</span>
+              <span className="hidden sm:inline">Import</span>
             </button>
           )}
           {canWrite && (
             <button onClick={openCreate}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-sm px-3 py-2 rounded-lg transition-colors">
-              <Plus className="w-4 h-4" />
-              <span className="hidden sm:inline">เพิ่มรายการ</span>
+              className="inline-flex items-center gap-2 rounded-xl transition-all px-4 py-2.5"
+              style={{ fontSize: 13, fontWeight: 600, color: '#06231a', background: 'linear-gradient(140deg,#5eead4,#10b981)', border: '1px solid rgba(110,231,199,0.4)', boxShadow: '0 10px 26px -12px rgba(16,185,129,0.7)' }}>
+              <Plus className="w-4 h-4" strokeWidth={2.6} />
+              <span className="whitespace-nowrap">เพิ่มรายการ</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Search + Filters */}
-      <div className="flex flex-col sm:flex-row gap-2">
-        <div className="flex items-center gap-2 rounded-lg px-3 py-2 flex-1" style={{ border: '1px solid #374151', background: '#0d1120' }}>
-          <Search className="w-4 h-4 text-slate-500 flex-shrink-0" />
+      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
+        <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 flex-1 sm:min-w-[260px] transition-all"
+          style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.08)' }}>
+          <Search className="w-[18px] h-[18px] flex-shrink-0" style={{ color: 'rgba(148,163,184,0.8)' }} strokeWidth={1.9} />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ / หมายเหตุ..."
-            className="flex-1 bg-transparent text-sm text-slate-200 placeholder-slate-600 focus:outline-none min-w-0"
+            placeholder="ค้นหาชื่อ หรือ หมายเหตุ…"
+            className="flex-1 bg-transparent focus:outline-none min-w-0"
+            style={{ color: '#e2e8f0', fontSize: 13.5 }}
           />
           {search && (
-            <button onClick={() => setSearch('')} className="text-slate-500 hover:text-slate-300 flex-shrink-0">
+            <button onClick={() => setSearch('')} className="flex-shrink-0" style={{ color: 'rgba(148,163,184,0.7)' }}>
               <X className="w-3.5 h-3.5" />
             </button>
           )}
         </div>
         <PeriodControl period={period} customRange={customRange} onPick={pickPeriod} onApplyCustom={applyCustom} />
-        <div className="flex gap-2">
+        <div className="flex gap-2.5">
           {[
             { key: 'type', options: [['', 'ทุกประเภท'], ['income', 'รายรับ'], ['expense', 'รายจ่าย']] },
             { key: 'scope', options: [['', 'ทุก scope'], ['business', 'ธุรกิจ'], ['personal', 'ส่วนตัว']] },
           ].map(({ key, options }) => (
             <select key={key} value={filter[key]}
               onChange={e => setFilterWithReset(f => ({ ...f, [key]: e.target.value }))}
-              className="flex-1 rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
-              style={{ background: '#0d1120' }}>
+              className="flex-1 rounded-xl pl-4 pr-9 py-3 focus:outline-none transition-all appearance-none cursor-pointer"
+              style={{
+                fontSize: 13, fontWeight: 500, color: '#cdd6e1',
+                background: "rgba(255,255,255,0.035) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\") no-repeat right 12px center",
+                border: '1px solid rgba(255,255,255,0.08)',
+              }}>
               {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </select>
           ))}
@@ -1031,212 +1162,237 @@ export default function Transactions() {
 
       {/* Summary totals (current filter) */}
       {summary && (
-        <div className="grid grid-cols-3 gap-2 sm:gap-3">
-          <SummaryCard label="รายรับ" value={summary.income} color="#34d399" icon={ArrowUp} />
-          <SummaryCard label="รายจ่าย" value={summary.expense} color="#f87171" icon={ArrowDown} />
-          <SummaryCard label="คงเหลือ" value={summary.net} color={summary.net >= 0 ? '#34d399' : '#f87171'} icon={Wallet} signed />
+        <div className="flex flex-col lg:flex-row gap-3 sm:gap-4">
+          <div className="lg:flex-[1.7] min-w-0">
+            <NetHeroCard net={summary.net} income={summary.income} periodLabel={periodLabelOf(period, customRange)} />
+          </div>
+          <div className="grid grid-cols-2 lg:flex lg:flex-col lg:flex-1 gap-3 sm:gap-4">
+            <StatCard label="รายรับ" value={summary.income} count={summary.incomeCount} color="#34d399" icon={ArrowUp} sign="+" />
+            <StatCard label="รายจ่าย" value={summary.expense} count={summary.expenseCount} color="#fb7185" icon={ArrowDown} sign="−"
+              ratio={summary.income > 0 ? (summary.expense / summary.income) * 100 : null} />
+          </div>
         </div>
       )}
 
       {/* Transaction list */}
-      <div className="rounded-xl overflow-hidden" style={CARD}>
+      <div className="rounded-3xl overflow-hidden" style={{ ...GLASS, boxShadow: '0 34px 70px -40px rgba(0,0,0,0.9),inset 0 1px 0 rgba(255,255,255,0.06)' }}>
         {loading ? (
-          <div className="p-8 flex justify-center">
-            <div className="w-5 h-5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+          <div className="p-12 flex justify-center">
+            <div className="w-6 h-6 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
           </div>
         ) : txs.length === 0 ? (
-          <div className="p-12 text-center flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
-              <SearchX className="w-6 h-6 text-slate-600" />
+          <div className="p-12 sm:p-16 text-center flex flex-col items-center gap-2">
+            <div className="w-14 h-14 rounded-2xl flex items-center justify-center mb-1" style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)' }}>
+              <SearchX className="w-7 h-7" style={{ color: 'rgba(148,163,184,0.5)' }} />
             </div>
-            <p className="text-slate-300 text-sm font-medium">ไม่พบรายการ</p>
-            <p className="text-slate-600 text-xs">
+            <p style={{ color: '#d3dbe5', fontSize: 14, fontWeight: 600 }}>ไม่พบรายการ</p>
+            <p style={{ color: 'rgba(148,163,184,0.5)', fontSize: 12.5 }}>
               {(debouncedSearch || filter.type || filter.scope || period !== 'all') ? 'ลองปรับช่วงเวลา / คำค้นหา หรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
             </p>
           </div>
         ) : (
           <>
-            {/* ── Mobile card list ── */}
-            <div className="md:hidden divide-y" style={{ borderColor: '#1f2937' }}>
-              {txs.map(t => {
-                const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
-                const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
-                return (
-                  <div key={t.id} className="p-4" style={t.isDraft ? { background: 'rgba(251,191,36,0.04)' } : (t.pendingChanges ? { background: 'rgba(96,165,250,0.05)' } : {})}>
-                    {t.isDraft && (
-                      <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium mb-2">
-                        <Clock className="w-3 h-3" /> Draft — รอยืนยัน
-                      </div>
-                    )}
-                    {t.pendingChanges && (
-                      <div className="flex items-center gap-1.5 text-xs text-blue-300 font-medium mb-2">
-                        <Pencil className="w-3 h-3" /> แก้ไข-รอยืนยัน{t.editedBy ? ` · ${t.editedBy}` : ''}
-                      </div>
-                    )}
-                    <div className="flex items-start justify-between gap-2 mb-1">
-                      <p className="font-semibold text-slate-200 text-sm flex-1 min-w-0 leading-snug">{t.name}</p>
-                      <span className={`text-sm font-bold flex-shrink-0 ml-2 tabular-nums inline-flex items-center gap-0.5 ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {t.type === 'income' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
-                        {thb(t.amount)}
-                      </span>
-                    </div>
-                    {t.note && <p className="text-xs text-slate-500 mb-1.5 truncate">{t.note}</p>}
-                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
-                      <span>{date(t.date)}</span>
-                      <span className={`px-1.5 py-0.5 rounded-full ${t.type === 'income' ? 'text-emerald-400 bg-emerald-500/10' : 'text-red-400 bg-red-500/10'}`}>
-                        {t.type === 'income' ? 'รายรับ' : 'รายจ่าย'}
-                      </span>
-                      {t.categoryName && (
-                        <span>{t.categoryName}{t.subCategoryName && <span className="text-slate-600"> › {t.subCategoryName}</span>}</span>
-                      )}
-                      {t.walletName && <span>· {t.walletName}</span>}
-                      {t.submittedBy && <span className="text-green-500/70">👤 {t.submittedBy}</span>}
-                      {t.isReconciled && <span className="text-emerald-500">✓ ยืนยันแล้ว</span>}
-                      {t.printedBy && <span className="text-slate-500">🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
-                    </div>
-                    <div className="flex items-center justify-between mt-3 pt-3" style={{ borderTop: '1px solid #1f2937' }}>
-                      <div className="flex items-center gap-1.5">
-                        {t.isDraft && canWrite && (
-                          <button onClick={() => setConfirmTx(t)}
-                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-amber-400 border border-amber-400/30 hover:bg-amber-400/10 transition-colors">
-                            <Check className="w-3 h-3" /> ยืนยัน
-                          </button>
-                        )}
-                        {!t.isDraft && t.pendingChanges && canConfirmEdit && (
-                          <button onClick={() => setEditConfirmTx(t)}
-                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors">
-                            <Check className="w-3 h-3" /> ยืนยันการแก้ไข
-                          </button>
-                        )}
-                        {!t.isDraft && (
-                          <button onClick={() => setSlipTx(t)}
-                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg text-slate-400 border border-slate-700 hover:border-slate-500 hover:text-slate-200 transition-colors">
-                            <Paperclip className="w-3 h-3" /> สลิป
-                          </button>
-                        )}
-                        {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
-                          <button onClick={() => openVoucher(t)}
-                            className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg text-slate-400 border border-slate-700 hover:border-slate-500 hover:text-emerald-300 transition-colors">
-                            <FileText className="w-3 h-3" /> {t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญ'}
-                          </button>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {canWrite && (
-                          <button onClick={() => toggleReconcile(t)}
-                            className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors ${
-                              t.isReconciled
-                                ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
-                                : 'text-slate-500 border border-slate-700 hover:border-slate-500'
-                            }`}>
-                            <Check className="w-3 h-3" />
-                            {t.isReconciled ? 'ยืนยัน' : 'ยืนยัน'}
-                          </button>
-                        )}
-                        {canWrite && canEdit && (
-                          <>
-                            <button onClick={() => openEdit(t)} className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
-                              <Pencil className="w-4 h-4" />
-                            </button>
-                            <button onClick={() => del(t)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </div>
+            {/* ── Mobile: grouped luxe cards ── */}
+            <div className="md:hidden">
+              {groups.map(g => (
+                <div key={g.key}>
+                  <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                    <span style={{ fontFamily: FONT_SERIF, fontSize: 13.5, color: '#d9e1ea', fontWeight: 600 }}>{date(g.key)}</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: 'rgba(148,163,184,0.5)' }}>{g.items.length} รายการ</span>
+                    <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
                   </div>
-                )
-              })}
-            </div>
-
-            {/* ── Desktop table ── */}
-            <div className="hidden md:block overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="sticky top-0 z-10">
-                  <tr style={{ borderBottom: '1px solid #1f2937', background: '#111827' }}>
-                    {['วันที่', 'รายการ', 'หมวดหมู่', 'กระเป๋า', 'จำนวน', '✓', ''].map((h, i) => (
-                      <th key={i} className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide ${i >= 4 ? 'text-center' : 'text-left'}`}
-                        style={{ background: '#111827', borderBottom: '1px solid #1f2937' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {txs.map((t, i) => {
+                  {g.items.map(t => {
                     const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                     const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                     return (
-                      <tr key={t.id} className="hover:bg-white/[0.02] transition-colors"
-                        style={{ borderBottom: i < txs.length - 1 ? '1px solid #1a2035' : 'none', background: t.isDraft ? 'rgba(251,191,36,0.03)' : (t.pendingChanges ? 'rgba(96,165,250,0.04)' : undefined) }}>
-                        <td className="px-4 py-3 text-slate-400 whitespace-nowrap">{date(t.date)}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-medium text-slate-200">{t.name}</p>
-                            {t.isDraft && (
-                              <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">
-                                <Clock className="w-2.5 h-2.5" /> Draft
-                              </span>
-                            )}
-                            {t.pendingChanges && (
-                              <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full">
-                                <Pencil className="w-2.5 h-2.5" /> แก้ไข-รอยืนยัน
-                              </span>
-                            )}
+                      <div key={t.id} className="px-4 py-3.5 tx-rise" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: t.isDraft ? 'rgba(251,191,36,0.05)' : (t.pendingChanges ? 'rgba(96,165,250,0.06)' : 'transparent') }}>
+                        {t.isDraft && (
+                          <div className="flex items-center gap-1.5 text-xs text-amber-400 font-medium mb-2">
+                            <Clock className="w-3 h-3" /> Draft — รอยืนยัน
                           </div>
-                          {t.note && t.note !== 'draft — รอยืนยัน' && <p className="text-xs text-slate-500">{t.note}</p>}
-                          {t.submittedBy && <p className="text-xs text-green-500/70">👤 {t.submittedBy}</p>}
-                          {t.printedBy && <p className="text-xs text-slate-500">🖨️ พิมพ์โดย {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</p>}
-                        </td>
-                        <td className="px-4 py-3 text-slate-400">
-                          {t.categoryName || '-'}
-                          {t.subCategoryName && <span className="text-xs text-slate-600 ml-1">› {t.subCategoryName}</span>}
-                        </td>
-                        <td className="px-4 py-3 text-slate-400">{t.walletName || '-'}</td>
-                        <td className={`px-4 py-3 whitespace-nowrap ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
-                          <div className="flex items-center justify-end gap-1 font-semibold tabular-nums">
-                            {t.type === 'income' ? <ArrowUp className="w-3.5 h-3.5" /> : <ArrowDown className="w-3.5 h-3.5" />}
+                        )}
+                        {t.pendingChanges && (
+                          <div className="flex items-center gap-1.5 text-xs text-blue-300 font-medium mb-2">
+                            <Pencil className="w-3 h-3" /> แก้ไข-รอยืนยัน{t.editedBy ? ` · ${t.editedBy}` : ''}
+                          </div>
+                        )}
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="leading-snug" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</p>
+                            {t.categoryName ? (
+                              <div className="inline-flex items-center gap-1.5 mt-1 max-w-full">
+                                <span className="flex-none" style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor(t) }} />
+                                <span className="truncate" style={{ fontSize: 12, color: 'rgba(211,219,229,0.85)' }}>{t.categoryName}</span>
+                                {t.subCategoryName && <span className="inline-flex items-center gap-1 truncate" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.55)' }}><ChevronRight className="w-2.5 h-2.5 flex-none" /> {t.subCategoryName}</span>}
+                              </div>
+                            ) : null}
+                          </div>
+                          <span className="flex items-center gap-1 flex-shrink-0 whitespace-nowrap" style={{ fontFamily: FONT_MONO, fontWeight: 500, fontSize: 14, color: t.type === 'income' ? '#34d399' : '#fb7185' }}>
+                            {t.type === 'income' ? <ArrowUp className="w-3 h-3" strokeWidth={2.8} /> : <ArrowDown className="w-3 h-3" strokeWidth={2.8} />}
                             {thb(t.amount)}
-                          </div>
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          {canWrite && (
-                            <button onClick={() => toggleReconcile(t)}
-                              title={t.isReconciled ? 'ยืนยันแล้ว' : 'คลิกเพื่อยืนยัน'}
-                              className={`w-5 h-5 rounded border-2 flex items-center justify-center transition-colors mx-auto ${
-                                t.isReconciled
-                                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                                  : 'border-slate-700 text-transparent hover:border-emerald-500/50'
-                              }`}>
-                              <Check className="w-3 h-3" />
-                            </button>
+                          </span>
+                        </div>
+                        {t.note && t.note !== 'draft — รอยืนยัน' && <p className="truncate mt-1.5" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.5)' }}>{t.note}</p>}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.6)' }}>
+                          {t.walletName && (
+                            <span className="inline-flex items-center gap-1.5 min-w-0">
+                              <CreditCardIcon /> <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 11 }}>{t.walletName}</span>
+                            </span>
                           )}
-                        </td>
-                        <td className="px-4 py-3">
-                          <div className="flex gap-1 justify-end">
+                          {t.submittedBy && <span style={{ color: 'rgba(110,231,199,0.7)' }}>👤 {t.submittedBy}</span>}
+                          {t.isReconciled && <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}><Check className="w-3 h-3" /> กระทบยอดแล้ว</span>}
+                          {t.printedBy && <span>🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
+                          <div className="flex items-center gap-1.5 flex-wrap">
                             {t.isDraft && canWrite && (
                               <button onClick={() => setConfirmTx(t)}
-                                title="ยืนยันรายการ Draft"
-                                className="p-1.5 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors font-bold">
-                                <Check className="w-3.5 h-3.5" />
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-amber-400 border border-amber-400/30 hover:bg-amber-400/10 transition-colors">
+                                <Check className="w-3 h-3" /> ยืนยัน
                               </button>
                             )}
                             {!t.isDraft && t.pendingChanges && canConfirmEdit && (
                               <button onClick={() => setEditConfirmTx(t)}
-                                title="ยืนยันการแก้ไข"
-                                className="p-1.5 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded-lg transition-colors font-bold">
-                                <Check className="w-3.5 h-3.5" />
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-blue-300 border border-blue-400/30 hover:bg-blue-400/10 transition-colors">
+                                <Check className="w-3 h-3" /> ยืนยันการแก้ไข
                               </button>
                             )}
                             {!t.isDraft && (
                               <button onClick={() => setSlipTx(t)}
-                                title="แนบสลิป/ใบเสร็จ"
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors"
+                                style={{ color: 'rgba(203,213,225,0.7)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <Paperclip className="w-3 h-3" /> สลิป
+                              </button>
+                            )}
+                            {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
+                              <button onClick={() => openVoucher(t)}
+                                className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors hover:text-emerald-300"
+                                style={{ color: 'rgba(203,213,225,0.7)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                                <FileText className="w-3 h-3" /> {t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญ'}
+                              </button>
+                            )}
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {canWrite && (
+                              <button onClick={() => toggleReconcile(t)} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
+                                className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
+                                  t.isReconciled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' : 'text-slate-500 border border-white/10 hover:border-emerald-500/40'
+                                }`}>
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {canWrite && canEdit && (
+                              <>
+                                <button onClick={() => openEdit(t)} className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => del(t)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              ))}
+            </div>
+
+            {/* ── Desktop: grouped grid ── */}
+            <div className="hidden md:block">
+              <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 860 }}>
+                <div className="grid items-center gap-4 px-6 py-3.5" style={{ gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                  {['รายการ', 'หมวดหมู่', 'กระเป๋า', 'จำนวน', ''].map((h, i) => (
+                    <div key={i} className="uppercase" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.55)', textAlign: i === 3 ? 'right' : 'left' }}>{h}</div>
+                  ))}
+                </div>
+                {groups.map(g => (
+                  <div key={g.key}>
+                    <div className="flex items-center gap-3 px-6 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+                      <span style={{ fontFamily: FONT_SERIF, fontSize: 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>{date(g.key)}</span>
+                      <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'rgba(148,163,184,0.5)' }}>{g.items.length} รายการ</span>
+                      <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+                      <span className="uppercase" style={{ fontSize: 10.5, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.45)' }}>สุทธิ</span>
+                      <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)', whiteSpace: 'nowrap' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
+                    </div>
+                    {g.items.map(t => {
+                      const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
+                      const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
+                      return (
+                        <div key={t.id} className="grid items-center gap-4 px-6 py-3.5 transition-colors hover:bg-white/[0.028]"
+                          style={{ gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
+                          <div className="flex flex-col gap-0.5 min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="truncate" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</span>
+                              {t.isDraft && <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full"><Clock className="w-2.5 h-2.5" /> Draft</span>}
+                              {t.pendingChanges && <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full"><Pencil className="w-2.5 h-2.5" /> แก้ไข</span>}
+                            </div>
+                            {t.note && t.note !== 'draft — รอยืนยัน' && <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.5)' }}>{t.note}</span>}
+                            {t.submittedBy && (
+                              <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.7)' }}>
+                                <span className="flex items-center justify-center flex-none" style={{ width: 16, height: 16, borderRadius: '50%', fontSize: 8.5, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
+                                {t.submittedBy}
+                              </span>
+                            )}
+                            {t.printedBy && <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.45)' }}>🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
+                          </div>
+                          <div className="min-w-0">
+                            {t.categoryName ? (
+                              <div className="inline-flex items-center gap-1.5 max-w-full min-w-0">
+                                <span className="flex-none" style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor(t) }} />
+                                <span className="truncate" style={{ fontSize: 12.5, color: '#d3dbe5' }}>{t.categoryName}</span>
+                                {t.subCategoryName && (
+                                  <span className="inline-flex items-center gap-1 truncate min-w-0" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.55)' }}>
+                                    <ChevronRight className="w-2.5 h-2.5 flex-none" style={{ color: 'rgba(148,163,184,0.4)' }} />{t.subCategoryName}
+                                  </span>
+                                )}
+                              </div>
+                            ) : <span style={{ color: 'rgba(148,163,184,0.35)', fontSize: 13 }}>ไม่ระบุ</span>}
+                          </div>
+                          <div className="min-w-0">
+                            {t.walletName ? (
+                              <span className="inline-flex items-center gap-1.5 max-w-full min-w-0">
+                                <CreditCardIcon />
+                                <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: 'rgba(203,213,225,0.78)' }}>{t.walletName}</span>
+                              </span>
+                            ) : <span style={{ color: 'rgba(148,163,184,0.35)' }}>-</span>}
+                          </div>
+                          <div className="flex items-center justify-end gap-1.5 whitespace-nowrap" style={{ fontFamily: FONT_MONO, fontWeight: 500, fontSize: 14, color: t.type === 'income' ? '#34d399' : '#fb7185' }}>
+                            {t.type === 'income' ? <ArrowUp className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} /> : <ArrowDown className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} />}
+                            {thb(t.amount)}
+                          </div>
+                          <div className="flex items-center justify-end gap-0.5">
+                            {canWrite && (
+                              <button onClick={() => toggleReconcile(t)} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
+                                className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
+                                  t.isReconciled ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'border-white/10 text-transparent hover:border-emerald-500/40 hover:text-emerald-500/60'
+                                }`}>
+                                <Check className="w-3 h-3" />
+                              </button>
+                            )}
+                            {t.isDraft && canWrite && (
+                              <button onClick={() => setConfirmTx(t)} title="ยืนยันรายการ Draft"
+                                className="p-1.5 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors">
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {!t.isDraft && t.pendingChanges && canConfirmEdit && (
+                              <button onClick={() => setEditConfirmTx(t)} title="ยืนยันการแก้ไข"
+                                className="p-1.5 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded-lg transition-colors">
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            {!t.isDraft && (
+                              <button onClick={() => setSlipTx(t)} title="แนบสลิป/ใบเสร็จ"
                                 className="p-1.5 text-slate-500 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors">
                                 <Paperclip className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
-                              <button onClick={() => openVoucher(t)}
-                                title={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'}
+                              <button onClick={() => openVoucher(t)} title={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'}
                                 className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors">
                                 <FileText className="w-3.5 h-3.5" />
                               </button>
@@ -1252,12 +1408,12 @@ export default function Transactions() {
                               </>
                             )}
                           </div>
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
+                        </div>
+                      )
+                    })}
+                  </div>
+                ))}
+              </div></div>
             </div>
           </>
         )}
@@ -1265,27 +1421,27 @@ export default function Transactions() {
 
       {/* Pagination */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs sm:text-sm text-slate-500">
-            {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)} / {total}
-          </p>
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <span style={{ fontSize: 12.5, color: 'rgba(148,163,184,0.7)' }}>
+            แสดง <span style={{ fontFamily: FONT_MONO, color: '#cbd5e1' }}>{Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)}</span> จาก <span style={{ fontFamily: FONT_MONO, color: '#6ee7c7' }}>{total}</span>
+          </span>
+          <div className="flex items-center gap-1.5">
             <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
-              style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
+              className="flex items-center justify-center w-9 h-9 rounded-xl disabled:opacity-30 transition-colors"
+              style={{ border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(203,213,225,0.7)' }} title="ก่อนหน้า">
               <ChevronLeft className="w-4 h-4" />
-              <span className="hidden sm:inline">ก่อนหน้า</span>
             </button>
-            <span className="text-sm text-slate-500">{page}/{totalPages}</span>
+            <span className="flex items-center justify-center min-w-9 h-9 px-3 rounded-xl" style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 600, color: '#06231a', background: 'linear-gradient(140deg,#5eead4,#10b981)' }}>{page}</span>
+            <span className="px-1" style={{ fontSize: 12.5, color: 'rgba(148,163,184,0.6)' }}>/ {totalPages}</span>
             <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
-              style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
-              <span className="hidden sm:inline">ถัดไป</span>
+              className="flex items-center justify-center w-9 h-9 rounded-xl disabled:opacity-30 transition-colors"
+              style={{ border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(203,213,225,0.7)' }} title="ถัดไป">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
         </div>
       )}
+      </div>
 
       {/* Form modal */}
       {showForm && (
