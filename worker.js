@@ -165,9 +165,11 @@ async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) return { ok: false, error: "Missing token", status: 401 };
   const token = authHeader.slice(7);
-  // Long-lived service token (LINE bot etc.) — never expires; resolves to the workspace admin.
-  if (env.SERVICE_TOKEN && token === env.SERVICE_TOKEN) {
-    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY created_at LIMIT 1").first();
+  // Long-lived service token (LINE bot etc.) — never expires; resolves to the
+  // explicitly-configured service user (SERVICE_USER_ID), so it always targets
+  // the correct workspace regardless of account creation order.
+  if (env.SERVICE_TOKEN && env.SERVICE_USER_ID && token === env.SERVICE_TOKEN) {
+    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.SERVICE_USER_ID).first();
     if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" } };
   }
   const payload = await verifyJWT(token, env);
