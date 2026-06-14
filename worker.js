@@ -165,6 +165,11 @@ async function requireAuth(request, env) {
   const authHeader = request.headers.get("Authorization");
   if (!authHeader || !authHeader.startsWith("Bearer ")) return { ok: false, error: "Missing token", status: 401 };
   const token = authHeader.slice(7);
+  // Long-lived service token (LINE bot etc.) — never expires; resolves to the workspace admin.
+  if (env.SERVICE_TOKEN && token === env.SERVICE_TOKEN) {
+    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE role = 'admin' AND is_active = 1 ORDER BY created_at LIMIT 1").first();
+    if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" } };
+  }
   const payload = await verifyJWT(token, env);
   if (!payload) return { ok: false, error: "Invalid token", status: 401 };
   const user = { id: payload.sub, workspace_id: payload.ws, role: payload.role, name: payload.name || "" };
