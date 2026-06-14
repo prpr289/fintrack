@@ -195,8 +195,11 @@ const BANK_ALIASES = [
 async function getWallets(baseUrl, token) {
   try {
     const res = await fintrack('GET', '/wallets', null, baseUrl, token)
-    return res.wallets || res || []
-  } catch { return [] }
+    if (Array.isArray(res)) return res
+    if (Array.isArray(res?.wallets)) return res.wallets
+    console.error('[getWallets] unexpected response:', JSON.stringify(res).slice(0, 200))
+    return []
+  } catch (e) { console.error('[getWallets] error:', e?.message); return [] }
 }
 
 function matchWallet(bank, wallets) {
@@ -215,8 +218,11 @@ function matchWallet(bank, wallets) {
 async function getCategories(baseUrl, token) {
   try {
     const res = await fintrack('GET', '/categories', null, baseUrl, token)
-    return res.categories || res || []
-  } catch { return [] }
+    if (Array.isArray(res)) return res
+    if (Array.isArray(res?.categories)) return res.categories
+    console.error('[getCategories] unexpected response:', JSON.stringify(res).slice(0, 200))
+    return []
+  } catch (e) { console.error('[getCategories] error:', e?.message); return [] }
 }
 
 async function matchVendorHistory(name, txType = 'expense', baseUrl, token) {
@@ -625,10 +631,11 @@ async function uploadVoucherToR2(bucket, voucherNo, date, html) {
 }
 
 function buildCatSelectFlex(cats, txSnap, step, selCatId = '') {
+  const list = Array.isArray(cats) ? cats : []
   const isMain = step === 'main'
   const items = isMain
-    ? cats.filter(c => !c.parentId)
-    : cats.filter(c => c.parentId === selCatId)
+    ? list.filter(c => !c.parentId)
+    : list.filter(c => c.parentId === selCatId)
 
   const title = isMain ? '🏷️ เลือกหมวดหมู่หลัก' : '🏷️ เลือกหมวดหมู่ย่อย'
 
@@ -651,6 +658,25 @@ function buildCatSelectFlex(cats, txSnap, step, selCatId = '') {
       type: 'button', style: 'secondary', height: 'sm',
       action: { type: 'postback', label: '— ไม่ระบุหมวดย่อย', data: makeData('subcatsel', { c: selCatId, s: '' }) },
     })
+  }
+
+  // No categories to show → return a body-only bubble (an empty footer box is rejected by LINE).
+  if (allButtons.length === 0) {
+    return {
+      type: 'flex', altText: title,
+      contents: {
+        type: 'bubble',
+        styles: { body: { backgroundColor: '#1a2035' } },
+        body: {
+          type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+          contents: [
+            { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
+            { type: 'separator', margin: 'sm', color: '#2e3349' },
+            { type: 'text', text: 'ยังไม่มีหมวดหมู่ให้เลือกครับ — เพิ่มหมวดหมู่ได้ที่หน้าเว็บ แล้วลองใหม่อีกครั้ง', size: 'sm', color: '#cbd5e1', margin: 'md', wrap: true },
+          ],
+        },
+      },
+    }
   }
 
   const BTN_PER_BUBBLE = 9
@@ -707,9 +733,10 @@ function buildWalletSelectFlex(wallets, txSnap) {
     return JSON.stringify({ a: 'walletsel', ...snap })
   }
 
-  const buttons = wallets.slice(0, 9).map(w => ({
+  const list = Array.isArray(wallets) ? wallets : []
+  const buttons = list.slice(0, 9).map(w => ({
     type: 'button', style: 'secondary', height: 'sm',
-    action: { type: 'postback', label: w.name.slice(0, 20), data: makeData(w.id) },
+    action: { type: 'postback', label: (w.name || 'กระเป๋า').slice(0, 20), data: makeData(w.id) },
   }))
 
   buttons.push({
@@ -990,6 +1017,16 @@ async function handlePostback(event, env) {
         ...(submittedBy ? { submittedBy } : {}),
       }
       const txData = await fintrack('POST', '/transactions', txBody, baseUrl, env.FINTRACK_TOKEN)
+
+      // Guard: never report success when the API didn't actually save (e.g. expired token).
+      if (!txData?.transaction?.id) {
+        console.error('[confirm] save failed:', JSON.stringify(txData).slice(0, 200))
+        await replyMessage(replyToken, [{
+          type: 'text',
+          text: `❌ บันทึกไม่สำเร็จครับ: ${txData?.error || 'ระบบไม่ตอบกลับ'}\nรบกวนแจ้งแอดมินตรวจสอบการเชื่อมต่อ (token) ครับ`,
+        }], env.LINE_CHANNEL_ACCESS_TOKEN)
+        return
+      }
 
       // Remember this recipient → category/wallet so next time the bot auto-fills it
       // (incl. corrections the user just made). Works for transfer slips too.
