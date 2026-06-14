@@ -630,6 +630,61 @@ async function uploadVoucherToR2(bucket, voucherNo, date, html) {
   return `${R2_PUBLIC_URL}/${month}/${voucherNo}.html`
 }
 
+// Body-only bubble (used when there are no options — an empty footer box is rejected by LINE).
+function buildInfoBubble(title, text) {
+  return {
+    type: 'flex', altText: title,
+    contents: {
+      type: 'bubble',
+      styles: { body: { backgroundColor: '#1a2035' } },
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+        contents: [
+          { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
+          { type: 'separator', margin: 'sm', color: '#2e3349' },
+          { type: 'text', text, size: 'sm', color: '#cbd5e1', margin: 'md', wrap: true },
+        ],
+      },
+    },
+  }
+}
+
+// Render postback buttons as a single scrollable bubble, or a carousel of bubbles
+// when there are many — so EVERY option is reachable (no silent truncation).
+// 12 buttons/bubble × 12 bubbles = up to 144 options.
+function buildButtonCarousel(title, helperText, allButtons) {
+  if (allButtons.length === 0) return buildInfoBubble(title, helperText)
+  const BTN_PER_BUBBLE = 12
+  const MAX_BUBBLES = 8 // 96 options max — keeps the message well under LINE's 50KB limit
+  if (allButtons.length > BTN_PER_BUBBLE * MAX_BUBBLES) {
+    console.warn(`[buildButtonCarousel] "${title}" has ${allButtons.length} options, showing first ${BTN_PER_BUBBLE * MAX_BUBBLES}`)
+  }
+  const chunks = []
+  for (let i = 0; i < allButtons.length && chunks.length < MAX_BUBBLES; i += BTN_PER_BUBBLE) {
+    chunks.push(allButtons.slice(i, i + BTN_PER_BUBBLE))
+  }
+  const total = chunks.length
+  const buildBubble = (btns, idx) => ({
+    type: 'bubble',
+    styles: { body: { backgroundColor: '#1a2035' }, footer: { backgroundColor: '#1a2035' } },
+    body: {
+      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+      contents: [
+        { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
+        { type: 'separator', margin: 'sm', color: '#2e3349' },
+        {
+          type: 'text',
+          text: total > 1 ? `${helperText} (${idx + 1}/${total} ปัดดูหน้าถัดไป →)` : helperText,
+          size: 'xs', color: '#6b7280', margin: 'sm', wrap: true,
+        },
+      ],
+    },
+    footer: { type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px', contents: btns },
+  })
+  if (total === 1) return { type: 'flex', altText: title, contents: buildBubble(chunks[0], 0) }
+  return { type: 'flex', altText: title, contents: { type: 'carousel', contents: chunks.map((c, i) => buildBubble(c, i)) } }
+}
+
 function buildCatSelectFlex(cats, txSnap, step, selCatId = '') {
   const list = Array.isArray(cats) ? cats : []
   const isMain = step === 'main'
@@ -638,15 +693,13 @@ function buildCatSelectFlex(cats, txSnap, step, selCatId = '') {
     : list.filter(c => c.parentId === selCatId)
 
   const title = isMain ? '🏷️ เลือกหมวดหมู่หลัก' : '🏷️ เลือกหมวดหมู่ย่อย'
-
-  const makeData = (a, extraFields) =>
-    JSON.stringify({ a, ...txSnap, ...extraFields })
+  const makeData = (a, extraFields) => JSON.stringify({ a, ...txSnap, ...extraFields })
 
   const allButtons = items.map(cat => ({
     type: 'button', style: 'secondary', height: 'sm',
     action: {
       type: 'postback',
-      label: cat.name.slice(0, 20),
+      label: (cat.name || 'หมวดหมู่').slice(0, 20),
       data: isMain
         ? makeData('catsel', { c: cat.id })
         : makeData('subcatsel', { c: selCatId, s: cat.id }),
@@ -660,72 +713,14 @@ function buildCatSelectFlex(cats, txSnap, step, selCatId = '') {
     })
   }
 
-  // No categories to show → return a body-only bubble (an empty footer box is rejected by LINE).
   if (allButtons.length === 0) {
-    return {
-      type: 'flex', altText: title,
-      contents: {
-        type: 'bubble',
-        styles: { body: { backgroundColor: '#1a2035' } },
-        body: {
-          type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
-          contents: [
-            { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
-            { type: 'separator', margin: 'sm', color: '#2e3349' },
-            { type: 'text', text: 'ยังไม่มีหมวดหมู่ให้เลือกครับ — เพิ่มหมวดหมู่ได้ที่หน้าเว็บ แล้วลองใหม่อีกครั้ง', size: 'sm', color: '#cbd5e1', margin: 'md', wrap: true },
-          ],
-        },
-      },
-    }
+    return buildInfoBubble(title, 'ยังไม่มีหมวดหมู่ให้เลือกครับ — เพิ่มหมวดหมู่ได้ที่หน้าเว็บ แล้วลองใหม่อีกครั้ง')
   }
-
-  const BTN_PER_BUBBLE = 9
-  const MAX_BUBBLES = 12
-  const chunks = []
-  for (let i = 0; i < allButtons.length && chunks.length < MAX_BUBBLES; i += BTN_PER_BUBBLE) {
-    chunks.push(allButtons.slice(i, i + BTN_PER_BUBBLE))
-  }
-  if (chunks.length === 0) chunks.push([])
-
-  const total = chunks.length
-  const buildBubble = (btns, idx) => ({
-    type: 'bubble',
-    styles: { body: { backgroundColor: '#1a2035' }, footer: { backgroundColor: '#1a2035' } },
-    body: {
-      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
-      contents: [
-        { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
-        { type: 'separator', margin: 'sm', color: '#2e3349' },
-        {
-          type: 'text',
-          text: total > 1 ? `เลือกได้เลยครับ (${idx + 1}/${total} ปัดดูหน้าถัดไป →)` : 'เลือกได้เลยครับ',
-          size: 'xs', color: '#6b7280', margin: 'sm', wrap: true,
-        },
-      ],
-    },
-    footer: {
-      type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
-      contents: btns,
-    },
-  })
-
-  if (total === 1) {
-    return { type: 'flex', altText: title, contents: buildBubble(chunks[0], 0) }
-  }
-
-  return {
-    type: 'flex',
-    altText: title,
-    contents: {
-      type: 'carousel',
-      contents: chunks.map((c, i) => buildBubble(c, i)),
-    },
-  }
+  return buildButtonCarousel(title, 'เลือกได้เลยครับ', allButtons)
 }
 
 function buildWalletSelectFlex(wallets, txSnap) {
   const title = '👛 เลือกกระเป๋าเงิน'
-
   const makeData = (walletId) => {
     const snap = { ...txSnap }
     if (walletId) snap.wi = walletId
@@ -734,36 +729,16 @@ function buildWalletSelectFlex(wallets, txSnap) {
   }
 
   const list = Array.isArray(wallets) ? wallets : []
-  const buttons = list.slice(0, 9).map(w => ({
+  const allButtons = list.map(w => ({
     type: 'button', style: 'secondary', height: 'sm',
     action: { type: 'postback', label: (w.name || 'กระเป๋า').slice(0, 20), data: makeData(w.id) },
   }))
-
-  buttons.push({
+  allButtons.push({
     type: 'button', style: 'secondary', height: 'sm',
     action: { type: 'postback', label: '— ไม่ระบุกระเป๋า', data: makeData(null) },
   })
 
-  return {
-    type: 'flex',
-    altText: title,
-    contents: {
-      type: 'bubble',
-      styles: { body: { backgroundColor: '#1a2035' }, footer: { backgroundColor: '#1a2035' } },
-      body: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
-        contents: [
-          { type: 'text', text: title, weight: 'bold', size: 'md', color: '#ffffff' },
-          { type: 'separator', margin: 'sm', color: '#2e3349' },
-          { type: 'text', text: 'เลือกกระเป๋าที่ต้องการบันทึกครับ', size: 'xs', color: '#6b7280', margin: 'sm' },
-        ],
-      },
-      footer: {
-        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '12px',
-        contents: buttons,
-      },
-    },
-  }
+  return buildButtonCarousel(title, 'เลือกกระเป๋าที่ต้องการบันทึกครับ', allButtons)
 }
 
 function buildDeleteConfirmFlex(txId, amt, name, date) {
