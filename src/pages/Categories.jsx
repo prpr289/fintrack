@@ -1,14 +1,13 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, GripVertical, Tag } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, ChevronDown, ChevronRight, GripVertical, Tag, Layers } from 'lucide-react'
 import {
   DndContext,
   closestCenter,
   PointerSensor,
   useSensor,
   useSensors,
-  DragOverlay,
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -23,9 +22,30 @@ const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
 const INPUT_STYLE = { background: '#0d1120' }
 const COLORS = ['#1A7A4A','#0369A1','#6B7280','#7C3AED','#B45309','#BE185D','#C0392B','#9CA3AF','#D97706','#059669','#0891B2','#DC2626']
-const EMPTY = { name: '', color: '#1A7A4A', type: 'both', parentId: '' }
+const EMPTY = { name: '', color: '#1A7A4A', type: 'both', parentId: '', groupName: '' }
 const TYPE_LABEL = { both: 'ทั้งหมด', income: 'รายรับ', expense: 'รายจ่าย' }
 const TYPE_COLOR = { both: '#64748b', income: '#34d399', expense: '#f87171' }
+// Suggested groups for raw-material sub-categories (datalist hints; free-text still allowed)
+const SUGGESTED_GROUPS = ['อาหารทะเล', 'เนื้อหมู', 'เนื้อไก่', 'เนื้อวัว', 'ของแห้ง', 'ผักสด', 'เครื่องปรุง', 'อุปกรณ์สิ้นเปลือง']
+
+// Group sub-categories by groupName; named groups ordered by total usage desc, ungrouped ("อื่นๆ") pinned last.
+function groupSubs(subs) {
+  const map = new Map()
+  for (const s of subs) {
+    const key = s.groupName || ''
+    if (!map.has(key)) map.set(key, [])
+    map.get(key).push(s)
+  }
+  const byUsage = (a, b) => (b.usageCount || 0) - (a.usageCount || 0) || a.name.localeCompare(b.name, 'th')
+  const groups = [...map.entries()].map(([name, items]) => ({
+    name,
+    items: items.slice().sort(byUsage),
+    usage: items.reduce((sum, i) => sum + (i.usageCount || 0), 0),
+  }))
+  const named = groups.filter(g => g.name).sort((a, b) => b.usage - a.usage || a.name.localeCompare(b.name, 'th'))
+  const ungrouped = groups.filter(g => !g.name)
+  return [...named, ...ungrouped]
+}
 
 // ── Modal ────────────────────────────────────────────────────────────────────
 function Modal({ title, onClose, children }) {
@@ -46,32 +66,24 @@ function Modal({ title, onClose, children }) {
   )
 }
 
-// ── Sortable Sub-category row ────────────────────────────────────────────────
-function SortableSubRow({ sub, isAdmin, onEdit, onDel }) {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: sub.id })
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isDragging ? 0.4 : 1,
-  }
-
+// ── Sub-category row ─────────────────────────────────────────────────────────
+function SubRow({ sub, isAdmin, onEdit, onDel }) {
   return (
-    <div ref={setNodeRef}
-      className="flex items-center gap-3 pl-10 pr-4 py-2.5 hover:bg-white/[0.02] transition-colors"
-      style={{ ...style, borderBottom: '1px solid #1a2035' }}>
-      {/* drag handle */}
-      <button {...attributes} {...listeners}
-        className="text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none flex-shrink-0">
-        <GripVertical className="w-3.5 h-3.5" />
-      </button>
+    <div className="flex items-center gap-3 pl-10 pr-3 py-2.5 hover:bg-white/[0.02] transition-colors"
+      style={{ borderBottom: '1px solid #1a2035' }}>
       <div className="w-2 h-2 rounded-full flex-shrink-0" style={{ backgroundColor: sub.color }} />
-      <span className="text-sm text-slate-300 flex-1">{sub.name}</span>
-      <span className="text-xs px-2 py-0.5 rounded-full"
+      <span className="text-sm text-slate-300 flex-1 min-w-0 truncate">{sub.name}</span>
+      {sub.usageCount > 0 && (
+        <span className="text-[11px] text-slate-500 tabular-nums flex-shrink-0" title="จำนวนรายการที่ใช้หมวดนี้">
+          {sub.usageCount} รายการ
+        </span>
+      )}
+      <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
         style={{ color: TYPE_COLOR[sub.type], background: `${TYPE_COLOR[sub.type]}20` }}>
         {TYPE_LABEL[sub.type]}
       </span>
       {isAdmin && (
-        <div className="flex gap-1">
+        <div className="flex gap-0.5 flex-shrink-0">
           <button onClick={() => onEdit(sub)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
             <Pencil className="w-3 h-3" />
           </button>
@@ -85,7 +97,7 @@ function SortableSubRow({ sub, isAdmin, onEdit, onDel }) {
 }
 
 // ── Sortable Main category card ──────────────────────────────────────────────
-function SortableMainCard({ cat, subs, isAdmin, isOpen, onToggle, onEdit, onDel, onAddSub, onEditSub, onDelSub, onSubReorder }) {
+function SortableMainCard({ cat, subs, isAdmin, isOpen, onToggle, onEdit, onDel, onAddSub, onEditSub, onDelSub }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: cat.id })
   const outerStyle = {
     transform: CSS.Transform.toString(transform),
@@ -93,30 +105,22 @@ function SortableMainCard({ cat, subs, isAdmin, isOpen, onToggle, onEdit, onDel,
     opacity: isDragging ? 0.35 : 1,
     zIndex: isDragging ? 10 : undefined,
   }
+  const [collapsed, setCollapsed] = useState({})
+  const toggleGroup = (name) => setCollapsed(c => ({ ...c, [name]: !c[name] }))
 
-  const subSensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
-  )
-
-  const handleSubDragEnd = (event) => {
-    const { active, over } = event
-    if (!over || active.id === over.id) return
-    const oldIdx = subs.findIndex(s => s.id === active.id)
-    const newIdx = subs.findIndex(s => s.id === over.id)
-    onSubReorder(cat.id, arrayMove(subs, oldIdx, newIdx))
-  }
+  const groups = groupSubs(subs)
+  const hasGroups = groups.some(g => g.name)
 
   return (
     <div ref={setNodeRef} className="rounded-xl overflow-hidden" style={{ ...outerStyle, ...CARD }}>
       {/* Main row */}
       <div className="flex items-center gap-2 px-3 py-3.5">
-        {/* drag handle */}
         <button {...attributes} {...listeners}
-          className="text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none flex-shrink-0 p-0.5">
+          className="text-slate-600 hover:text-slate-400 cursor-grab active:cursor-grabbing touch-none flex-shrink-0 p-0.5"
+          title="ลากเพื่อเรียงหมวดหลัก">
           <GripVertical className="w-4 h-4" />
         </button>
 
-        {/* expand toggle */}
         <button onClick={() => onToggle(cat.id)}
           className="text-slate-500 hover:text-slate-300 transition-colors w-5 flex-shrink-0">
           {subs.length > 0
@@ -125,21 +129,21 @@ function SortableMainCard({ cat, subs, isAdmin, isOpen, onToggle, onEdit, onDel,
         </button>
 
         <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: cat.color }} />
-        <span className="font-semibold text-slate-200 flex-1">{cat.name}</span>
+        <span className="font-semibold text-slate-200 flex-1 min-w-0 truncate">{cat.name}</span>
 
-        <span className="text-xs px-2 py-0.5 rounded-full"
+        <span className="text-xs px-2 py-0.5 rounded-full flex-shrink-0"
           style={{ color: TYPE_COLOR[cat.type], background: `${TYPE_COLOR[cat.type]}20` }}>
           {TYPE_LABEL[cat.type]}
         </span>
 
         {subs.length > 0 && (
-          <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full" style={{ background: '#1f2937' }}>
+          <span className="text-xs text-slate-500 px-2 py-0.5 rounded-full flex-shrink-0" style={{ background: '#1f2937' }}>
             {subs.length} ย่อย
           </span>
         )}
 
         {isAdmin && (
-          <div className="flex gap-1 ml-1">
+          <div className="flex gap-1 ml-1 flex-shrink-0">
             <button onClick={() => onAddSub(cat.id)}
               className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors" title="เพิ่มหมวดย่อย">
               <Plus className="w-3.5 h-3.5" />
@@ -154,18 +158,36 @@ function SortableMainCard({ cat, subs, isAdmin, isOpen, onToggle, onEdit, onDel,
         )}
       </div>
 
-      {/* Sub-categories (sortable) */}
+      {/* Sub-categories — grouped, usage-sorted, collapsible */}
       {isOpen && (
         <div style={{ borderTop: '1px solid #1f2937', background: '#111827' }}>
           {subs.length > 0 ? (
-            <DndContext sensors={subSensors} collisionDetection={closestCenter} onDragEnd={handleSubDragEnd}>
-              <SortableContext items={subs.map(s => s.id)} strategy={verticalListSortingStrategy}>
-                {subs.map(s => (
-                  <SortableSubRow key={s.id} sub={s} isAdmin={isAdmin}
-                    onEdit={onEditSub} onDel={onDelSub} />
-                ))}
-              </SortableContext>
-            </DndContext>
+            groups.map(g => {
+              const isCollapsed = !!collapsed[g.name]
+              return (
+                <div key={g.name || '__none'}>
+                  {hasGroups && (
+                    <button onClick={() => toggleGroup(g.name)}
+                      className="w-full flex items-center gap-2 pl-6 pr-3 py-2 hover:bg-white/[0.03] transition-colors"
+                      style={{ background: '#0d1322', borderBottom: '1px solid #1a2035' }}>
+                      {isCollapsed
+                        ? <ChevronRight className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
+                        : <ChevronDown className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />}
+                      <Layers className="w-3 h-3 flex-shrink-0" style={{ color: g.name ? '#10b981' : '#64748b' }} />
+                      <span className="text-xs font-semibold tracking-wide flex-1 text-left truncate"
+                        style={{ color: g.name ? '#a7f3d0' : '#94a3b8' }}>
+                        {g.name || 'อื่นๆ'}
+                      </span>
+                      <span className="text-[11px] text-slate-600 flex-shrink-0">{g.items.length} หมวด</span>
+                      {g.usage > 0 && <span className="text-[11px] text-slate-500 tabular-nums flex-shrink-0">· {g.usage} รายการ</span>}
+                    </button>
+                  )}
+                  {!isCollapsed && g.items.map(s => (
+                    <SubRow key={s.id} sub={s} isAdmin={isAdmin} onEdit={onEditSub} onDel={onDelSub} />
+                  ))}
+                </div>
+              )
+            })
           ) : isAdmin ? (
             <button onClick={() => onAddSub(cat.id)}
               className="w-full text-left pl-12 pr-4 py-2.5 text-xs text-slate-600 hover:text-emerald-400 transition-colors flex items-center gap-2">
@@ -208,13 +230,16 @@ export default function Categories() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const mainCats = cats.filter(c => !c.parentId)
   const subCatsOf = (parentId) => cats.filter(c => c.parentId === parentId)
+  const groupOptions = [...new Set([
+    ...cats.filter(c => c.parentId && c.groupName).map(c => c.groupName),
+    ...SUGGESTED_GROUPS,
+  ])]
 
-  // ── Drag sensors ───────────────────────────────────────────────────────────
+  // ── Drag sensors (main categories only) ──────────────────────────────────────
   const mainSensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   )
 
-  // ── Save sort_order helpers ────────────────────────────────────────────────
   const persistOrder = async (items) => {
     setSavingOrder(true)
     try {
@@ -226,7 +251,6 @@ export default function Categories() {
     }
   }
 
-  // ── Main category drag end ─────────────────────────────────────────────────
   const handleMainDragEnd = async (event) => {
     const { active, over } = event
     if (!over || active.id === over.id) return
@@ -241,16 +265,6 @@ export default function Categories() {
     await persistOrder(reordered)
   }
 
-  // ── Sub-category drag end ──────────────────────────────────────────────────
-  const handleSubReorder = async (parentId, reordered) => {
-    // Optimistic update
-    setCats(prev => {
-      const others = prev.filter(c => c.parentId !== parentId)
-      return [...others, ...reordered]
-    })
-    await persistOrder(reordered)
-  }
-
   // ── Category form ──────────────────────────────────────────────────────────
   const toggleExpand = (id) => setExpanded(e => ({ ...e, [id]: !e[id] }))
 
@@ -258,13 +272,16 @@ export default function Categories() {
     setEditing(null); setForm({ ...EMPTY, parentId }); setErr(''); setShowForm(true)
   }
   const openEdit = (c) => {
-    setEditing(c); setForm({ name: c.name, color: c.color || '#1A7A4A', type: c.type, parentId: c.parentId || '' }); setErr(''); setShowForm(true)
+    setEditing(c)
+    setForm({ name: c.name, color: c.color || '#1A7A4A', type: c.type, parentId: c.parentId || '', groupName: c.groupName || '' })
+    setErr(''); setShowForm(true)
   }
 
   const save = async (e) => {
     e.preventDefault(); setSaving(true); setErr('')
     try {
       const body = { ...form }
+      body.groupName = form.parentId ? (form.groupName.trim() || null) : null
       if (!body.parentId) delete body.parentId
       if (editing) await api.updateCategory(editing.id, body)
       else await api.createCategory(body)
@@ -306,7 +323,7 @@ export default function Categories() {
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white leading-tight">หมวดหมู่</h2>
             <p className="text-sm text-slate-500">
-              {mainCats.length} หมวดหลัก · {cats.length - mainCats.length} หมวดย่อย
+              {mainCats.length} หมวดหลัก · {cats.length - mainCats.length} หมวดย่อย · เรียงกลุ่มตามการใช้งานอัตโนมัติ
               {savingOrder && <span className="ml-2 text-emerald-400">กำลังบันทึกลำดับ...</span>}
             </p>
           </div>
@@ -314,7 +331,7 @@ export default function Categories() {
         <div className="flex items-center gap-3">
           {isAdmin && (
             <p className="text-xs text-slate-600 hidden sm:block">
-              <GripVertical className="w-3 h-3 inline mr-1" />ลากเพื่อเรียงลำดับ
+              <GripVertical className="w-3 h-3 inline mr-1" />ลากเพื่อเรียงหมวดหลัก
             </p>
           )}
           {isAdmin && (
@@ -343,7 +360,6 @@ export default function Categories() {
                 onAddSub={openCreate}
                 onEditSub={openEdit}
                 onDelSub={del}
-                onSubReorder={handleSubReorder}
               />
             ))}
           </div>
@@ -369,6 +385,18 @@ export default function Categories() {
                 <option value="expense">รายจ่าย</option>
               </select>
             </div>
+            {form.parentId && (
+              <div>
+                <label className="block text-xs font-medium text-slate-400 mb-1.5">กลุ่ม / ประเภท (ไม่บังคับ)</label>
+                <input list="cat-group-options" value={form.groupName}
+                  onChange={e => setForm(f => ({ ...f, groupName: e.target.value }))}
+                  className={INPUT} style={INPUT_STYLE} placeholder="เช่น อาหารทะเล, เนื้อหมู, ของแห้ง" />
+                <datalist id="cat-group-options">
+                  {groupOptions.map(g => <option key={g} value={g} />)}
+                </datalist>
+                <p className="text-[11px] text-slate-600 mt-1">จัดหมวดย่อยให้อยู่กลุ่มเดียวกัน · เลือกจากที่มี หรือพิมพ์ใหม่</p>
+              </div>
+            )}
             {!form.parentId && (
               <div>
                 <label className="block text-xs font-medium text-slate-400 mb-1.5">สังกัดหมวดหลัก (เว้นว่าง = หมวดหลัก)</label>

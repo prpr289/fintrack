@@ -20,9 +20,9 @@ var DEFAULT_WALLETS = [
 ];
 var worker_default = {
   async scheduled(event, env, ctx) {
-    const hour = new Date(event.scheduledTime).getUTCHours();
-    if (hour === 1) await processRecurring(env);
-    if (hour === 17) await cleanupDrafts(env);
+    const thaiHour = (new Date(event.scheduledTime).getUTCHours() + 7) % 24;
+    await processRecurring(env, thaiHour);
+    if (thaiHour === 0) await cleanupDrafts(env);
   },
   async fetch(request, env, ctx) {
     if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
@@ -636,12 +636,17 @@ async function reportWallets(request, env, user) {
 __name(reportWallets, "reportWallets");
 async function listCategories(env, user) {
   const result = await env.DB.prepare("SELECT * FROM categories WHERE workspace_id = ? AND is_active = 1 ORDER BY parent_id NULLS FIRST, sort_order, name").bind(user.workspace_id).all();
-  return json({ categories: (result.results || []).map(formatCategory) });
+  const usageRows = await env.DB.prepare(
+    "SELECT id, SUM(n) AS n FROM (SELECT category_id AS id, COUNT(*) AS n FROM transactions WHERE workspace_id = ? AND category_id IS NOT NULL GROUP BY category_id UNION ALL SELECT sub_category_id AS id, COUNT(*) AS n FROM transactions WHERE workspace_id = ? AND sub_category_id IS NOT NULL GROUP BY sub_category_id) GROUP BY id"
+  ).bind(user.workspace_id, user.workspace_id).all();
+  const usage = {};
+  for (const r of usageRows.results || []) usage[r.id] = Number(r.n) || 0;
+  return json({ categories: (result.results || []).map((c) => formatCategory(c, usage)) });
 }
 __name(listCategories, "listCategories");
 async function createCategory(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
-  const { name, color, type, parentId, parent_id } = await request.json();
+  const { name, color, type, parentId, parent_id, groupName, group_name } = await request.json();
   if (!name) return json({ error: "name required" }, 400);
   if (type && !["income", "expense", "both"].includes(type)) return json({ error: "invalid type" }, 400);
   const parent = parentId || parent_id || null;
@@ -649,8 +654,9 @@ async function createCategory(request, env, user) {
     const p = await env.DB.prepare("SELECT id FROM categories WHERE id = ? AND workspace_id = ? AND parent_id IS NULL").bind(parent, user.workspace_id).first();
     if (!p) return json({ error: "parent category not found or is itself a sub-category" }, 400);
   }
+  const group = ((groupName ?? group_name) || "").trim() || null;
   const id = "c_" + crypto.randomUUID().slice(0, 12);
-  await env.DB.prepare("INSERT INTO categories (id, workspace_id, parent_id, name, color, type) VALUES (?, ?, ?, ?, ?, ?)").bind(id, user.workspace_id, parent, name, color || "#9CA3AF", type || "both").run();
+  await env.DB.prepare("INSERT INTO categories (id, workspace_id, parent_id, name, color, type, group_name) VALUES (?, ?, ?, ?, ?, ?, ?)").bind(id, user.workspace_id, parent, name, color || "#9CA3AF", type || "both", group).run();
   await broadcastChange(env, user.workspace_id, { event: "category.created", id, by: user.name });
   const cat = await env.DB.prepare("SELECT * FROM categories WHERE id = ?").bind(id).first();
   return json({ category: formatCategory(cat) }, 201);
@@ -662,7 +668,7 @@ async function updateCategory(id, request, env, user) {
   if (!cat) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E2B\u0E21\u0E27\u0E14\u0E2B\u0E21\u0E39\u0E48" }, 404);
   const body = await request.json();
   if (body.type !== void 0 && !["income", "expense", "both"].includes(body.type)) return json({ error: "invalid type" }, 400);
-  const fields = ["name", "color", "type", "sort_order", "parent_id"];
+  const fields = ["name", "color", "type", "sort_order", "parent_id", "group_name"];
   const updates = [], args = [];
   for (const f of fields) {
     const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -761,18 +767,19 @@ __name(listRecurring, "listRecurring");
 async function createRecurring(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();
-  const { name, amount, type, scope, frequency, dueDay, walletId, categoryId, subCategoryId, autoCreate, nextDueDate } = body;
+  const { name, amount, type, scope, frequency, dueDay, walletId, categoryId, subCategoryId, autoCreate, nextDueDate, dueHour } = body;
   if (!name || !amount || !type || !scope || !frequency || !dueDay || !walletId) {
     return json({ error: "fields required" }, 400);
   }
   if (!["income", "expense"].includes(type)) return json({ error: "invalid type" }, 400);
   if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
   if (!["daily", "weekly", "monthly", "yearly"].includes(frequency)) return json({ error: "invalid frequency" }, 400);
+  if (dueHour != null && (!Number.isInteger(dueHour) || dueHour < 0 || dueHour > 23)) return json({ error: "invalid dueHour" }, 400);
   const { draftMode } = body;
   const id = "rec_" + crypto.randomUUID().slice(0, 12);
   await env.DB.prepare(
-    "INSERT INTO recurring_templates (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, frequency, due_day, auto_create, next_due_date, draft_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, walletId, categoryId || null, subCategoryId || null, name, Number(amount), type, scope, frequency, dueDay, autoCreate ? 1 : 0, nextDueDate || null, draftMode ? 1 : 0).run();
+    "INSERT INTO recurring_templates (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, frequency, due_day, auto_create, next_due_date, draft_mode, due_hour) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, walletId, categoryId || null, subCategoryId || null, name, Number(amount), type, scope, frequency, dueDay, autoCreate ? 1 : 0, nextDueDate || null, draftMode ? 1 : 0, dueHour ?? null).run();
   const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ?").bind(id).first();
   return json({ recurring: formatRecurring(rec) }, 201);
 }
@@ -782,7 +789,7 @@ async function updateRecurring(id, request, env, user) {
   const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!rec) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A recurring" }, 404);
   const body = await request.json();
-  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode"];
+  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode", "due_hour"];
   const updates = [], args = [];
   for (const f of fields) {
     const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -926,11 +933,11 @@ async function triggerRecurring(id, env, user) {
   return json({ ok: true, txId, nextDueDate: nextDue });
 }
 __name(triggerRecurring, "triggerRecurring");
-async function processRecurring(env) {
+async function processRecurring(env, thaiHour = 8) {
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const result = await env.DB.prepare(
-    "SELECT * FROM recurring_templates WHERE is_active = 1 AND auto_create = 1 AND (next_due_date IS NULL OR next_due_date <= ?)"
-  ).bind(today).all();
+    "SELECT * FROM recurring_templates WHERE is_active = 1 AND auto_create = 1 AND COALESCE(due_hour, 8) = ? AND (next_due_date IS NULL OR next_due_date <= ?)"
+  ).bind(thaiHour, today).all();
   for (const rec of result.results || []) {
     try {
       const isDraft = !!rec.draft_mode;
@@ -1863,7 +1870,7 @@ function formatWallet(w) {
   };
 }
 __name(formatWallet, "formatWallet");
-function formatCategory(c) {
+function formatCategory(c, usage) {
   if (!c) return null;
   return {
     id: c.id,
@@ -1873,6 +1880,8 @@ function formatCategory(c) {
     color: c.color,
     type: c.type,
     sortOrder: c.sort_order,
+    groupName: c.group_name || null,
+    usageCount: usage ? (usage[c.id] || 0) : 0,
     isActive: c.is_active === void 0 ? true : !!c.is_active
   };
 }
@@ -1930,6 +1939,7 @@ function formatRecurring(r) {
     scope: r.scope,
     frequency: r.frequency,
     dueDay: r.due_day,
+    dueHour: r.due_hour == null ? null : Number(r.due_hour),
     autoCreate: !!r.auto_create,
     draftMode: !!r.draft_mode,
     nextDueDate: r.next_due_date,

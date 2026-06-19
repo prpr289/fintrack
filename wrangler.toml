@@ -19,3 +19,8 @@ class_name = "WorkspaceRoom"
 [[migrations]]
 tag = "v1"
 new_classes = ["WorkspaceRoom"]
+
+# Runs hourly so recurring items fire at their chosen due_hour (Thai time = UTC+7).
+# NULL due_hour defaults to 08:00. cleanupDrafts runs at Thai 00:00.
+[triggers]
+crons = ["0 * * * *"]

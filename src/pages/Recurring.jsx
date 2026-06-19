@@ -8,7 +8,7 @@ const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
 const INPUT_STYLE = { background: '#0d1120' }
 const FREQ_LABEL = { daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', yearly: 'ทุกปี' }
-const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', frequency: 'monthly', dueDay: '1', walletId: '', categoryId: '', autoCreate: true, draftMode: false, nextDueDate: '' }
+const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', frequency: 'monthly', dueDay: '1', walletId: '', categoryId: '', autoCreate: true, draftMode: false, nextDueDate: '', dueHour: '' }
 
 function Label({ children }) {
   return <label className="block text-xs font-medium text-slate-400 mb-1.5">{children}</label>
@@ -57,6 +57,7 @@ export default function Recurring() {
       frequency: r.frequency, dueDay: String(r.dueDay), walletId: r.walletId,
       categoryId: r.categoryId || '', autoCreate: r.autoCreate,
       draftMode: r.draftMode || false, nextDueDate: r.nextDueDate || '',
+      dueHour: r.dueHour == null ? '' : String(r.dueHour),
     })
     setErr('')
     setShowForm(true)
@@ -71,6 +72,7 @@ export default function Recurring() {
         ...form,
         amount: Number(form.amount),
         dueDay: Number(form.dueDay) || 1,
+        dueHour: form.dueHour === '' ? null : Number(form.dueHour),
       }
       if (!body.categoryId) delete body.categoryId
       if (!body.nextDueDate) delete body.nextDueDate
@@ -142,7 +144,7 @@ export default function Recurring() {
 
       <div className="rounded-xl p-3 text-xs text-slate-500" style={CARD}>
         <Zap className="w-3 h-3 inline mr-1.5 text-yellow-400" />
-        ระบบจะสร้างรายการอัตโนมัติทุกวันเวลา 08:00 น. (ตาม Cron Trigger ที่ตั้งไว้) สำหรับรายการที่ถึงกำหนด
+        ระบบจะสร้างรายการอัตโนมัติทุกชั่วโมง ตามเวลาที่ตั้งไว้ของแต่ละรายการ (ค่าเริ่มต้น 08:00 น.) สำหรับรายการที่ถึงกำหนด
       </div>
 
       {items.length === 0 ? (
@@ -174,6 +176,7 @@ export default function Recurring() {
                     </p>
                     <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-2 text-xs text-slate-500">
                       <span>{freqText}</span>
+                      <span>เวลา {r.dueHour == null ? '08' : String(r.dueHour).padStart(2, '0')}:00 น.</span>
                       {wallet && <span>กระเป๋า: {wallet.name}</span>}
                       {cat && <span>หมวด: {cat.name}</span>}
                       {r.nextDueDate && <span className="text-slate-400">ครั้งถัดไป: {r.nextDueDate}</span>}
@@ -266,6 +269,15 @@ export default function Recurring() {
                   <Label>วันที่เริ่มต้น (ไม่บังคับ)</Label>
                   <input type="date" value={form.nextDueDate} onChange={e => setForm(f => ({ ...f, nextDueDate: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
                 </div>
+              </div>
+              <div>
+                <Label>เวลาที่สร้างรายการ</Label>
+                <select value={form.dueHour} onChange={e => setForm(f => ({ ...f, dueHour: e.target.value }))} className={INPUT} style={INPUT_STYLE}>
+                  <option value="">ค่าเริ่มต้น (08:00 น.)</option>
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <option key={h} value={h}>{String(h).padStart(2, '0')}:00 น.</option>
+                  ))}
+                </select>
               </div>
               <div>
                 <Label>กระเป๋าเงิน</Label>
