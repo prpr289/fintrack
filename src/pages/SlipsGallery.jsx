@@ -41,18 +41,19 @@ function SlipCard({ slip, onDelete }) {
             {isTransfer ? 'สลิปโอน' : 'ใบเสร็จ'}
           </span>
         </div>
-        <div className="flex items-center gap-1 text-xs text-slate-500 mt-auto">
+        <div className="flex items-center gap-1 text-xs text-slate-400 mt-auto">
           <Eye className="w-3 h-3" /> กดดู
         </div>
       </button>
       {onDelete && (
         <button onClick={() => onDelete(slip.id)}
-          className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-500/80 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-          <X className="w-3 h-3" />
+          aria-label="ลบสลิป" title="ลบสลิป"
+          className="absolute top-2 right-2 min-w-[40px] min-h-[40px] rounded-full bg-red-500/80 text-white flex items-center justify-center transition-opacity">
+          <X className="w-4 h-4" />
         </button>
       )}
       <div className="px-3 pb-3 text-center">
-        <p className="text-xs text-slate-500 truncate">{slip.txName}</p>
+        <p className="text-xs text-slate-400 truncate">{slip.txName}</p>
         <p className={`text-xs font-semibold mt-0.5 tabular-nums ${slip.txType === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
           {slip.txType === 'income' ? '+' : '-'}{thb(slip.txAmount)}
         </p>
@@ -156,7 +157,7 @@ function DownloadModal({ currentYear, currentMonth, onClose }) {
           <h3 className="font-semibold text-slate-200 flex items-center gap-2">
             <Download className="w-4 h-4 text-emerald-400" /> ดาวน์โหลดสลิป ZIP
           </h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 p-1">
+          <button onClick={onClose} aria-label="ปิด" title="ปิด" className="text-slate-400 hover:text-slate-300 p-2">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -300,7 +301,7 @@ export default function SlipsGallery() {
           <button onClick={() => {
             const prev = month === 1 ? { m: 12, y: year - 1 } : { m: month - 1, y: year }
             setMonth(prev.m); setYear(prev.y)
-          }} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
+          }} aria-label="เดือนก่อนหน้า" title="เดือนก่อนหน้า" className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
             <ChevronLeft className="w-4 h-4" />
           </button>
           <select value={month} onChange={e => setMonth(Number(e.target.value))}
@@ -316,7 +317,7 @@ export default function SlipsGallery() {
           <button onClick={() => {
             const next = month === 12 ? { m: 1, y: year + 1 } : { m: month + 1, y: year }
             setMonth(next.m); setYear(next.y)
-          }} className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
+          }} aria-label="เดือนถัดไป" title="เดือนถัดไป" className="p-2 text-slate-400 hover:text-white rounded-lg transition-colors" style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -347,7 +348,7 @@ export default function SlipsGallery() {
               <div className="flex items-center gap-3 mb-3">
                 <div className="text-sm font-semibold text-slate-300">{fmtDate(dateStr)}</div>
                 <div className="flex-1 h-px" style={{ background: '#1f2937' }} />
-                <span className="text-xs text-slate-600 tabular-nums">{byDate[dateStr].length} ไฟล์</span>
+                <span className="text-xs text-slate-400 tabular-nums">{byDate[dateStr].length} ไฟล์</span>
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
                 {byDate[dateStr].map(s => (

@@ -57,7 +57,7 @@ export default function AuditLog() {
         </div>
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-white leading-tight">ประวัติการใช้งาน</h2>
-          <p className="text-sm text-slate-500 mt-0.5">บันทึกการกระทำทั้งหมดในระบบ · รวม <span className="tabular-nums">{total}</span> รายการ</p>
+          <p className="text-sm text-slate-400 mt-0.5">บันทึกการกระทำทั้งหมดในระบบ · รวม <span className="tabular-nums">{total}</span> รายการ</p>
         </div>
       </div>
 
@@ -72,7 +72,7 @@ export default function AuditLog() {
               <ClipboardList className="w-6 h-6 text-slate-600" />
             </div>
             <p className="text-slate-300 text-sm font-medium">ยังไม่มีบันทึกการใช้งาน</p>
-            <p className="text-slate-600 text-xs">การกระทำต่างๆ ในระบบจะถูกบันทึกที่นี่</p>
+            <p className="text-slate-400 text-xs">การกระทำต่างๆ ในระบบจะถูกบันทึกที่นี่</p>
           </div>
         ) : (
           <>
@@ -93,7 +93,7 @@ export default function AuditLog() {
                   <div className="flex items-center gap-2">
                     <span className="text-xs text-slate-400">{ENTITY_LABEL[l.entityType] || l.entityType}</span>
                     <span className="text-slate-700">·</span>
-                    <span className="text-xs text-slate-600 font-mono truncate flex-1">{l.entityId}</span>
+                    <span className="text-xs text-slate-400 font-mono truncate flex-1">{l.entityId}</span>
                   </div>
                   <p className="text-xs text-slate-500">{fmtDate(l.createdAt)}</p>
                 </div>
@@ -126,7 +126,7 @@ export default function AuditLog() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-slate-400">{ENTITY_LABEL[l.entityType] || l.entityType}</td>
-                      <td className="px-4 py-3 text-xs text-slate-600 font-mono truncate max-w-36">{l.entityId}</td>
+                      <td className="px-4 py-3 text-xs text-slate-400 font-mono truncate max-w-36">{l.entityId}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -143,13 +143,15 @@ export default function AuditLog() {
           </p>
           <div className="flex items-center gap-2">
             <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
+              aria-label="ก่อนหน้า" title="ก่อนหน้า"
+              className="flex items-center gap-1 px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
               style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
               <ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">ก่อนหน้า</span>
             </button>
             <span className="text-sm text-slate-500 tabular-nums">{page}/{totalPages}</span>
             <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-              className="flex items-center gap-1 px-3 py-1.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
+              aria-label="ถัดไป" title="ถัดไป"
+              className="flex items-center gap-1 px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
               style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
               <span className="hidden sm:inline">ถัดไป</span><ChevronRight className="w-4 h-4" />
             </button>

@@ -30,14 +30,15 @@ export default function Login() {
         <div className="text-center mb-8">
           <div className="text-5xl mb-3">💼</div>
           <h1 className="text-2xl font-bold text-white">บัญชีธุรกิจของฉัน</h1>
-          <p className="text-slate-400 text-sm mt-1">เข้าสู่ระบบเพื่อจัดการบัญชี</p>
+          <p className="text-slate-300 text-sm mt-1">เข้าสู่ระบบเพื่อจัดการบัญชี</p>
         </div>
 
         <div className="rounded-2xl border border-slate-700/50 p-7" style={{ background: '#161b2e' }}>
           <form onSubmit={submit} className="space-y-4">
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">อีเมล</label>
+              <label htmlFor="login-email" className="block text-xs font-medium text-slate-300 mb-1.5">อีเมล</label>
               <input
+                id="login-email"
                 type="email" value={email} onChange={e => setEmail(e.target.value)} required
                 className="w-full rounded-lg px-3 py-2.5 text-sm text-white border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                 style={{ background: '#0d1120' }}
@@ -45,15 +46,16 @@ export default function Login() {
               />
             </div>
             <div>
-              <label className="block text-xs font-medium text-slate-400 mb-1.5">รหัสผ่าน</label>
+              <label htmlFor="login-password" className="block text-xs font-medium text-slate-300 mb-1.5">รหัสผ่าน</label>
               <input
+                id="login-password"
                 type="password" value={password} onChange={e => setPassword(e.target.value)} required
                 className="w-full rounded-lg px-3 py-2.5 text-sm text-white border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors"
                 style={{ background: '#0d1120' }}
                 placeholder="••••••"
               />
             </div>
-            {error && <p className="text-red-400 text-sm">{error}</p>}
+            {error && <p role="alert" aria-live="assertive" className="text-red-400 text-sm">{error}</p>}
             <button
               type="submit" disabled={loading}
               className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors mt-2"

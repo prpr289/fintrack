@@ -28,15 +28,20 @@ export default function Budget() {
     const lastDay = new Date(year, month, 0).getDate()
     const from = `${year}-${pad2(month)}-01`
     const to   = `${year}-${pad2(month)}-${pad2(lastDay)}`
-    const [bd, cd, td] = await Promise.all([
-      api.budgets(),
-      api.categories(),
-      api.transactions({ from, to, limit: 1000 }),
-    ])
-    setBudgets(bd.budgets || [])
-    setCategories(cd.categories || [])
-    setTxs(td.transactions || [])
-    setLoading(false)
+    try {
+      const [bd, cd, td] = await Promise.all([
+        api.budgets(),
+        api.categories(),
+        api.transactions({ from, to, limit: 1000 }),
+      ])
+      setBudgets(bd.budgets || [])
+      setCategories(cd.categories || [])
+      setTxs(td.transactions || [])
+    } catch (e) {
+      setErr(e.message)
+    } finally {
+      setLoading(false)
+    }
   }, [year, month])
 
   useEffect(() => { load() }, [load])
@@ -136,7 +141,7 @@ export default function Budget() {
         <div className="rounded-xl p-10 text-center" style={CARD}>
           <Target className="w-10 h-10 text-slate-600 mx-auto mb-3" />
           <p className="text-slate-400 text-sm font-medium">ยังไม่มีงบประมาณสำหรับเดือนนี้</p>
-          <p className="text-slate-600 text-xs mt-1">กดปุ่ม "+ เพิ่มงบ" เพื่อเริ่มกำหนดงบประมาณ</p>
+          <p className="text-slate-400 text-xs mt-1">กดปุ่ม "+ เพิ่มงบ" เพื่อเริ่มกำหนดงบประมาณ</p>
         </div>
       ) : (
         <div className="space-y-3">
@@ -162,7 +167,7 @@ export default function Budget() {
                         {isOver ? `เกินงบ ${thb(Math.abs(remaining))}` : `เหลือ ${thb(remaining)}`}
                       </p>
                     </div>
-                    <button onClick={() => delBudget(b)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                    <button onClick={() => delBudget(b)} aria-label="ลบงบประมาณ" title="ลบงบประมาณ" className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
@@ -190,7 +195,7 @@ export default function Budget() {
             </div>
             <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
               <h3 className="font-semibold text-slate-200">กำหนดงบประมาณ</h3>
-              <button onClick={() => setShowForm(false)} className="text-slate-500 hover:text-slate-300 p-1"><X className="w-5 h-5" /></button>
+              <button onClick={() => setShowForm(false)} aria-label="ปิด" title="ปิด" className="text-slate-500 hover:text-slate-300 p-2"><X className="w-5 h-5" /></button>
             </div>
             <form onSubmit={saveBudget} className="p-5 space-y-3 overflow-y-auto">
               <div>

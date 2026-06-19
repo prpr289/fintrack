@@ -152,6 +152,14 @@ export default function Wallets() {
         </div>
       </div>
 
+      {wallets.length === 0 ? (
+        <div className="rounded-xl p-10 flex flex-col items-center justify-center text-center gap-3" style={CARD}>
+          <div className="w-12 h-12 rounded-xl flex items-center justify-center" style={{ background: '#1f2937' }}>
+            <Wallet className="w-6 h-6 text-slate-400" />
+          </div>
+          <p className="text-slate-400 text-sm">ยังไม่มีกระเป๋า</p>
+        </div>
+      ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {wallets.map(w => (
           <div key={w.id} className="rounded-xl p-5 relative" style={{ ...CARD, opacity: isAdmin ? 1 : 1 }}>
@@ -167,16 +175,17 @@ export default function Wallets() {
                 <span className="font-semibold text-slate-200">{w.name}</span>
               </div>
               {isAdmin && (
-                <div className="flex gap-1">
+                <div className="flex gap-1.5">
                   <button onClick={() => toggleVisibility(w)}
+                    aria-label={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}
                     title={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}
-                    className={`p-1.5 rounded-lg transition-colors ${w.staffVisible ? 'text-slate-500 hover:text-orange-400 hover:bg-orange-500/10' : 'text-orange-400 bg-orange-400/10 hover:bg-orange-400/20'}`}>
+                    className={`p-2 rounded-lg transition-colors ${w.staffVisible ? 'text-slate-500 hover:text-orange-400 hover:bg-orange-500/10' : 'text-orange-400 bg-orange-400/10 hover:bg-orange-400/20'}`}>
                     {w.staffVisible ? <Unlock className="w-3.5 h-3.5" /> : <Lock className="w-3.5 h-3.5" />}
                   </button>
-                  <button onClick={() => openEdit(w)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                  <button onClick={() => openEdit(w)} aria-label="แก้ไข" title="แก้ไข" className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
-                  <button onClick={() => del(w)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                  <button onClick={() => del(w)} aria-label="ลบ" title="ลบ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                     <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
@@ -192,6 +201,7 @@ export default function Wallets() {
           </div>
         ))}
       </div>
+      )}
 
       {showForm && (
         <Modal title={editing ? 'แก้ไขกระเป๋า' : 'เพิ่มกระเป๋าเงิน'} onClose={() => setShowForm(false)}>
@@ -217,6 +227,7 @@ export default function Wallets() {
               <div className="flex gap-2 flex-wrap">
                 {COLORS.map(c => (
                   <button key={c} type="button" onClick={() => setForm(f => ({ ...f, color: c }))}
+                    aria-label={`สี ${c}`} aria-pressed={form.color === c}
                     className={`w-7 h-7 rounded-full border-2 transition-all ${form.color === c ? 'border-white scale-110' : 'border-transparent opacity-70 hover:opacity-100'}`}
                     style={{ backgroundColor: c }} />
                 ))}

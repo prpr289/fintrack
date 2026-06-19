@@ -141,7 +141,7 @@ function PeriodPicker({ period, custom, appliedCustom, onChange, onCustomChange,
               className="flex-1 px-4 py-1.5 text-sm font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white transition-colors">
               ดู
             </button>
-            <button onClick={() => setShowCustom(false)} className="p-1.5 text-slate-500 hover:text-slate-300">
+            <button onClick={() => setShowCustom(false)} aria-label="ปิด" title="ปิด" className="p-2 text-slate-500 hover:text-slate-300">
               <X className="w-4 h-4" />
             </button>
           </div>
@@ -189,7 +189,7 @@ function StatCard({ icon: Icon, iconBg, iconColor, label, value, valueColor, pre
       </div>
       <div className="text-2xl font-bold tabular-nums" style={{ color: valueColor || '#f1f5f9' }}>{value}</div>
       {change !== null && (
-        <div className={`text-xs mt-1.5 flex items-center gap-1 ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+        <div aria-label={`${change >= 0 ? 'เพิ่มขึ้น' : 'ลดลง'} ${Math.abs(change)}%`} className={`text-xs mt-1.5 flex items-center gap-1 ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
           {change >= 0 ? '↑' : '↓'} {Math.abs(change)}% vs ช่วงก่อน
         </div>
       )}
@@ -413,7 +413,8 @@ export default function Dashboard() {
                 style={{ borderBottom: i < recentTxs.length - 1 ? '1px solid #1f2937' : 'none' }}>
                 <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 font-bold"
                   style={{ background: t.type === 'income' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: t.type === 'income' ? '#34d399' : '#f87171' }}>
-                  {t.type === 'income' ? '↑' : '↓'}
+                  <span className="sr-only">{t.type === 'income' ? 'รายรับ' : 'รายจ่าย'}</span>
+                  <span aria-hidden="true">{t.type === 'income' ? '↑' : '↓'}</span>
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>

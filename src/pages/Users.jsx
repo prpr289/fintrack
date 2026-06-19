@@ -25,7 +25,7 @@ function Modal({ title, onClose, children }) {
         </div>
         <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
           <h3 className="font-semibold text-slate-200">{title}</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors p-1"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="ปิด" title="ปิด" className="text-slate-500 hover:text-slate-300 transition-colors p-2"><X className="w-5 h-5" /></button>
         </div>
         <div className="p-5 overflow-y-auto">{children}</div>
       </div>
@@ -125,12 +125,12 @@ export default function Users() {
                   </p>
                   <p className="text-xs text-slate-500 mt-0.5">{u.email}</p>
                 </div>
-                <div className="flex gap-1">
-                  <button onClick={() => openEdit(u)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                <div className="flex gap-2">
+                  <button onClick={() => openEdit(u)} aria-label={`แก้ไข ${u.name}`} title={`แก้ไข ${u.name}`} className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
                     <Pencil className="w-3.5 h-3.5" />
                   </button>
                   {u.id !== me.id && (
-                    <button onClick={() => del(u)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                    <button onClick={() => del(u)} aria-label="ลบ" title="ลบ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   )}
@@ -179,12 +179,12 @@ export default function Users() {
                     </span>
                   </td>
                   <td className="px-4 py-3">
-                    <div className="flex gap-1 justify-end">
-                      <button onClick={() => openEdit(u)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                    <div className="flex gap-2 justify-end">
+                      <button onClick={() => openEdit(u)} aria-label={`แก้ไข ${u.name}`} title={`แก้ไข ${u.name}`} className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
                         <Pencil className="w-3.5 h-3.5" />
                       </button>
                       {u.id !== me.id && (
-                        <button onClick={() => del(u)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                        <button onClick={() => del(u)} aria-label="ลบ" title="ลบ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       )}
@@ -258,7 +258,7 @@ function LineUsersCard() {
       {loading ? (
         <p className="text-slate-500 text-sm text-center py-4">กำลังโหลด...</p>
       ) : lineUsers.length === 0 ? (
-        <p className="text-slate-600 text-sm text-center py-4">ยังไม่มีพนักงานลงทะเบียน</p>
+        <p className="text-slate-400 text-sm text-center py-4">ยังไม่มีพนักงานลงทะเบียน</p>
       ) : (
         <div className="space-y-2">
           {lineUsers.map(u => (
@@ -268,11 +268,11 @@ function LineUsersCard() {
                 {u.lineDisplayName && u.lineDisplayName !== u.employeeName && (
                   <p className="text-xs text-slate-500">LINE: {u.lineDisplayName}</p>
                 )}
-                <p className="text-xs text-slate-600 font-mono">{u.lineUserId.slice(0, 16)}…</p>
+                <p className="text-xs text-slate-400 font-mono">{u.lineUserId.slice(0, 16)}…</p>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-slate-500">{u.createdAt?.slice(0, 10)}</span>
-                <button onClick={() => del(u)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                <button onClick={() => del(u)} aria-label="ลบ" title="ลบ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>
               </div>

@@ -7,7 +7,7 @@ import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
   CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
   Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
-  ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown,
+  ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown, User, Printer,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 
@@ -72,7 +72,7 @@ function Modal({ title, onClose, children, wide = false }) {
         </div>
         <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
           <h3 className="font-semibold text-slate-200">{title}</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 transition-colors p-1">
+          <button onClick={onClose} aria-label="ปิด" title="ปิด" className="text-slate-500 hover:text-slate-300 transition-colors p-2">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -1135,7 +1135,7 @@ export default function Transactions() {
             style={{ color: '#e2e8f0', fontSize: 13.5 }}
           />
           {search && (
-            <button onClick={() => setSearch('')} className="flex-shrink-0" style={{ color: 'rgba(148,163,184,0.7)' }}>
+            <button onClick={() => setSearch('')} aria-label="ล้างคำค้นหา" title="ล้างคำค้นหา" className="flex-shrink-0 min-w-[40px] min-h-[40px] flex items-center justify-center" style={{ color: 'rgba(148,163,184,0.7)' }}>
               <X className="w-3.5 h-3.5" />
             </button>
           )}
@@ -1186,7 +1186,7 @@ export default function Transactions() {
               <SearchX className="w-7 h-7" style={{ color: 'rgba(148,163,184,0.5)' }} />
             </div>
             <p style={{ color: '#d3dbe5', fontSize: 14, fontWeight: 600 }}>ไม่พบรายการ</p>
-            <p style={{ color: 'rgba(148,163,184,0.5)', fontSize: 12.5 }}>
+            <p style={{ color: 'rgba(148,163,184,0.75)', fontSize: 12.5 }}>
               {(debouncedSearch || filter.type || filter.scope || period !== 'all') ? 'ลองปรับช่วงเวลา / คำค้นหา หรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
             </p>
           </div>
@@ -1198,7 +1198,7 @@ export default function Transactions() {
                 <div key={g.key}>
                   <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                     <span style={{ fontFamily: FONT_SERIF, fontSize: 13.5, color: '#d9e1ea', fontWeight: 600 }}>{date(g.key)}</span>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 10.5, color: 'rgba(148,163,184,0.5)' }}>{g.items.length} รายการ</span>
+                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{g.items.length} รายการ</span>
                     <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
                     <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
                   </div>
@@ -1224,7 +1224,7 @@ export default function Transactions() {
                               <div className="inline-flex items-center gap-1.5 mt-1 max-w-full">
                                 <span className="flex-none" style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor(t) }} />
                                 <span className="truncate" style={{ fontSize: 12, color: 'rgba(211,219,229,0.85)' }}>{t.categoryName}</span>
-                                {t.subCategoryName && <span className="inline-flex items-center gap-1 truncate" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.55)' }}><ChevronRight className="w-2.5 h-2.5 flex-none" /> {t.subCategoryName}</span>}
+                                {t.subCategoryName && <span className="inline-flex items-center gap-1 truncate" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}><ChevronRight className="w-2.5 h-2.5 flex-none" /> {t.subCategoryName}</span>}
                               </div>
                             ) : null}
                           </div>
@@ -1233,16 +1233,16 @@ export default function Transactions() {
                             {thb(t.amount)}
                           </span>
                         </div>
-                        {t.note && t.note !== 'draft — รอยืนยัน' && <p className="truncate mt-1.5" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.5)' }}>{t.note}</p>}
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.6)' }}>
+                        {t.note && t.note !== 'draft — รอยืนยัน' && <p className="truncate mt-1.5" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</p>}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>
                           {t.walletName && (
                             <span className="inline-flex items-center gap-1.5 min-w-0">
-                              <CreditCardIcon /> <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 11 }}>{t.walletName}</span>
+                              <CreditCardIcon /> <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 12 }}>{t.walletName}</span>
                             </span>
                           )}
-                          {t.submittedBy && <span style={{ color: 'rgba(110,231,199,0.7)' }}>👤 {t.submittedBy}</span>}
+                          {t.submittedBy && <span className="inline-flex items-center gap-1" style={{ color: 'rgba(110,231,199,0.7)' }}><User className="w-3 h-3" /> {t.submittedBy}</span>}
                           {t.isReconciled && <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}><Check className="w-3 h-3" /> กระทบยอดแล้ว</span>}
-                          {t.printedBy && <span>🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
+                          {t.printedBy && <span className="inline-flex items-center gap-1"><Printer className="w-3 h-3" /> {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                           <div className="flex items-center gap-1.5 flex-wrap">
@@ -1275,7 +1275,7 @@ export default function Transactions() {
                           </div>
                           <div className="flex items-center gap-1">
                             {canWrite && (
-                              <button onClick={() => toggleReconcile(t)} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
+                              <button onClick={() => toggleReconcile(t)} aria-label={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
                                 className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
                                   t.isReconciled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' : 'text-slate-500 border border-white/10 hover:border-emerald-500/40'
                                 }`}>
@@ -1284,10 +1284,10 @@ export default function Transactions() {
                             )}
                             {canWrite && canEdit && (
                               <>
-                                <button onClick={() => openEdit(t)} className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                                <button onClick={() => openEdit(t)} aria-label="แก้ไขรายการ" title="แก้ไขรายการ" className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
                                   <Pencil className="w-4 h-4" />
                                 </button>
-                                <button onClick={() => del(t)} className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <button onClick={() => del(t)} aria-label="ลบรายการ" title="ลบรายการ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                                   <Trash2 className="w-4 h-4" />
                                 </button>
                               </>
@@ -1313,7 +1313,7 @@ export default function Transactions() {
                   <div key={g.key}>
                     <div className="flex items-center gap-3 px-6 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
                       <span style={{ fontFamily: FONT_SERIF, fontSize: 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>{date(g.key)}</span>
-                      <span style={{ fontFamily: FONT_MONO, fontSize: 11, color: 'rgba(148,163,184,0.5)' }}>{g.items.length} รายการ</span>
+                      <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{g.items.length} รายการ</span>
                       <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
                       <span className="uppercase" style={{ fontSize: 10.5, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.45)' }}>สุทธิ</span>
                       <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)', whiteSpace: 'nowrap' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
@@ -1330,14 +1330,14 @@ export default function Transactions() {
                               {t.isDraft && <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full"><Clock className="w-2.5 h-2.5" /> Draft</span>}
                               {t.pendingChanges && <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full"><Pencil className="w-2.5 h-2.5" /> แก้ไข</span>}
                             </div>
-                            {t.note && t.note !== 'draft — รอยืนยัน' && <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.5)' }}>{t.note}</span>}
+                            {t.note && t.note !== 'draft — รอยืนยัน' && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
                             {t.submittedBy && (
                               <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.7)' }}>
                                 <span className="flex items-center justify-center flex-none" style={{ width: 16, height: 16, borderRadius: '50%', fontSize: 8.5, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
                                 {t.submittedBy}
                               </span>
                             )}
-                            {t.printedBy && <span style={{ fontSize: 11, color: 'rgba(148,163,184,0.45)' }}>🖨️ {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
+                            {t.printedBy && <span className="inline-flex items-center gap-1" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}><Printer className="w-3 h-3" /> {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
                           </div>
                           <div className="min-w-0">
                             {t.categoryName ? (
@@ -1345,20 +1345,20 @@ export default function Transactions() {
                                 <span className="flex-none" style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor(t) }} />
                                 <span className="truncate" style={{ fontSize: 12.5, color: '#d3dbe5' }}>{t.categoryName}</span>
                                 {t.subCategoryName && (
-                                  <span className="inline-flex items-center gap-1 truncate min-w-0" style={{ fontSize: 11.5, color: 'rgba(148,163,184,0.55)' }}>
+                                  <span className="inline-flex items-center gap-1 truncate min-w-0" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>
                                     <ChevronRight className="w-2.5 h-2.5 flex-none" style={{ color: 'rgba(148,163,184,0.4)' }} />{t.subCategoryName}
                                   </span>
                                 )}
                               </div>
-                            ) : <span style={{ color: 'rgba(148,163,184,0.35)', fontSize: 13 }}>ไม่ระบุ</span>}
+                            ) : <span style={{ color: 'rgba(148,163,184,0.75)', fontSize: 13 }}>ไม่ระบุ</span>}
                           </div>
                           <div className="min-w-0">
                             {t.walletName ? (
                               <span className="inline-flex items-center gap-1.5 max-w-full min-w-0">
                                 <CreditCardIcon />
-                                <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: 'rgba(203,213,225,0.78)' }}>{t.walletName}</span>
+                                <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(203,213,225,0.78)' }}>{t.walletName}</span>
                               </span>
-                            ) : <span style={{ color: 'rgba(148,163,184,0.35)' }}>-</span>}
+                            ) : <span style={{ color: 'rgba(148,163,184,0.75)' }}>-</span>}
                           </div>
                           <div className="flex items-center justify-end gap-1.5 whitespace-nowrap" style={{ fontFamily: FONT_MONO, fontWeight: 500, fontSize: 14, color: t.type === 'income' ? '#34d399' : '#fb7185' }}>
                             {t.type === 'income' ? <ArrowUp className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} /> : <ArrowDown className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} />}
@@ -1366,43 +1366,43 @@ export default function Transactions() {
                           </div>
                           <div className="flex items-center justify-end gap-0.5">
                             {canWrite && (
-                              <button onClick={() => toggleReconcile(t)} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
-                                className={`w-7 h-7 rounded-lg border flex items-center justify-center transition-colors ${
+                              <button onClick={() => toggleReconcile(t)} aria-label={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
+                                className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
                                   t.isReconciled ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'border-white/10 text-transparent hover:border-emerald-500/40 hover:text-emerald-500/60'
                                 }`}>
                                 <Check className="w-3 h-3" />
                               </button>
                             )}
                             {t.isDraft && canWrite && (
-                              <button onClick={() => setConfirmTx(t)} title="ยืนยันรายการ Draft"
-                                className="p-1.5 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors">
+                              <button onClick={() => setConfirmTx(t)} aria-label="ยืนยันรายการ Draft" title="ยืนยันรายการ Draft"
+                                className="p-2 text-amber-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors">
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {!t.isDraft && t.pendingChanges && canConfirmEdit && (
-                              <button onClick={() => setEditConfirmTx(t)} title="ยืนยันการแก้ไข"
-                                className="p-1.5 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded-lg transition-colors">
+                              <button onClick={() => setEditConfirmTx(t)} aria-label="ยืนยันการแก้ไข" title="ยืนยันการแก้ไข"
+                                className="p-2 text-blue-300 hover:text-blue-200 hover:bg-blue-500/10 rounded-lg transition-colors">
                                 <Check className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {!t.isDraft && (
-                              <button onClick={() => setSlipTx(t)} title="แนบสลิป/ใบเสร็จ"
-                                className="p-1.5 text-slate-500 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors">
+                              <button onClick={() => setSlipTx(t)} aria-label="แนบสลิป/ใบเสร็จ" title="แนบสลิป/ใบเสร็จ"
+                                className="p-2 text-slate-500 hover:text-yellow-400 hover:bg-yellow-500/10 rounded-lg transition-colors">
                                 <Paperclip className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {!t.isDraft && canWrite && (t.type === 'expense' || t.type === 'income') && (
-                              <button onClick={() => openVoucher(t)} title={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'}
-                                className="p-1.5 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors">
+                              <button onClick={() => openVoucher(t)} aria-label={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'} title={t.type === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'}
+                                className="p-2 text-slate-500 hover:text-emerald-400 hover:bg-emerald-500/10 rounded-lg transition-colors">
                                 <FileText className="w-3.5 h-3.5" />
                               </button>
                             )}
                             {canWrite && canEdit && (
                               <>
-                                <button onClick={() => openEdit(t)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
+                                <button onClick={() => openEdit(t)} aria-label="แก้ไขรายการ" title="แก้ไขรายการ" className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors">
                                   <Pencil className="w-3.5 h-3.5" />
                                 </button>
-                                <button onClick={() => del(t)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
+                                <button onClick={() => del(t)} aria-label="ลบรายการ" title="ลบรายการ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                                   <Trash2 className="w-3.5 h-3.5" />
                                 </button>
                               </>

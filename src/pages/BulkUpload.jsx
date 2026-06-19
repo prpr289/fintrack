@@ -218,16 +218,19 @@ export default function BulkUpload() {
       {/* Dropzone */}
       {phase !== 'done' && (
         <div
+          role="button"
+          tabIndex={0}
           onDragOver={e => { e.preventDefault(); setDragOver(true) }}
           onDragLeave={() => setDragOver(false)}
           onDrop={onDrop}
           onClick={() => fileRef.current?.click()}
-          className={`rounded-2xl py-8 px-4 text-center cursor-pointer transition-colors ${dragOver ? 'bg-emerald-500/10' : 'hover:bg-white/[0.02]'}`}
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileRef.current?.click() } }}
+          className={`rounded-2xl py-8 px-4 text-center cursor-pointer transition-colors focus-visible:ring-2 focus-visible:ring-emerald-500 ${dragOver ? 'bg-emerald-500/10' : 'hover:bg-white/[0.02]'}`}
           style={{ border: `2px dashed ${dragOver ? '#10b981' : '#2e3349'}` }}
         >
           <UploadCloud className="w-9 h-9 mx-auto mb-2 text-slate-500" />
           <p className="text-sm text-slate-300 font-medium">ลากสลิปมาวางที่นี่ หรือคลิกเพื่อเลือกไฟล์</p>
-          <p className="text-xs text-slate-600 mt-1">รูปภาพ (JPG, PNG, HEIC) · หลายไฟล์พร้อมกันได้ · สูงสุด 10MB/ไฟล์</p>
+          <p className="text-xs text-slate-400 mt-1">รูปภาพ (JPG, PNG, HEIC) · หลายไฟล์พร้อมกันได้ · สูงสุด 10MB/ไฟล์</p>
           <input ref={fileRef} type="file" multiple accept="image/*" className="hidden"
             onChange={e => { addFiles(e.target.files); e.target.value = '' }} />
         </div>
@@ -290,11 +293,11 @@ export default function BulkUpload() {
                     <span className={`text-[0.68rem] px-1.5 py-0.5 rounded border ${slipBadge.cls}`}>{slipBadge.text}</span>
                     {row.source && <span className="text-[0.68rem] px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-300 border border-emerald-500/20">{SOURCE_LABEL[row.source] || row.source}</span>}
                     {dup && <span className="text-[0.68rem] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300 border border-red-500/20 flex items-center gap-1"><AlertTriangle className="w-3 h-3" /> อาจซ้ำ</span>}
-                    <span className="text-xs text-slate-600 truncate flex-1 min-w-0">{row.fileName}</span>
+                    <span className="text-xs text-slate-400 truncate flex-1 min-w-0">{row.fileName}</span>
                     {row.status === 'saved' && <span className="text-xs text-emerald-400 flex items-center gap-1"><Check className="w-3.5 h-3.5" /> บันทึกแล้ว</span>}
                     {row.status === 'failed' && <span className="text-xs text-red-400">ล้มเหลว</span>}
                     {row.status !== 'saved' && row.status !== 'saving' && phase !== 'done' && (
-                      <button onClick={() => removeRow(row.id)} className="text-slate-500 hover:text-red-400 p-0.5"><X className="w-4 h-4" /></button>
+                      <button aria-label="ลบสลิปนี้" title="ลบสลิปนี้" onClick={() => { if (row.status === 'ready' && !window.confirm('ลบแถวนี้?')) return; removeRow(row.id) }} className="text-slate-500 hover:text-red-400 p-2 -m-1"><X className="w-4 h-4" /></button>
                     )}
                     {row.status === 'saved' && (
                       <button onClick={() => openOne(row)} className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"><ExternalLink className="w-3.5 h-3.5" /> เปิดใบ</button>

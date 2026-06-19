@@ -128,7 +128,7 @@ export default function CategoryRules() {
               <Wand2 className="w-6 h-6 text-slate-600" />
             </div>
             <p className="text-slate-300 text-sm font-medium">ยังไม่มีกฎ</p>
-            <p className="text-slate-600 text-xs">เพิ่มกฎด้านบนเพื่อบังคับหมวดให้ตรง</p>
+            <p className="text-slate-400 text-xs">เพิ่มกฎด้านบนเพื่อบังคับหมวดให้ตรง</p>
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: '#1a2035' }}>
@@ -139,9 +139,9 @@ export default function CategoryRules() {
                 </span>
                 <ArrowRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
                 <span className="text-sm text-emerald-300 flex-1 min-w-0 truncate">
-                  {r.categoryName || '—'}{r.subCategoryName && <span className="text-slate-500"> › {r.subCategoryName}</span>}
+                  {r.categoryName || '—'}{r.subCategoryName && <span className="text-slate-400"> › {r.subCategoryName}</span>}
                 </span>
-                <button onClick={() => del(r)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0">
+                <button onClick={() => del(r)} aria-label={`ลบกฎ ${r.keyword}`} title={`ลบกฎ ${r.keyword}`} className="p-2.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors flex-shrink-0">
                   <Trash2 className="w-4 h-4" />
                 </button>
               </div>

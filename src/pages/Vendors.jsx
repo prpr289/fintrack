@@ -48,7 +48,7 @@ function EditModal({ vendor, cats, wallets, onClose, onDone }) {
         style={{ background: '#161b2e', border: '1px solid #2e3349' }}>
         <div className="flex items-center justify-between px-5 py-3.5 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
           <h3 className="font-semibold text-slate-200">แก้ไข Vendor</h3>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-300 p-1"><X className="w-5 h-5" /></button>
+          <button onClick={onClose} aria-label="ปิด" title="ปิด" className="text-slate-500 hover:text-slate-300 p-2"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={save} className="p-5 space-y-3 overflow-y-auto">
           <div>
@@ -167,7 +167,7 @@ export default function Vendors() {
 
       <div className="relative">
         <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ vendor..."
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="ค้นหาชื่อ vendor..." aria-label="ค้นหาชื่อ vendor"
           className="w-full rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 border border-slate-700 focus:outline-none focus:border-emerald-500"
           style={{ background: '#0d1120' }} />
       </div>
@@ -181,7 +181,7 @@ export default function Vendors() {
               <Store className="w-6 h-6 text-slate-600" />
             </div>
             <p className="text-slate-300 text-sm font-medium">{debounced ? 'ไม่พบ vendor ที่ค้นหา' : 'ยังไม่มี vendor ที่จำไว้'}</p>
-            {!debounced && <p className="text-slate-600 text-xs">บอทจะเริ่มจำเมื่อมีการบันทึกสลิป</p>}
+            {!debounced && <p className="text-slate-400 text-xs">บอทจะเริ่มจำเมื่อมีการบันทึกสลิป</p>}
           </div>
         ) : (
           <>
@@ -191,12 +191,12 @@ export default function Vendors() {
                 <div key={v.id} className="p-4 space-y-1.5">
                   <div className="flex items-start justify-between gap-2">
                     <p className="font-semibold text-slate-200 text-sm flex-1">{v.vendorName}</p>
-                    <div className="flex gap-1 flex-shrink-0">
-                      <button onClick={() => setEditing(v)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><Pencil className="w-4 h-4" /></button>
-                      <button onClick={() => del(v)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-4 h-4" /></button>
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button onClick={() => setEditing(v)} aria-label="แก้ไข vendor" title="แก้ไข vendor" className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><Pencil className="w-4 h-4" /></button>
+                      <button onClick={() => del(v)} aria-label="ลบ vendor" title="ลบ vendor" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-400">
                     <span>{v.typicalCategoryName || '— ไม่ระบุหมวด —'}{v.typicalSubCategoryName && <span className="text-slate-600"> › {v.typicalSubCategoryName}</span>}</span>
                     {v.typicalWalletName && <span>· {v.typicalWalletName}</span>}
                     <span>· เจอ <span className="tabular-nums">{v.occurrenceCount || 0}</span> ครั้ง</span>
@@ -232,9 +232,9 @@ export default function Vendors() {
                       <td className="px-4 py-3 text-center text-slate-400 tabular-nums">{v.occurrenceCount || 0}</td>
                       <td className="px-4 py-3 text-center text-slate-500 whitespace-nowrap text-xs">{fmtDate(v.lastSeen)}</td>
                       <td className="px-4 py-3">
-                        <div className="flex gap-1 justify-end">
-                          <button onClick={() => setEditing(v)} className="p-1.5 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><Pencil className="w-3.5 h-3.5" /></button>
-                          <button onClick={() => del(v)} className="p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
+                        <div className="flex gap-2 justify-end">
+                          <button onClick={() => setEditing(v)} aria-label="แก้ไข vendor" title="แก้ไข vendor" className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg"><Pencil className="w-3.5 h-3.5" /></button>
+                          <button onClick={() => del(v)} aria-label="ลบ vendor" title="ลบ vendor" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg"><Trash2 className="w-3.5 h-3.5" /></button>
                         </div>
                       </td>
                     </tr>
