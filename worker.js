@@ -579,7 +579,9 @@ async function reportWallets(request, env, user) {
   if (to) { conds.push("date <= ?"); args.push(to); }
   if (scope === "business" || scope === "personal") { conds.push("scope = ?"); args.push(scope); }
 
-  const [rangeRes, lifeRes, walletRes] = await Promise.all([
+  const catConds = conds.map((c) => "t." + c);
+
+  const [rangeRes, lifeRes, walletRes, catRes] = await Promise.all([
     env.DB.prepare(
       `SELECT wallet_id,
          SUM(CASE WHEN type='income'  AND transfer_pair_id IS NULL THEN amount ELSE 0 END) AS real_income,
@@ -598,10 +600,27 @@ async function reportWallets(request, env, user) {
       `SELECT id, name, color, scope, type, is_active, current_balance, initial_balance
        FROM wallets WHERE workspace_id = ? ORDER BY scope, sort_order, name`
     ).bind(ws).all(),
+    env.DB.prepare(
+      `SELECT t.wallet_id, t.category_id, c.name AS cat_name, c.color AS cat_color,
+         SUM(t.amount) AS total, COUNT(*) AS cnt
+       FROM transactions t LEFT JOIN categories c ON t.category_id = c.id
+       WHERE ${catConds.join(" AND ")} AND t.type='expense' AND t.transfer_pair_id IS NULL
+       GROUP BY t.wallet_id, t.category_id`
+    ).bind(...args).all(),
   ]);
 
   const rangeMap = {}; (rangeRes.results || []).forEach(r => { rangeMap[r.wallet_id] = r; });
   const lifeMap = {}; (lifeRes.results || []).forEach(r => { lifeMap[r.wallet_id] = Number(r.lifetime_net) || 0; });
+  const catMap = {};
+  (catRes.results || []).forEach(r => {
+    (catMap[r.wallet_id] || (catMap[r.wallet_id] = [])).push({
+      id: r.category_id || null,
+      name: r.cat_name || "ไม่ระบุหมวด",
+      color: r.cat_color || "#64748b",
+      total: Number(r.total) || 0,
+      count: Number(r.cnt) || 0,
+    });
+  });
 
   const wallets = (walletRes.results || []).map(w => {
     const r = rangeMap[w.id] || {};
@@ -619,6 +638,7 @@ async function reportWallets(request, env, user) {
       realIncome, realExpense, transferIn, transferOut,
       net: realIncome + transferIn - realExpense - transferOut,
       count: Number(r.cnt) || 0,
+      categories: (catMap[w.id] || []).sort((a, b) => b.total - a.total),
       reconcile: { expected, diff, ok: Math.abs(diff) < 0.005 },
     };
   });

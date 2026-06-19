@@ -1,9 +1,10 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { thb } from '../fmt'
-import { BarChart3, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Loader2, Wallet } from 'lucide-react'
+import { BarChart3, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Loader2, Wallet, PieChart, ChevronDown } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
+const SUNK = { background: '#0d1120', border: '1px solid #1f2937' }
 
 function ymd(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
@@ -33,6 +34,116 @@ const SCOPES = [['', 'ทุก scope'], ['business', 'ธุรกิจ'], ['p
 
 function Num({ value, color, signed }) {
   return <span className="tabular-nums" style={color ? { color } : undefined}>{signed && value > 0 ? '+' : ''}{thb(value)}</span>
+}
+
+// Top-level summary tile
+function StatTile({ label, value, color, signed, icon }) {
+  return (
+    <div className="rounded-xl px-3.5 py-3" style={CARD}>
+      <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mb-1">{icon}{label}</div>
+      <div className="text-base sm:text-lg font-bold tabular-nums leading-tight" style={{ color: color || '#e2e8f0' }}>
+        {signed && value > 0 ? '+' : ''}{thb(value)}
+      </div>
+    </div>
+  )
+}
+
+// Compact per-wallet flow stat
+function MiniStat({ label, value, color, signed, icon }) {
+  return (
+    <div className="rounded-lg px-2.5 py-2" style={SUNK}>
+      <div className="flex items-center gap-1 text-[10px] text-slate-500 mb-0.5">{icon}{label}</div>
+      <div className="text-sm font-semibold tabular-nums truncate" style={{ color }}>{signed && value > 0 ? '+' : ''}{thb(value)}</div>
+    </div>
+  )
+}
+
+// One wallet: summary + expense-by-category breakdown bars
+function WalletCard({ w }) {
+  const [open, setOpen] = useState(false)
+  const cats = w.categories || []
+  const maxCat = cats.reduce((mx, c) => Math.max(mx, c.total), 0) || 1
+  const shown = open ? cats : cats.slice(0, 4)
+  const hasExpense = cats.length > 0
+
+  return (
+    <div className="rounded-2xl overflow-hidden" style={CARD}>
+      {/* Header */}
+      <div className="p-4 sm:p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-3 h-3 rounded-full flex-shrink-0"
+              style={{ background: w.color || '#9CA3AF', boxShadow: `0 0 10px ${(w.color || '#9CA3AF')}66` }} />
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-slate-100 truncate">{w.name}</span>
+                {!w.reconcile.ok && <AlertTriangle className="w-3.5 h-3.5 text-red-400 flex-shrink-0" title="ยอดไม่ตรง" />}
+              </div>
+              <span className="text-[11px] text-slate-500">{w.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'}</span>
+            </div>
+          </div>
+          <div className="text-right flex-shrink-0">
+            <div className="text-[11px] text-slate-500">ยอดปัจจุบัน</div>
+            <div className="text-lg font-bold tabular-nums" style={{ color: w.currentBalance < 0 ? '#f87171' : '#e2e8f0' }}>
+              {thb(w.currentBalance)}
+            </div>
+          </div>
+        </div>
+
+        {/* Flow mini-stats */}
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <MiniStat label="รับจริง" value={w.realIncome} color="#34d399" icon={<ArrowDownLeft className="w-2.5 h-2.5 text-emerald-400" />} />
+          <MiniStat label="จ่ายจริง" value={w.realExpense} color="#f87171" icon={<ArrowUpRight className="w-2.5 h-2.5 text-red-400" />} />
+          <MiniStat label="สุทธิ" value={w.net} color={w.net >= 0 ? '#34d399' : '#f87171'} signed />
+        </div>
+      </div>
+
+      {/* Expense by category */}
+      <div style={{ borderTop: '1px solid #1f2937', background: '#111827' }} className="p-4 sm:p-5">
+        <div className="flex items-center justify-between mb-3">
+          <span className="text-xs font-semibold text-slate-400 flex items-center gap-1.5">
+            <PieChart className="w-3.5 h-3.5 text-emerald-400" /> จ่ายไปกับหมวด
+          </span>
+          {hasExpense && <span className="text-[11px] text-slate-600">{cats.length} หมวด</span>}
+        </div>
+
+        {hasExpense ? (
+          <div className="space-y-2.5">
+            {shown.map(c => {
+              const share = w.realExpense > 0 ? (c.total / w.realExpense) * 100 : 0
+              return (
+                <div key={c.id || 'none'}>
+                  <div className="flex items-center justify-between gap-2 mb-1">
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: c.color }} />
+                      <span className="text-xs text-slate-300 truncate">{c.name}</span>
+                      <span className="text-[10px] text-slate-600 flex-shrink-0">×{c.count}</span>
+                    </span>
+                    <span className="text-xs tabular-nums text-slate-300 flex-shrink-0">
+                      {thb(c.total)} <span className="text-slate-600">· {share.toFixed(0)}%</span>
+                    </span>
+                  </div>
+                  <div className="h-1.5 rounded-full overflow-hidden" style={{ background: '#0d1120' }}>
+                    <div className="h-full rounded-full"
+                      style={{ width: `${Math.max(2, (c.total / maxCat) * 100)}%`, background: c.color, transition: 'width .35s ease' }} />
+                  </div>
+                </div>
+              )
+            })}
+            {cats.length > 4 && (
+              <button onClick={() => setOpen(o => !o)}
+                className="flex items-center gap-1 text-[11px] text-emerald-400 hover:text-emerald-300 transition-colors pt-0.5">
+                <ChevronDown className={`w-3 h-3 transition-transform ${open ? 'rotate-180' : ''}`} />
+                {open ? 'ย่อ' : `ดูทั้งหมด (${cats.length})`}
+              </button>
+            )}
+          </div>
+        ) : (
+          <p className="text-xs text-slate-600 py-1.5">ไม่มีรายจ่ายในช่วงนี้</p>
+        )}
+      </div>
+    </div>
+  )
 }
 
 export default function Reports() {
@@ -85,7 +196,7 @@ export default function Reports() {
         </div>
         <div className="min-w-0">
           <h2 className="text-xl font-bold text-white leading-tight">รายงานแยกกระเป๋า</h2>
-          <p className="text-sm text-slate-500">รับ–จ่ายจริง แยกจากการโอน · <span className="text-slate-400">{periodLabel}</span></p>
+          <p className="text-sm text-slate-500">แต่ละกระเป๋าจ่ายเข้าหมวดไหนบ้าง · <span className="text-slate-400">{periodLabel}</span></p>
         </div>
       </div>
 
@@ -113,9 +224,27 @@ export default function Reports() {
 
       {loading ? (
         <div className="p-12 flex justify-center"><Loader2 className="w-6 h-6 text-emerald-500 animate-spin" /></div>
+      ) : wallets.length === 0 ? (
+        <div className="p-12 text-center flex flex-col items-center gap-2">
+          <div className="w-12 h-12 rounded-full flex items-center justify-center" style={SUNK}>
+            <Wallet className="w-6 h-6 text-slate-600" />
+          </div>
+          <p className="text-slate-300 text-sm font-medium">ไม่มีข้อมูลในช่วงนี้</p>
+          <p className="text-slate-600 text-xs">ลองปรับช่วงเวลา</p>
+        </div>
       ) : (
         <>
-          {/* Reconcile */}
+          {/* Totals */}
+          {totals && (
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+              <StatTile label="ยอดรวมทุกกระเป๋า" value={totalBalance} color={totalBalance < 0 ? '#f87171' : '#e2e8f0'} icon={<Wallet className="w-3 h-3 text-slate-500" />} />
+              <StatTile label="รับจริงรวม" value={totals.realIncome} color="#34d399" icon={<ArrowDownLeft className="w-3 h-3 text-emerald-400" />} />
+              <StatTile label="จ่ายจริงรวม" value={totals.realExpense} color="#f87171" icon={<ArrowUpRight className="w-3 h-3 text-red-400" />} />
+              <StatTile label="สุทธิรวม" value={totals.net} color={totals.net >= 0 ? '#34d399' : '#f87171'} signed icon={<BarChart3 className="w-3 h-3 text-slate-500" />} />
+            </div>
+          )}
+
+          {/* Reconcile status */}
           {mismatches.length > 0 ? (
             <div className="rounded-xl p-4" style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.3)' }}>
               <div className="flex items-center gap-2 text-red-400 font-semibold text-sm mb-2">
@@ -135,99 +264,18 @@ export default function Reports() {
                 ))}
               </div>
             </div>
-          ) : wallets.length > 0 && (
+          ) : (
             <div className="rounded-xl px-4 py-2.5 flex items-center gap-2 text-emerald-400 text-sm" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.25)' }}>
               <CheckCircle2 className="w-4 h-4" /> ยอดทุกกระเป๋าตรงกัน — ไม่มีความผิดปกติ
             </div>
           )}
 
-          {/* Desktop table */}
-          <div className="rounded-xl overflow-hidden hidden md:block" style={CARD}>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr style={{ borderBottom: '1px solid #1f2937', background: '#111827' }}>
-                    {['กระเป๋า', 'รับจริง', 'จ่ายจริง', 'โอนเข้า', 'โอนออก', 'สุทธิ', 'ยอดปัจจุบัน'].map((h, i) => (
-                      <th key={i} className={`px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide ${i === 0 ? 'text-left' : 'text-right'}`}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {wallets.map((w, i) => (
-                    <tr key={w.id} className="hover:bg-white/[0.02]" style={{ borderBottom: i < wallets.length - 1 ? '1px solid #1a2035' : 'none' }}>
-                      <td className="px-4 py-3">
-                        <span className="flex items-center gap-2">
-                          <span className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ background: w.color || '#9CA3AF' }} />
-                          <span className="font-medium text-slate-200">{w.name}</span>
-                          {!w.reconcile.ok && <AlertTriangle className="w-3.5 h-3.5 text-red-400" title="ยอดไม่ตรง" />}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3 text-right"><Num value={w.realIncome} color="#34d399" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={w.realExpense} color="#f87171" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={w.transferIn} color="#60a5fa" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={w.transferOut} color="#fbbf24" /></td>
-                      <td className="px-4 py-3 text-right font-semibold"><Num value={w.net} color={w.net >= 0 ? '#34d399' : '#f87171'} signed /></td>
-                      <td className="px-4 py-3 text-right font-semibold"><Num value={w.currentBalance} color={w.currentBalance < 0 ? '#f87171' : '#e2e8f0'} /></td>
-                    </tr>
-                  ))}
-                  {totals && wallets.length > 0 && (
-                    <tr style={{ background: '#111827', fontWeight: 700 }}>
-                      <td className="px-4 py-3 text-slate-300">รวม</td>
-                      <td className="px-4 py-3 text-right"><Num value={totals.realIncome} color="#34d399" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={totals.realExpense} color="#f87171" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={totals.transferIn} color="#60a5fa" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={totals.transferOut} color="#fbbf24" /></td>
-                      <td className="px-4 py-3 text-right"><Num value={totals.net} color={totals.net >= 0 ? '#34d399' : '#f87171'} signed /></td>
-                      <td className="px-4 py-3 text-right"><Num value={totalBalance} color={totalBalance < 0 ? '#f87171' : '#e2e8f0'} /></td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+          {/* Wallet cards */}
+          <div className="grid gap-4 lg:grid-cols-2">
+            {wallets.map(w => <WalletCard key={w.id} w={w} />)}
           </div>
-
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {wallets.map(w => (
-              <div key={w.id} className="rounded-xl p-4" style={CARD}>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="flex items-center gap-2 font-semibold text-slate-200">
-                    <span className="w-2.5 h-2.5 rounded-full" style={{ background: w.color || '#9CA3AF' }} />{w.name}
-                    {!w.reconcile.ok && <AlertTriangle className="w-3.5 h-3.5 text-red-400" />}
-                  </span>
-                  <span className="text-sm font-bold"><Num value={w.currentBalance} color={w.currentBalance < 0 ? '#f87171' : '#e2e8f0'} /></span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs">
-                  <Row label="รับจริง" icon={<ArrowDownLeft className="w-3 h-3 text-emerald-400" />}><Num value={w.realIncome} color="#34d399" /></Row>
-                  <Row label="จ่ายจริง" icon={<ArrowUpRight className="w-3 h-3 text-red-400" />}><Num value={w.realExpense} color="#f87171" /></Row>
-                  <Row label="โอนเข้า"><Num value={w.transferIn} color="#60a5fa" /></Row>
-                  <Row label="โอนออก"><Num value={w.transferOut} color="#fbbf24" /></Row>
-                  <Row label="สุทธิ"><Num value={w.net} color={w.net >= 0 ? '#34d399' : '#f87171'} signed /></Row>
-                </div>
-              </div>
-            ))}
-          </div>
-
-          {wallets.length === 0 && (
-            <div className="p-12 text-center flex flex-col items-center gap-2">
-              <div className="w-12 h-12 rounded-full flex items-center justify-center" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
-                <Wallet className="w-6 h-6 text-slate-600" />
-              </div>
-              <p className="text-slate-300 text-sm font-medium">ไม่มีข้อมูลในช่วงนี้</p>
-              <p className="text-slate-600 text-xs">ลองปรับช่วงเวลา</p>
-            </div>
-          )}
         </>
       )}
-    </div>
-  )
-}
-
-function Row({ label, icon, children }) {
-  return (
-    <div className="flex items-center justify-between">
-      <span className="text-slate-500 flex items-center gap-1">{icon}{label}</span>
-      <span className="font-medium">{children}</span>
     </div>
   )
 }
