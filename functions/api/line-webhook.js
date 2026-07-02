@@ -40,7 +40,9 @@ async function replyMessage(replyToken, messages, token) {
   if (!res.ok) {
     const body = await res.text().catch(() => '')
     console.error(`[LINE replyMessage ${res.status}]`, body.slice(0, 500))
+    return false
   }
+  return true
 }
 
 async function pushMessage(userId, messages, token) {
@@ -53,6 +55,15 @@ async function pushMessage(userId, messages, token) {
     const body = await res.text().catch(() => '')
     console.error(`[LINE pushMessage ${res.status}]`, body.slice(0, 500))
   }
+}
+
+// Reply tokens expire (LINE allows ~1 min) and a failed reply is silent. Slow OCR/D1
+// work can blow past that window, so fall back to push — the user always gets an answer.
+// ponytail: push quota (paid) is only spent on the failed/slow path, not normal replies.
+async function replyOrPush(event, messages, token) {
+  if (await replyMessage(event.replyToken, messages, token)) return
+  const to = event.source?.userId || event.source?.groupId || event.source?.roomId
+  if (to) await pushMessage(to, messages, token)
 }
 
 async function downloadImage(messageId, token) {
@@ -85,8 +96,9 @@ async function ocrSlip(imageBuffer, apiKey) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
+      model: 'claude-sonnet-5',
       max_tokens: 1024,
+      thinking: { type: 'disabled' }, // Sonnet 5 defaults thinking on; off keeps content[0]=text and the call fast (reply-token safe)
       messages: [{
         role: 'user',
         content: [
@@ -266,8 +278,9 @@ async function suggestCategoryAI(name, amount, categories, apiKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-4-6',
+        model: 'claude-sonnet-5',
         max_tokens: 120,
+        thinking: { type: 'disabled' }, // 120-token budget can't afford thinking
         messages: [{
           role: 'user',
           content: `ชื่อผู้รับเงิน: "${name}"${amount ? `\nจำนวน: ${amount} บาท` : ''}\n\nหมวดหมู่ในระบบ:\n${catList}\n\nตอบ JSON เท่านั้น (ถ้าไม่แน่ใจให้ subCategoryId เป็น null): {"categoryId":"id","subCategoryId":"id หรือ null"}`,
@@ -779,7 +792,7 @@ function buildDeleteConfirmFlex(txId, amt, name, date) {
 // ── Event Handlers ─────────────────────────────────────────
 
 async function handleImage(event, env) {
-  const { replyToken, message } = event
+  const { message } = event
   const today = new Date().toISOString().slice(0, 10)
   const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
 
@@ -797,10 +810,10 @@ async function handleImage(event, env) {
 
     const ocrStart = Date.now()
     const ocr = await ocrSlip(imageBuffer, env.ANTHROPIC_API_KEY)
-    console.log(`[TIMING] ocrSlip: ${Date.now() - ocrStart}ms (model=sonnet-4-6)`)
+    console.log(`[TIMING] ocrSlip: ${Date.now() - ocrStart}ms (model=sonnet-5)`)
 
     if (!ocr?.is_slip || !ocr?.amount) {
-      await replyMessage(replyToken, [{
+      await replyOrPush(event, [{
         type: 'text',
         text: '⚠️ อ่านสลิปไม่ได้ครับ\nกรุณาถ่ายรูปใหม่ให้ชัดขึ้น ไม่มีเงาหรือภาพเบลอ',
       }], env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -819,12 +832,12 @@ async function handleImage(event, env) {
     const wallet = bankWallet || (cat?.walletId ? (wallets.find(w => w.id === cat.walletId) || null) : null)
 
     const replyStart = Date.now()
-    await replyMessage(replyToken, [buildConfirmFlex(ocr, message.id, today, '', cat, wallet)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(ocr, message.id, today, '', cat, wallet)], env.LINE_CHANNEL_ACCESS_TOKEN)
     console.log(`[TIMING] reply flex: ${Date.now() - replyStart}ms`)
     ms('TOTAL')
   } catch (err) {
     console.error('handleImage error:', err)
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: `❌ เกิดข้อผิดพลาด: ${err.message}\nกรุณาลองใหม่อีกครั้งครับ`,
     }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
@@ -832,7 +845,7 @@ async function handleImage(event, env) {
 }
 
 async function handlePostback(event, env) {
-  const { replyToken, postback, source } = event
+  const { postback, source } = event
   const userId = source.userId
   let data
   try { data = JSON.parse(postback.data) } catch { return }
@@ -858,12 +871,12 @@ async function handlePostback(event, env) {
       getWallets(baseUrl, env.FINTRACK_TOKEN),
     ])
     const wallet = data.wi ? (wallets.find(w => w.id === data.wi) || null) : matchWallet(data.b, wallets)
-    await replyMessage(replyToken, [buildConfirmFlex(editedOcr, data.m, today, autoMemo, cat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(editedOcr, data.m, today, autoMemo, cat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
   if (data.a === 'cancel') {
-    await replyMessage(replyToken, [{ type: 'text', text: '↩️ ยกเลิกแล้วครับ ไม่มีการบันทึก' }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [{ type: 'text', text: '↩️ ยกเลิกแล้วครับ ไม่มีการบันทึก' }], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -871,7 +884,7 @@ async function handlePostback(event, env) {
     const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
     const cats = await getCategories(baseUrl, env.FINTRACK_TOKEN)
     const { a: _a, ...txSnap } = data
-    await replyMessage(replyToken, [buildCatSelectFlex(cats, txSnap, 'main')], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildCatSelectFlex(cats, txSnap, 'main')], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -884,7 +897,7 @@ async function handlePostback(event, env) {
     const subs = cats.filter(c => c.parentId === data.c)
     const { a: _a, ...txSnap } = data
     if (subs.length > 0) {
-      await replyMessage(replyToken, [buildCatSelectFlex(cats, txSnap, 'sub', data.c)], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [buildCatSelectFlex(cats, txSnap, 'sub', data.c)], env.LINE_CHANNEL_ACCESS_TOKEN)
     } else {
       const today = new Date().toISOString().slice(0, 10)
       const txType = data.ty || 'expense'
@@ -892,7 +905,7 @@ async function handlePostback(event, env) {
       const selectedCat = catObj ? { categoryId: data.c, subCategoryId: null, categoryName: catObj.name, subCategoryName: null, source: 'manual' } : null
       const wallet = data.wi ? (wallets.find(w => w.id === data.wi) || null) : matchWallet(data.b, wallets)
       const editedOcr = { is_slip: true, amount: data.amt, date: data.d, recipient_name: data.n || null, bank: data.b || null, reference: data.r || null, slip_type: data.t || 'transfer' }
-      await replyMessage(replyToken, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
     }
     return
   }
@@ -910,7 +923,7 @@ async function handlePostback(event, env) {
     const selectedCat = catObj ? { categoryId: data.c, subCategoryId: subObj?.id || null, categoryName: catObj.name, subCategoryName: subObj?.name || null, source: 'manual' } : null
     const wallet = data.wi ? (wallets.find(w => w.id === data.wi) || null) : matchWallet(data.b, wallets)
     const editedOcr = { is_slip: true, amount: data.amt, date: data.d, recipient_name: data.n || null, bank: data.b || null, reference: data.r || null, slip_type: data.t || 'transfer' }
-    await replyMessage(replyToken, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -918,7 +931,7 @@ async function handlePostback(event, env) {
     const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
     const wallets = await getWallets(baseUrl, env.FINTRACK_TOKEN)
     const { a: _a, ...txSnap } = data
-    await replyMessage(replyToken, [buildWalletSelectFlex(wallets, txSnap)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildWalletSelectFlex(wallets, txSnap)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -935,7 +948,7 @@ async function handlePostback(event, env) {
     const selectedCat = catObj ? { categoryId: data.c, subCategoryId: subObj?.id || null, categoryName: catObj.name, subCategoryName: subObj?.name || null, source: 'manual' } : null
     const wallet = data.wi ? (wallets.find(w => w.id === data.wi) || null) : null
     const editedOcr = { is_slip: true, amount: data.amt, date: data.d, recipient_name: data.n || null, bank: data.b || null, reference: data.r || null, slip_type: data.t || 'transfer' }
-    await replyMessage(replyToken, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -952,12 +965,12 @@ async function handlePostback(event, env) {
     const selectedCat = catObj ? { categoryId: data.c, subCategoryId: subObj?.id || null, categoryName: catObj.name, subCategoryName: subObj?.name || null, source: 'manual' } : null
     const wallet = data.wi ? (wallets.find(w => w.id === data.wi) || null) : null
     const editedOcr = { is_slip: true, amount: data.amt, date: data.d, recipient_name: data.n || null, bank: data.b || null, reference: data.r || null, slip_type: data.t || 'transfer' }
-    await replyMessage(replyToken, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(editedOcr, data.m, today, data.mo || '', selectedCat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
   if (data.a === 'delconf') {
-    await replyMessage(replyToken, [buildDeleteConfirmFlex(data.id, data.amt, data.n, data.d)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildDeleteConfirmFlex(data.id, data.amt, data.n, data.d)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -965,9 +978,9 @@ async function handlePostback(event, env) {
     try {
       const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
       await fintrack('DELETE', `/transactions/${data.id}`, null, baseUrl, env.FINTRACK_TOKEN)
-      await replyMessage(replyToken, [{ type: 'text', text: '🗑️ ลบรายการเรียบร้อยแล้วครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: '🗑️ ลบรายการเรียบร้อยแล้วครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN)
     } catch (err) {
-      await replyMessage(replyToken, [{ type: 'text', text: `❌ ลบไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: `❌ ลบไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
     }
     return
   }
@@ -996,7 +1009,7 @@ async function handlePostback(event, env) {
       // Guard: never report success when the API didn't actually save (e.g. expired token).
       if (!txData?.transaction?.id) {
         console.error('[confirm] save failed:', JSON.stringify(txData).slice(0, 200))
-        await replyMessage(replyToken, [{
+        await replyOrPush(event, [{
           type: 'text',
           text: `❌ บันทึกไม่สำเร็จครับ: ${txData?.error || 'ระบบไม่ตอบกลับ'}\nรบกวนแจ้งแอดมินตรวจสอบการเชื่อมต่อ (token) ครับ`,
         }], env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -1086,7 +1099,7 @@ async function handlePostback(event, env) {
         }
       }
 
-      await replyMessage(replyToken, [
+      await replyOrPush(event, [
         { type: 'text', text: lines + gdriveNote },
         {
           type: 'flex',
@@ -1133,7 +1146,7 @@ async function handlePostback(event, env) {
       ], env.LINE_CHANNEL_ACCESS_TOKEN)
     } catch (err) {
       console.error('handlePostback error:', err)
-      await replyMessage(replyToken, [{
+      await replyOrPush(event, [{
         type: 'text',
         text: `❌ บันทึกไม่สำเร็จ: ${err.message}\nกรุณาลองใหม่อีกครั้งครับ`,
       }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
@@ -1142,7 +1155,7 @@ async function handlePostback(event, env) {
 }
 
 async function handleText(event, env) {
-  const { replyToken, message, source } = event
+  const { message, source } = event
   const text = message.text.trim()
   const today = new Date().toISOString().slice(0, 10)
   const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
@@ -1165,7 +1178,7 @@ async function handleText(event, env) {
       slip_type: params.t || 'transfer',
     }
     const cat = await resolveCat(params.n, params.a, 'expense', baseUrl, env.FINTRACK_TOKEN, env.ANTHROPIC_API_KEY)
-    await replyMessage(replyToken, [buildConfirmFlex(editedOcr, params.m, today, params.mo || '', cat)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildConfirmFlex(editedOcr, params.m, today, params.mo || '', cat)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -1178,18 +1191,18 @@ async function handleText(event, env) {
         headers: { Authorization: `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}` },
       }).then(r => r.ok ? r.json() : null).catch(() => null)
       await registerEmployee(source.userId, employeeName, lineProfile?.displayName || null, baseUrl, env.FINTRACK_TOKEN)
-      await replyMessage(replyToken, [{
+      await replyOrPush(event, [{
         type: 'text',
         text: `✅ ลงทะเบียนสำเร็จครับ\n👤 ชื่อ: ${employeeName}\n\nต่อไปนี้รายการที่คุณส่งจะแสดงชื่อผู้บันทึกด้วยครับ`,
       }], env.LINE_CHANNEL_ACCESS_TOKEN)
     } catch (err) {
-      await replyMessage(replyToken, [{ type: 'text', text: `❌ ลงทะเบียนไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: `❌ ลงทะเบียนไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
     }
     return
   }
 
   if (['ช่วยเหลือ', 'help', '?', 'menu'].includes(text.toLowerCase())) {
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: [
         '📋 คำสั่งที่ใช้ได้',
@@ -1220,7 +1233,7 @@ async function handleText(event, env) {
     const txs = data.transactions || []
     const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
     const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: [
         `📊 ยอดวันนี้ (${today})`,
@@ -1245,7 +1258,7 @@ async function handleText(event, env) {
     const txs = data.transactions || []
     const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
     const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: [
         `📊 ยอดสัปดาห์นี้ (${fromDate} – ${today})`,
@@ -1265,7 +1278,7 @@ async function handleText(event, env) {
     const txs = data.transactions || []
     const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
     const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: [
         `📊 ยอดเดือนนี้ (${fromDate} – ${today})`,
@@ -1285,7 +1298,7 @@ async function handleText(event, env) {
     const list = txs.length
       ? txs.map((t, i) => `${i + 1}. ${t.name}\n   ${t.type === 'income' ? '+' : '-'}฿${thb(t.amount)} · ${t.date}`).join('\n\n')
       : 'ยังไม่มีรายการ'
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: `📋 5 รายการล่าสุด\n\n${list}`,
     }], env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -1300,13 +1313,13 @@ async function handleText(event, env) {
     const cats = await getCategories(baseUrl, env.FINTRACK_TOKEN)
     const cat = cats.find(c => !c.parentId && c.name.toLowerCase().includes(catName.toLowerCase()))
     if (!cat) {
-      await replyMessage(replyToken, [{ type: 'text', text: `❌ ไม่พบหมวดหมู่ "${catName}" ครับ\nพิมพ์ "ดูงบ" เพื่อดูหมวดที่มี` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: `❌ ไม่พบหมวดหมู่ "${catName}" ครับ\nพิมพ์ "ดูงบ" เพื่อดูหมวดที่มี` }], env.LINE_CHANNEL_ACCESS_TOKEN)
       return
     }
     const budget = await getBudget(env.VOUCHER_BUCKET)
     budget[cat.id] = { name: cat.name, budget: budgetAmt }
     await saveBudget(env.VOUCHER_BUCKET, budget)
-    await replyMessage(replyToken, [{ type: 'text', text: `✅ ตั้งงบ "${cat.name}" = ฿${thb(budgetAmt)}/เดือน เรียบร้อยแล้วครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [{ type: 'text', text: `✅ ตั้งงบ "${cat.name}" = ฿${thb(budgetAmt)}/เดือน เรียบร้อยแล้วครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -1317,12 +1330,12 @@ async function handleText(event, env) {
     const budget = await getBudget(env.VOUCHER_BUCKET)
     const entry = Object.entries(budget).find(([, v]) => v.name.toLowerCase().includes(catName.toLowerCase()))
     if (!entry) {
-      await replyMessage(replyToken, [{ type: 'text', text: `❌ ไม่พบงบสำหรับ "${catName}" ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: `❌ ไม่พบงบสำหรับ "${catName}" ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
       return
     }
     delete budget[entry[0]]
     await saveBudget(env.VOUCHER_BUCKET, budget)
-    await replyMessage(replyToken, [{ type: 'text', text: `🗑️ ลบงบ "${entry[1].name}" เรียบร้อยแล้วครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [{ type: 'text', text: `🗑️ ลบงบ "${entry[1].name}" เรียบร้อยแล้วครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -1331,7 +1344,7 @@ async function handleText(event, env) {
     const budget = await getBudget(env.VOUCHER_BUCKET)
     const entries = Object.entries(budget)
     if (!entries.length) {
-      await replyMessage(replyToken, [{
+      await replyOrPush(event, [{
         type: 'text',
         text: 'ยังไม่ได้ตั้งงบครับ\nพิมพ์ "ตั้งงบ อาหาร 5000" เพื่อตั้งงบต่อหมวดหมู่',
       }], env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -1356,7 +1369,7 @@ async function handleText(event, env) {
       lines.push(`  ${bar}`)
       lines.push('')
     }
-    await replyMessage(replyToken, [{ type: 'text', text: lines.join('\n').trim() }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [{ type: 'text', text: lines.join('\n').trim() }], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -1371,7 +1384,7 @@ async function handleText(event, env) {
       const res = await fintrack('GET', `/transactions?from=${fromDate}&to=${toDate}&limit=1000`, null, baseUrl, env.FINTRACK_TOKEN)
       const txs = res.transactions || []
       if (!txs.length) {
-        await replyMessage(replyToken, [{ type: 'text', text: `ไม่มีรายการในเดือน ${month} ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+        await replyOrPush(event, [{ type: 'text', text: `ไม่มีรายการในเดือน ${month} ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
         return
       }
       // Build CSV with BOM for Excel Thai encoding
@@ -1391,7 +1404,7 @@ async function handleText(event, env) {
       const url = `${R2_PUBLIC_URL}/${key}`
       const income = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
       const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-      await replyMessage(replyToken, [{
+      await replyOrPush(event, [{
         type: 'text',
         text: [
           `📊 รายงานเดือน ${month}`,
@@ -1406,7 +1419,7 @@ async function handleText(event, env) {
         ].join('\n'),
       }], env.LINE_CHANNEL_ACCESS_TOKEN)
     } catch (err) {
-      await replyMessage(replyToken, [{ type: 'text', text: `❌ สร้างรายงานไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
+      await replyOrPush(event, [{ type: 'text', text: `❌ สร้างรายงานไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
     }
     return
   }
@@ -1419,13 +1432,13 @@ async function handleText(event, env) {
     const res = await fintrack('GET', `/transactions?${q}`, null, baseUrl, env.FINTRACK_TOKEN)
     const txs = res.transactions || []
     if (!txs.length) {
-      await replyMessage(replyToken, [{ type: 'text', text: `🔍 ไม่พบรายการที่มีคำว่า "${keyword}" ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: `🔍 ไม่พบรายการที่มีคำว่า "${keyword}" ครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN)
       return
     }
     const list = txs.map((t, i) =>
       `${i + 1}. ${t.name}\n   ${t.type === 'income' ? '+' : '-'}฿${thb(t.amount)} · ${t.date}`
     ).join('\n\n')
-    await replyMessage(replyToken, [{
+    await replyOrPush(event, [{
       type: 'text',
       text: `🔍 ผลค้นหา "${keyword}" (${txs.length} รายการ)\n\n${list}`,
     }], env.LINE_CHANNEL_ACCESS_TOKEN)
@@ -1436,15 +1449,15 @@ async function handleText(event, env) {
     const res = await fintrack('GET', '/transactions?limit=1', null, baseUrl, env.FINTRACK_TOKEN)
     const tx = (res.transactions || [])[0]
     if (!tx) {
-      await replyMessage(replyToken, [{ type: 'text', text: 'ยังไม่มีรายการครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [{ type: 'text', text: 'ยังไม่มีรายการครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN)
       return
     }
-    await replyMessage(replyToken, [buildDeleteConfirmFlex(tx.id, tx.amount, tx.name, tx.date)], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [buildDeleteConfirmFlex(tx.id, tx.amount, tx.name, tx.date)], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
   if (text === 'myid') {
-    await replyMessage(replyToken, [{ type: 'text', text: `LINE User ID ของคุณ:\n${source.userId}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    await replyOrPush(event, [{ type: 'text', text: `LINE User ID ของคุณ:\n${source.userId}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
     return
   }
 
@@ -1462,12 +1475,12 @@ async function handleText(event, env) {
         getWallets(baseUrl, env.FINTRACK_TOKEN),
       ])
       const wallet = cat?.walletId ? (wallets.find(w => w.id === cat.walletId) || null) : null
-      await replyMessage(replyToken, [buildConfirmFlex(fakeOcr, null, today, '', cat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
+      await replyOrPush(event, [buildConfirmFlex(fakeOcr, null, today, '', cat, wallet, txType)], env.LINE_CHANNEL_ACCESS_TOKEN)
       return
     }
   }
 
-  await replyMessage(replyToken, [{
+  await replyOrPush(event, [{
     type: 'text',
     text: '📸 ส่งรูปสลิปมาได้เลยครับ\nหรือพิมพ์ "ช่วยเหลือ" เพื่อดูคำสั่งทั้งหมด',
   }], env.LINE_CHANNEL_ACCESS_TOKEN)
