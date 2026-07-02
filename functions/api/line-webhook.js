@@ -1517,6 +1517,10 @@ export async function onRequestPost(context) {
           }
         } catch (err) {
           console.error('Event error:', err)
+          // Last resort: never leave the user with a silent "read". If a handler threw
+          // before it could reply/push, push an error so something always comes back.
+          const to = event.source?.userId || event.source?.groupId || event.source?.roomId
+          if (to) await pushMessage(to, [{ type: 'text', text: '❌ ระบบมีปัญหาชั่วคราว รบกวนลองใหม่อีกครั้งครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
         }
       }
     })()
