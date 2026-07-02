@@ -85,6 +85,17 @@ function toBase64(buffer) {
   return btoa(binary)
 }
 
+// Thai bank slips print the year in Buddhist era (พ.ศ., e.g. 2569). We store CE, so
+// convert deterministically here instead of trusting the OCR model to do the math.
+function normalizeSlipYear(dateStr) {
+  if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return dateStr
+  let y = Number(dateStr.slice(0, 4))
+  if (y >= 2400) y -= 543 // Buddhist era -> Gregorian (2569 -> 2026)
+  const now = new Date().getUTCFullYear()
+  if (y < 2015 || y > now + 1) return null // implausible OCR guess -> let the user fill it in
+  return String(y) + dateStr.slice(4)
+}
+
 async function ocrSlip(imageBuffer, apiKey) {
   const base64 = toBase64(imageBuffer)
 
@@ -137,7 +148,7 @@ async function ocrSlip(imageBuffer, apiKey) {
   "is_slip": true หรือ false,
   "slip_type": "transfer" หรือ "receipt",
   "amount": ตัวเลข (บาท ไม่มี comma ไม่มีหน่วย),
-  "date": "YYYY-MM-DD" หรือ null,
+  "date": "YYYY-MM-DD" (ปีตามที่พิมพ์บนสลิป พ.ศ. เช่น 2569 ไม่ต้องแปลงเป็น ค.ศ.) หรือ null,
   "recipient_name": "ชื่อผู้รับเงิน หรือ ชื่อร้านค้า/บริษัทผู้ขาย" หรือ null,
   "bank": "ธนาคารของผู้รับ (เฉพาะสลิปโอนเงิน)" หรือ null,
   "reference": "เลขที่รายการ / เลขที่ใบกำกับ / เลขที่ใบเสร็จ" หรือ null
@@ -154,7 +165,10 @@ async function ocrSlip(imageBuffer, apiKey) {
   const text = data.content?.[0]?.text || ''
   try {
     const match = text.match(/\{[\s\S]*\}/)
-    return match ? JSON.parse(match[0]) : null
+    if (!match) return null
+    const parsed = JSON.parse(match[0])
+    if (parsed && parsed.date) parsed.date = normalizeSlipYear(parsed.date)
+    return parsed
   } catch {
     return null
   }
