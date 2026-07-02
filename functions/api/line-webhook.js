@@ -107,9 +107,8 @@ async function ocrSlip(imageBuffer, apiKey) {
       'anthropic-version': '2023-06-01',
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-5',
+      model: 'claude-sonnet-4-6',
       max_tokens: 1024,
-      thinking: { type: 'disabled' }, // Sonnet 5 defaults thinking on; off keeps content[0]=text and the call fast (reply-token safe)
       messages: [{
         role: 'user',
         content: [
@@ -292,9 +291,8 @@ async function suggestCategoryAI(name, amount, categories, apiKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 120,
-        thinking: { type: 'disabled' }, // 120-token budget can't afford thinking
         messages: [{
           role: 'user',
           content: `ชื่อผู้รับเงิน: "${name}"${amount ? `\nจำนวน: ${amount} บาท` : ''}\n\nหมวดหมู่ในระบบ:\n${catList}\n\nตอบ JSON เท่านั้น (ถ้าไม่แน่ใจให้ subCategoryId เป็น null): {"categoryId":"id","subCategoryId":"id หรือ null"}`,
@@ -824,7 +822,7 @@ async function handleImage(event, env) {
 
     const ocrStart = Date.now()
     const ocr = await ocrSlip(imageBuffer, env.ANTHROPIC_API_KEY)
-    console.log(`[TIMING] ocrSlip: ${Date.now() - ocrStart}ms (model=sonnet-5)`)
+    console.log(`[TIMING] ocrSlip: ${Date.now() - ocrStart}ms (model=sonnet-4-6)`)
 
     if (!ocr?.is_slip || !ocr?.amount) {
       await replyOrPush(event, [{

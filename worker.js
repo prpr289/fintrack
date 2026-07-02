@@ -1127,9 +1127,8 @@ async function ocrDocument(imageBuffer, mediaType, apiKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
-        thinking: { type: 'disabled' }, // extraction, not reasoning — no thinking (Sonnet 5 defaults it on)
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: `อ่านเอกสารการเงินนี้ ตอบเป็น JSON เท่านั้น ไม่มีข้อความอื่น:
@@ -1216,9 +1215,8 @@ async function ocrSlipUnified(imageBuffer, mediaType, apiKey) {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' },
       body: JSON.stringify({
-        model: 'claude-sonnet-5',
+        model: 'claude-sonnet-4-6',
         max_tokens: 1024,
-        thinking: { type: 'disabled' }, // extraction, not reasoning — no thinking (Sonnet 5 defaults it on)
         messages: [{ role: 'user', content: [
           { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
           { type: 'text', text: `คุณคือผู้เชี่ยวชาญอ่านเอกสารการเงินไทย อ่านรูปนี้แล้วระบุข้อมูลให้ถูกต้อง
