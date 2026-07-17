@@ -7,6 +7,12 @@ export function date(s) {
   return new Date(s).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
 }
 
+// Local-timezone YYYY-MM-DD. Never use toISOString() for calendar dates:
+// it converts to UTC, which shifts Thai (UTC+7) midnights back one day.
+export function ymd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function today() {
-  return new Date().toISOString().slice(0, 10)
+  return ymd(new Date())
 }

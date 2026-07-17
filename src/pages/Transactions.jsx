@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
-import { thb, date, today } from '../fmt'
+import { thb, date, today, ymd } from '../fmt'
 import { useWs } from '../useWs'
 import { useAuth } from '../AuthContext'
 import {
@@ -158,10 +158,6 @@ function StatCard({ label, value, count, color, icon: Icon, sign, ratio }) {
 }
 
 // ── Date-range filter ──────────────────────────────────────────
-function ymd(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
-
 const TX_PERIODS = [
   { key: 'thisMonth', label: 'เดือนนี้' },
   { key: 'lastMonth', label: 'เดือนที่แล้ว' },
@@ -192,6 +188,16 @@ function periodLabelOf(period, custom) {
   return TX_PERIODS.find(p => p.key === period)?.label || 'ช่วงเวลา'
 }
 
+// "1 ก.ค. – 17 ก.ค." — short Thai range for a {from,to} in YYYY-MM-DD.
+// 'T00:00:00' forces local-time parsing (bare date strings parse as UTC).
+function shortThaiDate(s) {
+  return new Date(s + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+}
+function rangeTextOf(range) {
+  if (!range) return null
+  return range.from === range.to ? shortThaiDate(range.from) : `${shortThaiDate(range.from)} – ${shortThaiDate(range.to)}`
+}
+
 function PeriodControl({ period, customRange, onPick, onApplyCustom }) {
   const [open, setOpen] = useState(false)
   const [showCustom, setShowCustom] = useState(period === 'custom')
@@ -211,24 +217,34 @@ function PeriodControl({ period, customRange, onPick, onApplyCustom }) {
   const apply = () => { if (draft.from && draft.to) { onApplyCustom(draft); setShowCustom(false) } }
 
   const ddStyle = { background: '#1e2538', border: '1px solid #2e3349' }
+  const btnRangeText = period !== 'custom' ? rangeTextOf(txRangeOf(period, customRange)) : null
 
   return (
     <div ref={ref} className="relative w-full sm:w-auto">
       <button type="button" onClick={() => { setOpen(o => !o); setShowCustom(false) }}
         className="flex items-center gap-2 justify-between rounded-xl px-4 py-3 w-full sm:w-auto sm:min-w-[150px] transition-all"
         style={{ fontSize: 13, fontWeight: 500, color: '#cdd6e1', border: '1px solid rgba(255,255,255,0.08)', background: 'rgba(255,255,255,0.035)' }}>
-        <span className="flex items-center gap-2 truncate"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: '#6ee7c7' }} strokeWidth={1.8} />{periodLabelOf(period, customRange)}</span>
+        <span className="flex items-center gap-2 truncate"><Calendar className="w-4 h-4 flex-shrink-0" style={{ color: '#6ee7c7' }} strokeWidth={1.8} />
+          <span className="truncate">
+            {periodLabelOf(period, customRange)}
+            {btnRangeText && <span style={{ color: 'rgba(148,163,184,0.85)', fontWeight: 400 }}> · {btnRangeText}</span>}
+          </span>
+        </span>
         <ChevronDown className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${open ? 'rotate-180' : ''}`} style={{ color: 'rgba(148,163,184,0.7)' }} />
       </button>
 
       {open && (
         <div className="absolute left-0 sm:right-0 sm:left-auto top-full mt-1 rounded-xl shadow-2xl z-30 py-1 min-w-[180px]" style={ddStyle}>
-          {TX_PERIODS.map(p => (
-            <button key={p.key} type="button" onClick={() => select(p.key)}
-              className={`w-full text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/5 ${period === p.key ? 'text-emerald-400 font-semibold' : 'text-slate-300'}`}>
-              {p.label}
-            </button>
-          ))}
+          {TX_PERIODS.map(p => {
+            const rangeText = p.key !== 'custom' ? rangeTextOf(txRangeOf(p.key, customRange)) : null
+            return (
+              <button key={p.key} type="button" onClick={() => select(p.key)}
+                className={`w-full flex items-center justify-between gap-3 text-left px-4 py-2.5 text-sm transition-colors hover:bg-white/5 ${period === p.key ? 'text-emerald-400 font-semibold' : 'text-slate-300'}`}>
+                <span>{p.label}</span>
+                {rangeText && <span className="text-[11px] font-normal flex-shrink-0" style={{ color: 'rgba(148,163,184,0.7)' }}>{rangeText}</span>}
+              </button>
+            )
+          })}
         </div>
       )}
 
@@ -650,7 +666,7 @@ function EditConfirmModal({ tx, cats, wallets, onClose, onDone }) {
 function ExportModal({ onClose, currentFilter, currentSearch, defaultRange }) {
   const now = new Date()
   const firstOfMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
-  const todayStr = now.toISOString().slice(0, 10)
+  const todayStr = today()
 
   const [from, setFrom] = useState(defaultRange?.from || firstOfMonth)
   const [to, setTo] = useState(defaultRange?.to || todayStr)
@@ -659,7 +675,7 @@ function ExportModal({ onClose, currentFilter, currentSearch, defaultRange }) {
 
   const presets = [
     { label: 'เดือนนี้', from: firstOfMonth, to: todayStr },
-    { label: 'เดือนที่แล้ว', from: (() => { const d = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.toISOString().slice(0, 10) })(), to: (() => { const d = new Date(now.getFullYear(), now.getMonth(), 0); return d.toISOString().slice(0, 10) })() },
+    { label: 'เดือนที่แล้ว', from: ymd(new Date(now.getFullYear(), now.getMonth() - 1, 1)), to: ymd(new Date(now.getFullYear(), now.getMonth(), 0)) },
     { label: 'ปีนี้', from: `${now.getFullYear()}-01-01`, to: todayStr },
     { label: 'ทั้งหมด', from: '2000-01-01', to: todayStr },
   ]
