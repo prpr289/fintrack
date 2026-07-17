@@ -1,14 +1,11 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
-import { thb } from '../fmt'
+import { thb, ymd } from '../fmt'
 import { BarChart3, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Loader2, Wallet, PieChart, ChevronDown } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const SUNK = { background: '#0d1120', border: '1px solid #1f2937' }
 
-function ymd(d) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 const PERIODS = [
   { key: 'thisMonth', label: 'เดือนนี้' },
   { key: 'lastMonth', label: 'เดือนที่แล้ว' },
@@ -171,9 +168,10 @@ export default function Reports() {
   const totals = data?.totals
   const mismatches = wallets.filter(w => !w.reconcile.ok)
   const totalBalance = wallets.reduce((s, w) => s + w.currentBalance, 0)
+  const headerRange = rangeOf(period, custom)
   const periodLabel = period === 'custom' && custom.from && custom.to
     ? `${custom.from} → ${custom.to}`
-    : PERIODS.find(p => p.key === period)?.label || ''
+    : `${PERIODS.find(p => p.key === period)?.label || ''}${headerRange ? ` (${headerRange.from} → ${headerRange.to})` : ''}`
 
   return (
     <div className="reports-page p-4 sm:p-5 space-y-4 max-w-6xl mx-auto">

@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
-import { thb, date } from '../fmt'
+import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
 import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard } from 'lucide-react'
 import {
@@ -8,7 +8,7 @@ import {
   LineChart, Line, CartesianGrid, Legend, ReferenceLine,
 } from 'recharts'
 
-function fmt(d) { return d.toISOString().slice(0, 10) }
+const fmt = ymd // local date, not UTC — see fmt.js
 
 function rangeOf(key, custom) {
   const now = new Date()
@@ -43,7 +43,8 @@ function prevRangeOf(key, custom) {
     case 'lastMonth': return { from: fmt(new Date(y, m - 2, 1)), to: fmt(new Date(y, m - 1, 0)) }
     case 'custom': {
       if (!custom.from || !custom.to) return null
-      const from = new Date(custom.from), to = new Date(custom.to)
+      // 'T00:00:00' → parse as local time; bare YYYY-MM-DD parses as UTC midnight
+      const from = new Date(custom.from + 'T00:00:00'), to = new Date(custom.to + 'T00:00:00')
       const days = Math.round((to - from) / 86400000) + 1
       const prevTo = new Date(from); prevTo.setDate(prevTo.getDate() - 1)
       const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - days + 1)
@@ -260,7 +261,7 @@ export default function Dashboard() {
   const range = rangeOf(period, appliedCustom)
   const dailyData = (() => {
     if (!range) return []
-    const start = new Date(range.from), end = new Date(range.to)
+    const start = new Date(range.from + 'T00:00:00'), end = new Date(range.to + 'T00:00:00')
     const days = []
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(fmt(d))
     const map = {}

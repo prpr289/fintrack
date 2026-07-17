@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import JSZip from 'jszip'
 import { api } from '../api'
-import { thb } from '../fmt'
+import { thb, ymd } from '../fmt'
 import { Loader2, Eye, X, ImagePlus, ChevronLeft, ChevronRight, Paperclip, Download } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -64,10 +64,10 @@ function SlipCard({ slip, onDelete }) {
 
 function DownloadModal({ currentYear, currentMonth, onClose }) {
   const now = new Date()
-  const todayStr = now.toISOString().slice(0, 10)
+  const todayStr = ymd(now)
   const pad = n => String(n).padStart(2, '0')
   const firstOfMonth = `${currentYear}-${pad(currentMonth)}-01`
-  const lastOfMonth = new Date(currentYear, currentMonth, 0).toISOString().slice(0, 10)
+  const lastOfMonth = ymd(new Date(currentYear, currentMonth, 0))
 
   const [preset, setPreset] = useState('month')
   const [from, setFrom] = useState(firstOfMonth)
