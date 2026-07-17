@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Plus, Pencil, Trash2, X, MessageCircle, Users as UsersIcon } from 'lucide-react'
+import { ymd, utcDate } from '../fmt'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -271,7 +272,7 @@ function LineUsersCard() {
                 <p className="text-xs text-slate-400 font-mono">{u.lineUserId.slice(0, 16)}…</p>
               </div>
               <div className="flex items-center gap-2">
-                <span className="text-xs text-slate-500">{u.createdAt?.slice(0, 10)}</span>
+                <span className="text-xs text-slate-500">{u.createdAt ? ymd(utcDate(u.createdAt)) : '-'}</span>
                 <button onClick={() => del(u)} aria-label="ลบ" title="ลบ" className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors">
                   <Trash2 className="w-3.5 h-3.5" />
                 </button>

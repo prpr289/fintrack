@@ -16,3 +16,9 @@ export function ymd(d) {
 export function today() {
   return ymd(new Date())
 }
+
+// D1/SQLite CURRENT_TIMESTAMP is UTC "YYYY-MM-DD HH:MM:SS" with no zone marker,
+// which browsers parse as LOCAL time — shifting the day. Force UTC before formatting.
+export function utcDate(s) {
+  return new Date(s.replace(' ', 'T') + 'Z')
+}
