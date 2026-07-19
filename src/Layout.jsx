@@ -74,7 +74,7 @@ export default function Layout() {
             <span className="font-bold text-white text-sm leading-tight">บัญชีธุรกิจ<br/>ของฉัน</span>
           </div>
           {!mobile && (isAdmin || isStaff) && (
-            <NotificationBell placement="sidebar" list={notif.list} unreadCount={notif.unreadCount} seen={notif.seen} markAllRead={notif.markAllRead} />
+            <NotificationBell placement="sidebar" ctrl={notif} />
           )}
         </div>
         <div className="flex items-center gap-2 mt-2.5">
@@ -118,7 +118,7 @@ export default function Layout() {
         </div>
         <div className="flex items-center gap-1">
           {(isAdmin || isStaff) && (
-            <NotificationBell placement="topbar" list={notif.list} unreadCount={notif.unreadCount} seen={notif.seen} markAllRead={notif.markAllRead} />
+            <NotificationBell placement="topbar" ctrl={notif} />
           )}
           <button onClick={() => setOpen(o => !o)} className="p-1.5 text-slate-400 hover:text-white rounded-lg">
             {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}

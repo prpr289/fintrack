@@ -31,6 +31,11 @@ Goal: a bell icon with an unread badge and a dropdown listing what needs attenti
 
 **Audience:** admin + staff only. Other roles get an empty list.
 
+**Settings (added 2026-07-19, gear ⚙️ in the bell panel):**
+- **Lead-time days** (default 3) — per-user localStorage; sent to the API as `?days=` (server clamps 1–60, computes `horizon = today+days`).
+- **Kind toggles** (upcoming / manual[due+overdue] / draft) — per-user localStorage; applied client-side (hide disabled kinds; unreadCount follows).
+- **Mute per item** — server-side, workspace-wide: `recurring_templates.notify_muted` (INTEGER DEFAULT 0). Muting = `updateRecurring(refId, {notifyMuted:true})`; `listNotifications` excludes `notify_muted=1`. Muted list (unmute) reads `api.recurring()` filtered by `notifyMuted`. Drafts are not muteable. Requires D1 migration: `ALTER TABLE recurring_templates ADD COLUMN notify_muted INTEGER DEFAULT 0;`
+
 **Out (YAGNI — add later if wanted):**
 - `posted` (FYI that an `auto_create=1` item was auto-charged) — cut by user, too noisy.
 - A real `notifications` table / persistent history / cross-device read sync.

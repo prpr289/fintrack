@@ -2,34 +2,41 @@ import { useState, useEffect, useCallback } from 'react'
 import { api } from './api'
 
 const POLL_MS = 5 * 60 * 1000
-const key = (uid) => `ft_notif_seen_${uid || 'anon'}`
-const load = (uid) => {
-  try { return new Set(JSON.parse(localStorage.getItem(key(uid)) || '[]')) }
+const seenKey = (uid) => `ft_notif_seen_${uid || 'anon'}`
+const setKey = (uid) => `ft_notif_settings_${uid || 'anon'}`
+const DEFAULTS = { days: 3, kinds: { upcoming: true, manual: true, draft: true } }
+
+const loadSeen = (uid) => {
+  try { return new Set(JSON.parse(localStorage.getItem(seenKey(uid)) || '[]')) }
   catch { return new Set() }
 }
+const loadSettings = (uid) => {
+  try {
+    const p = JSON.parse(localStorage.getItem(setKey(uid)) || '{}')
+    return { days: p.days || DEFAULTS.days, kinds: { ...DEFAULTS.kinds, ...(p.kinds || {}) } }
+  } catch { return { days: DEFAULTS.days, kinds: { ...DEFAULTS.kinds } } }
+}
 
-// Derives in-app notifications for the current user. Read-state is id-based (a Set of "seen"
-// ids in localStorage per user) — a due item's date can be in the future, so a
-// timestamp-based scheme would never mark it read on open.
+// Derives in-app notifications + owns per-user view settings.
+// Read-state and view prefs (lead-time days, kind toggles) live in localStorage per user.
+// Mute is server-side (recurring_templates.notify_muted) so it persists and is workspace-wide.
 export function useNotifications(user) {
   const canSee = user?.role === 'admin' || user?.role === 'staff'
   const uid = user?.id
   const [list, setList] = useState([])
-  // Seen ids tracked with the uid they belong to, so switching user reloads read-state
-  // during render (the documented pattern) instead of via a setState-in-effect.
-  const [tracked, setTracked] = useState(() => ({ uid, seen: load(uid) }))
-  if (tracked.uid !== uid) setTracked({ uid, seen: load(uid) })
-  const seen = tracked.seen
+  // seen ids + settings tracked with their uid, reloaded during render (documented pattern)
+  const [tracked, setTracked] = useState(() => ({ uid, seen: loadSeen(uid), settings: loadSettings(uid) }))
+  if (tracked.uid !== uid) setTracked({ uid, seen: loadSeen(uid), settings: loadSettings(uid) })
+  const { seen, settings } = tracked
+  const days = settings.days
 
-  // Only ever setState after the await, so nothing runs synchronously inside the effect.
   const refetch = useCallback(async () => {
     try {
-      const { notifications } = await api.notifications()
+      const { notifications } = await api.notifications(days)
       setList(notifications || [])
     } catch { /* keep last good list; the bell must never break the app shell */ }
-  }, [])
+  }, [days])
 
-  // fetch on mount, on window focus, and every POLL_MS — only for viewers
   useEffect(() => {
     if (!canSee) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- initial load of a polled subscription; setState is async (post-fetch)
@@ -40,14 +47,29 @@ export function useNotifications(user) {
     return () => { window.removeEventListener('focus', onFocus); clearInterval(iv) }
   }, [canSee, refetch])
 
-  const items = canSee ? list : [] // derive empty for non-viewers instead of clearing via setState
+  // kind filter: overdue/due => "manual", upcoming => auto, draft => draft
+  const kindOn = (k) => k === 'draft' ? settings.kinds.draft : k === 'upcoming' ? settings.kinds.upcoming : settings.kinds.manual
+  const items = (canSee ? list : []).filter(n => kindOn(n.kind))
   const unreadCount = items.reduce((n, x) => n + (seen.has(x.id) ? 0 : 1), 0)
 
-  const markAllRead = useCallback(() => {
-    const ids = new Set((canSee ? list : []).map(x => x.id)) // = current ids (also prunes stale)
-    setTracked(t => ({ ...t, seen: ids }))
-    try { localStorage.setItem(key(uid), JSON.stringify([...ids])) } catch { /* ignore quota */ }
-  }, [canSee, list, uid])
+  const persist = (patch) => {
+    const next = { ...settings, ...patch }
+    setTracked(t => ({ ...t, settings: next }))
+    try { localStorage.setItem(setKey(uid), JSON.stringify(next)) } catch { /* ignore quota */ }
+  }
 
-  return { list: items, unreadCount, seen, markAllRead }
+  const markAllRead = () => {
+    const ids = new Set(items.map(x => x.id))
+    setTracked(t => ({ ...t, seen: ids }))
+    try { localStorage.setItem(seenKey(uid), JSON.stringify([...ids])) } catch { /* ignore quota */ }
+  }
+  const setDays = (d) => persist({ days: d })
+  const toggleKind = (k) => persist({ kinds: { ...settings.kinds, [k]: !settings.kinds[k] } })
+
+  // Mute is a property of the recurring template (server-side, workspace-wide).
+  const mute = async (refId) => { try { await api.updateRecurring(refId, { notifyMuted: true }); await refetch() } catch { /* ignore */ } }
+  const unmute = async (refId) => { try { await api.updateRecurring(refId, { notifyMuted: false }); await refetch() } catch { /* ignore */ } }
+  const getMuted = async () => { try { const { recurring } = await api.recurring(); return (recurring || []).filter(r => r.notifyMuted) } catch { return [] } }
+
+  return { list: items, unreadCount, seen, markAllRead, settings, setDays, toggleKind, mute, unmute, getMuted }
 }

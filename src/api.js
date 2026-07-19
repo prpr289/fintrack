@@ -58,7 +58,7 @@ export const api = {
   updateRecurring: (id, body) => req('PATCH', `/recurring/${id}`, body),
   deleteRecurring: (id) => req('DELETE', `/recurring/${id}`),
   triggerRecurring: (id) => req('POST', `/recurring/${id}/trigger`),
-  notifications: () => req('GET', '/notifications'),
+  notifications: (days) => req('GET', '/notifications' + (days ? `?days=${days}` : '')),
 
   auditLog: (params) => req('GET', '/audit-log?' + new URLSearchParams(params || {})),
 

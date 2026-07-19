@@ -69,7 +69,7 @@ var worker_default = {
       if (recMatch && method === "DELETE") return cors(await deleteRecurring(recMatch[1], env, user));
       const triggerMatch = path.match(/^\/recurring\/([a-zA-Z0-9_-]+)\/trigger$/);
       if (triggerMatch && method === "POST") return cors(await triggerRecurring(triggerMatch[1], env, user));
-      if (path === "/notifications" && method === "GET") return cors(await listNotifications(env, user));
+      if (path === "/notifications" && method === "GET") return cors(await listNotifications(request, env, user));
       const reconcileMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/reconcile$/);
       if (reconcileMatch && method === "PATCH") return cors(await toggleReconcile(reconcileMatch[1], env, user));
       const confirmMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm$/);
@@ -786,13 +786,14 @@ async function listRecurring(env, user) {
   return json({ recurring: (result.results || []).map(formatRecurring) });
 }
 __name(listRecurring, "listRecurring");
-async function listNotifications(env, user) {
+async function listNotifications(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ notifications: [] });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const horizon = addDays(today, 3);
+  const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("days"), 10) || 3, 1), 60);
+  const horizon = addDays(today, days);
   const out = [];
   const recs = await env.DB.prepare(
-    "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1"
+    "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1 AND COALESCE(notify_muted, 0) = 0"
   ).bind(user.workspace_id).all();
   for (const r of recs.results || []) {
     if (r.auto_create && r.draft_mode) continue; // handled by the draft alert below
@@ -838,7 +839,7 @@ async function updateRecurring(id, request, env, user) {
   const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!rec) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A recurring" }, 404);
   const body = await request.json();
-  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode", "due_hour"];
+  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode", "due_hour", "notify_muted"];
   const updates = [], args = [];
   for (const f of fields) {
     const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -2010,6 +2011,7 @@ function formatRecurring(r) {
     draftMode: !!r.draft_mode,
     nextDueDate: r.next_due_date,
     isActive: !!r.is_active,
+    notifyMuted: !!r.notify_muted,
     createdAt: r.created_at
   };
 }
