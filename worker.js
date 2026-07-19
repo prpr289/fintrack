@@ -789,7 +789,7 @@ __name(listRecurring, "listRecurring");
 async function listNotifications(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ notifications: [] });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
-  const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("days"), 10) || 3, 1), 60);
+  const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("days"), 10) || 7, 1), 60);
   const horizon = addDays(today, days);
   const out = [];
   const recs = await env.DB.prepare(

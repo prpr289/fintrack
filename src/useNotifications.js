@@ -4,7 +4,7 @@ import { api } from './api'
 const POLL_MS = 5 * 60 * 1000
 const seenKey = (uid) => `ft_notif_seen_${uid || 'anon'}`
 const setKey = (uid) => `ft_notif_settings_${uid || 'anon'}`
-const DEFAULTS = { days: 3, kinds: { upcoming: true, manual: true, draft: true } }
+const DEFAULTS = { days: 7, kinds: { upcoming: true, manual: true, draft: true } }
 
 const loadSeen = (uid) => {
   try { return new Set(JSON.parse(localStorage.getItem(seenKey(uid)) || '[]')) }
