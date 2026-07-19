@@ -24,45 +24,12 @@ function NavItem({ to, icon: Icon, label, onClick }) {
   )
 }
 
-export default function Layout() {
-  const { user, logout } = useAuth()
-  const nav = useNavigate()
-  const [open, setOpen] = useState(false)
-  const notif = useNotifications(user)
-
-  const doLogout = () => { logout(); nav('/login') }
-  const close = () => setOpen(false)
-  const isAdmin = user?.role === 'admin'
-  const isStaff = user?.role === 'staff'
-
-  const navItems = isStaff
-    ? [
-        { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
-        { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
-        { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
-        { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
-        { to: '/profile',      icon: User,           label: 'โปรไฟล์' },
-      ]
-    : [
-        { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
-        { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
-        { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
-        { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
-        { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },
-        { to: '/budget',       icon: Target,          label: 'งบประมาณ' },
-        { to: '/recurring',    icon: RefreshCw,       label: 'รายการประจำ' },
-        { to: '/slips',        icon: Paperclip,       label: 'สลิปทั้งหมด' },
-        ...(isAdmin ? [
-          { to: '/reports',   icon: BarChart3,     label: 'รายงานแยกกระเป๋า' },
-          { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
-          { to: '/category-rules', icon: Wand2,    label: 'กฎหมวดหมู่' },
-          { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
-          { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
-        ] : []),
-        { to: '/profile', icon: User, label: 'โปรไฟล์' },
-      ]
-
-  const Sidebar = ({ mobile = false }) => (
+// Module-level so its identity is stable across Layout re-renders. Defining it
+// inside Layout remounted the whole sidebar subtree on every state change
+// (e.g. the notification bell's markAllRead), resetting child state like the
+// bell's open panel. Props carry what it used to close over.
+function Sidebar({ mobile = false, user, isAdmin, isStaff, navItems, notif, close, doLogout }) {
+  return (
     <aside
       className={`flex flex-col ${mobile ? 'w-56' : 'w-56 fixed h-full'}`}
       style={{ background: '#111827', borderRight: '1px solid #1f2937' }}
@@ -103,11 +70,52 @@ export default function Layout() {
       </div>
     </aside>
   )
+}
+
+export default function Layout() {
+  const { user, logout } = useAuth()
+  const nav = useNavigate()
+  const [open, setOpen] = useState(false)
+  const notif = useNotifications(user)
+
+  const doLogout = () => { logout(); nav('/login') }
+  const close = () => setOpen(false)
+  const isAdmin = user?.role === 'admin'
+  const isStaff = user?.role === 'staff'
+
+  const navItems = isStaff
+    ? [
+        { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
+        { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
+        { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
+        { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
+        { to: '/profile',      icon: User,           label: 'โปรไฟล์' },
+      ]
+    : [
+        { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
+        { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
+        { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
+        { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
+        { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },
+        { to: '/budget',       icon: Target,          label: 'งบประมาณ' },
+        { to: '/recurring',    icon: RefreshCw,       label: 'รายการประจำ' },
+        { to: '/slips',        icon: Paperclip,       label: 'สลิปทั้งหมด' },
+        ...(isAdmin ? [
+          { to: '/reports',   icon: BarChart3,     label: 'รายงานแยกกระเป๋า' },
+          { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
+          { to: '/category-rules', icon: Wand2,    label: 'กฎหมวดหมู่' },
+          { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
+          { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
+        ] : []),
+        { to: '/profile', icon: User, label: 'โปรไฟล์' },
+      ]
+
+  const sidebarProps = { user, isAdmin, isStaff, navItems, notif, close, doLogout }
 
   return (
     <div className="flex min-h-screen" style={{ background: '#0d0f17' }}>
       <div className="hidden md:block">
-        <Sidebar />
+        <Sidebar {...sidebarProps} />
       </div>
 
       <div className="md:hidden fixed top-0 left-0 right-0 z-30 flex items-center justify-between px-4 py-3"
@@ -130,7 +138,7 @@ export default function Layout() {
         <div className="md:hidden fixed inset-0 z-20" onClick={close}>
           <div className="absolute inset-0 bg-black/60" />
           <div className="absolute left-0 top-0 bottom-0" onClick={e => e.stopPropagation()}>
-            <Sidebar mobile />
+            <Sidebar mobile {...sidebarProps} />
           </div>
         </div>
       )}
