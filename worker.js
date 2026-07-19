@@ -1,4 +1,5 @@
-﻿var __defProp = Object.defineProperty;
+﻿import { effectiveDue, addDays } from "./notif-due.mjs";
+var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
@@ -68,6 +69,7 @@ var worker_default = {
       if (recMatch && method === "DELETE") return cors(await deleteRecurring(recMatch[1], env, user));
       const triggerMatch = path.match(/^\/recurring\/([a-zA-Z0-9_-]+)\/trigger$/);
       if (triggerMatch && method === "POST") return cors(await triggerRecurring(triggerMatch[1], env, user));
+      if (path === "/notifications" && method === "GET") return cors(await listNotifications(env, user));
       const reconcileMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/reconcile$/);
       if (reconcileMatch && method === "PATCH") return cors(await toggleReconcile(reconcileMatch[1], env, user));
       const confirmMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm$/);
@@ -784,6 +786,31 @@ async function listRecurring(env, user) {
   return json({ recurring: (result.results || []).map(formatRecurring) });
 }
 __name(listRecurring, "listRecurring");
+async function listNotifications(env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ notifications: [] });
+  const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
+  const horizon = addDays(today, 3);
+  const out = [];
+  const recs = await env.DB.prepare(
+    "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1 AND auto_create = 0"
+  ).bind(user.workspace_id).all();
+  for (const r of recs.results || []) {
+    const eff = effectiveDue(r, today);
+    if (!eff || eff > horizon) continue;
+    const kind = eff < today ? "overdue" : "due";
+    out.push({ id: `${kind}:${r.id}:${eff}`, kind, name: r.name, amount: Number(r.amount), type: r.type, dueDate: eff, sortDate: eff, refId: r.id });
+  }
+  const drafts = await env.DB.prepare(
+    "SELECT * FROM transactions WHERE workspace_id = ? AND is_draft = 1 AND recurring_id IS NOT NULL ORDER BY created_at DESC"
+  ).bind(user.workspace_id).all();
+  for (const t of drafts.results || []) {
+    out.push({ id: `draft:${t.id}`, kind: "draft", name: t.name, amount: Number(t.amount), type: t.type, dueDate: null, sortDate: t.date, refId: t.id });
+  }
+  const order = { overdue: 0, due: 1, draft: 2 };
+  out.sort((a, b) => order[a.kind] - order[b.kind] || (a.sortDate < b.sortDate ? -1 : a.sortDate > b.sortDate ? 1 : 0));
+  return json({ notifications: out });
+}
+__name(listNotifications, "listNotifications");
 async function createRecurring(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();

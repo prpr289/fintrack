@@ -3,6 +3,8 @@ import { useAuth } from './AuthContext'
 import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2 } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
+import NotificationBell from './components/NotificationBell'
+import { useNotifications } from './useNotifications'
 
 function NavItem({ to, icon: Icon, label, onClick }) {
   return (
@@ -26,6 +28,7 @@ export default function Layout() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
   const [open, setOpen] = useState(false)
+  const notif = useNotifications(user)
 
   const doLogout = () => { logout(); nav('/login') }
   const close = () => setOpen(false)
@@ -65,9 +68,14 @@ export default function Layout() {
       style={{ background: '#111827', borderRight: '1px solid #1f2937' }}
     >
       <div className="p-5" style={{ borderBottom: '1px solid #1f2937' }}>
-        <div className="flex items-center gap-2.5 mb-1">
-          <span className="text-xl">💼</span>
-          <span className="font-bold text-white text-sm leading-tight">บัญชีธุรกิจ<br/>ของฉัน</span>
+        <div className="flex items-center justify-between gap-2 mb-1">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="text-xl">💼</span>
+            <span className="font-bold text-white text-sm leading-tight">บัญชีธุรกิจ<br/>ของฉัน</span>
+          </div>
+          {!mobile && (isAdmin || isStaff) && (
+            <NotificationBell placement="sidebar" list={notif.list} unreadCount={notif.unreadCount} seen={notif.seen} markAllRead={notif.markAllRead} />
+          )}
         </div>
         <div className="flex items-center gap-2 mt-2.5">
           <div className="w-8 h-8 rounded-full overflow-hidden flex items-center justify-center text-sm font-bold flex-shrink-0"
@@ -108,9 +116,14 @@ export default function Layout() {
           <span>💼</span>
           <span className="font-bold text-white text-sm">บัญชีธุรกิจของฉัน</span>
         </div>
-        <button onClick={() => setOpen(o => !o)} className="p-1.5 text-slate-400 hover:text-white rounded-lg">
-          {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-        </button>
+        <div className="flex items-center gap-1">
+          {(isAdmin || isStaff) && (
+            <NotificationBell placement="topbar" list={notif.list} unreadCount={notif.unreadCount} seen={notif.seen} markAllRead={notif.markAllRead} />
+          )}
+          <button onClick={() => setOpen(o => !o)} className="p-1.5 text-slate-400 hover:text-white rounded-lg">
+            {open ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
+        </div>
       </div>
 
       {open && (
