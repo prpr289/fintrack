@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, AlertTriangle, Clock, FileText, Check, X } from 'lucide-react'
+import { Bell, AlertTriangle, Clock, FileText, Zap, Check, X } from 'lucide-react'
 import { thb } from '../fmt'
 
 // Per-kind visual language. Distinct icon SHAPES (not colour alone) satisfy color-not-only a11y.
 const KIND = {
-  overdue: { icon: AlertTriangle, tag: 'เลยกำหนด',     color: '#f87171', tint: 'rgba(248,113,113,0.12)', to: '/recurring' },
-  due:     { icon: Clock,         tag: 'ใกล้ครบกำหนด', color: '#fbbf24', tint: 'rgba(251,191,36,0.12)', to: '/recurring' },
-  draft:   { icon: FileText,      tag: 'รอยืนยัน',     color: '#60a5fa', tint: 'rgba(96,165,250,0.12)', to: '/transactions' },
+  overdue:  { icon: AlertTriangle, tag: 'เลยกำหนด',     color: '#f87171', tint: 'rgba(248,113,113,0.12)', to: '/recurring' },
+  due:      { icon: Clock,         tag: 'ใกล้ครบกำหนด', color: '#fbbf24', tint: 'rgba(251,191,36,0.12)', to: '/recurring' },
+  draft:    { icon: FileText,      tag: 'รอยืนยัน',     color: '#60a5fa', tint: 'rgba(96,165,250,0.12)', to: '/transactions' },
+  upcoming: { icon: Zap,           tag: 'ใกล้ตัดเงิน',  color: '#a78bfa', tint: 'rgba(167,139,250,0.12)', to: '/recurring' },
 }
 
 const todayISO = () => new Date().toISOString().slice(0, 10)
@@ -17,6 +18,7 @@ const dayDiff = (fromISO, toISO) =>
 function describe(n) {
   if (n.kind === 'draft') return 'สร้างเป็น Draft แล้ว · แตะเพื่อยืนยันยอด + แนบสลิป'
   const d = dayDiff(todayISO(), n.dueDate)
+  if (n.kind === 'upcoming') return d <= 0 ? `จะตัดเงินอัตโนมัติวันนี้ (${n.dueDate})` : `จะตัดเงินอัตโนมัติใน ${d} วัน (${n.dueDate})`
   if (n.kind === 'overdue') return `เลยกำหนดมา ${-d} วัน (ครบกำหนด ${n.dueDate})`
   if (d <= 0) return `ครบกำหนดวันนี้ (${n.dueDate})`
   return `ครบกำหนดใน ${d} วัน (${n.dueDate})`

@@ -792,12 +792,14 @@ async function listNotifications(env, user) {
   const horizon = addDays(today, 3);
   const out = [];
   const recs = await env.DB.prepare(
-    "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1 AND auto_create = 0"
+    "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1"
   ).bind(user.workspace_id).all();
   for (const r of recs.results || []) {
+    if (r.auto_create && r.draft_mode) continue; // handled by the draft alert below
     const eff = effectiveDue(r, today);
     if (!eff || eff > horizon) continue;
-    const kind = eff < today ? "overdue" : "due";
+    // auto items charge themselves -> heads-up only; manual items must be recorded -> due/overdue
+    const kind = r.auto_create ? "upcoming" : eff < today ? "overdue" : "due";
     out.push({ id: `${kind}:${r.id}:${eff}`, kind, name: r.name, amount: Number(r.amount), type: r.type, dueDate: eff, sortDate: eff, refId: r.id });
   }
   const drafts = await env.DB.prepare(
@@ -806,7 +808,7 @@ async function listNotifications(env, user) {
   for (const t of drafts.results || []) {
     out.push({ id: `draft:${t.id}`, kind: "draft", name: t.name, amount: Number(t.amount), type: t.type, dueDate: null, sortDate: t.date, refId: t.id });
   }
-  const order = { overdue: 0, due: 1, draft: 2 };
+  const order = { overdue: 0, due: 1, draft: 2, upcoming: 3 };
   out.sort((a, b) => order[a.kind] - order[b.kind] || (a.sortDate < b.sortDate ? -1 : a.sortDate > b.sortDate ? 1 : 0));
   return json({ notifications: out });
 }

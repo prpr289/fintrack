@@ -23,8 +23,11 @@ Goal: a bell icon with an unread badge and a dropdown listing what needs attenti
 
 | kind | source (workspace-scoped) |
 |---|---|
-| `due` / `overdue` | `recurring_templates`: `auto_create=0`, `is_active=1`, effective due date ≤ today+3. `overdue` if effective due < today, else `due`. |
-| `draft` | `transactions`: `is_draft=1 AND recurring_id IS NOT NULL` (drafts spawned by recurring `draft_mode`). |
+| `due` / `overdue` | `recurring_templates`: `auto_create=0`, `is_active=1`, effective due date ≤ today+3. `overdue` if effective due < today, else `due`. (Manual items — must be recorded.) |
+| `upcoming` | `recurring_templates`: `auto_create=1` AND NOT `draft_mode`, `is_active=1`, effective due date ≤ today+3. Heads-up before the cron auto-charges (e.g. "จะตัดเงินอัตโนมัติใน 2 วัน"). Clears itself once charged (cron advances `next_due_date`). |
+| `draft` | `transactions`: `is_draft=1 AND recurring_id IS NOT NULL` (drafts spawned by recurring `draft_mode`; these skip `upcoming` to avoid double-alerting). |
+
+(Update 2026-07-19: `upcoming` added after first deploy — a purely-auto setup produced no notifications otherwise, defeating the feature for common autopay bills.)
 
 **Audience:** admin + staff only. Other roles get an empty list.
 
