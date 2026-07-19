@@ -66,10 +66,9 @@ export function useNotifications(user) {
   const setDays = (d) => persist({ days: d })
   const toggleKind = (k) => persist({ kinds: { ...settings.kinds, [k]: !settings.kinds[k] } })
 
-  // Mute is a property of the recurring template (server-side, workspace-wide).
-  const mute = async (refId) => { try { await api.updateRecurring(refId, { notifyMuted: true }); await refetch() } catch { /* ignore */ } }
-  const unmute = async (refId) => { try { await api.updateRecurring(refId, { notifyMuted: false }); await refetch() } catch { /* ignore */ } }
-  const getMuted = async () => { try { const { recurring } = await api.recurring(); return (recurring || []).filter(r => r.notifyMuted) } catch { return [] } }
+  // Per-item notification prefs live on the recurring template (server-side, workspace-wide).
+  const saveItem = async (id, patch) => { try { await api.updateRecurring(id, patch); await refetch() } catch { /* ignore */ } }
+  const getItems = async () => { try { const { recurring } = await api.recurring(); return recurring || [] } catch { return [] } }
 
-  return { list: items, unreadCount, seen, markAllRead, settings, setDays, toggleKind, mute, unmute, getMuted }
+  return { list: items, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems }
 }

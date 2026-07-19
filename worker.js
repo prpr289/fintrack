@@ -790,7 +790,6 @@ async function listNotifications(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ notifications: [] });
   const today = (/* @__PURE__ */ new Date()).toISOString().slice(0, 10);
   const days = Math.min(Math.max(parseInt(new URL(request.url).searchParams.get("days"), 10) || 7, 1), 60);
-  const horizon = addDays(today, days);
   const out = [];
   const recs = await env.DB.prepare(
     "SELECT * FROM recurring_templates WHERE workspace_id = ? AND is_active = 1 AND COALESCE(notify_muted, 0) = 0"
@@ -798,29 +797,33 @@ async function listNotifications(request, env, user) {
   for (const r of recs.results || []) {
     if (r.auto_create && r.draft_mode) continue; // handled by the draft alert below
     const eff = effectiveDue(r, today);
-    if (!eff || eff > horizon) continue;
+    if (!eff) continue;
+    // per-item lead-time overrides the global default; overdue always shows
+    const lead = r.notify_lead_days != null ? Math.min(Math.max(r.notify_lead_days, 1), 60) : days;
+    if (eff > addDays(today, lead)) continue;
     // auto items charge themselves -> heads-up only; manual items must be recorded -> due/overdue
     const kind = r.auto_create ? "upcoming" : eff < today ? "overdue" : "due";
-    out.push({ id: `${kind}:${r.id}:${eff}`, kind, name: r.name, amount: Number(r.amount), type: r.type, dueDate: eff, sortDate: eff, refId: r.id });
+    out.push({ id: `${kind}:${r.id}:${eff}`, kind, name: r.name, amount: Number(r.amount), type: r.type, dueDate: eff, sortDate: eff, refId: r.id, priority: !!r.notify_priority });
   }
   const drafts = await env.DB.prepare(
     "SELECT * FROM transactions WHERE workspace_id = ? AND is_draft = 1 AND recurring_id IS NOT NULL ORDER BY created_at DESC"
   ).bind(user.workspace_id).all();
   for (const t of drafts.results || []) {
-    out.push({ id: `draft:${t.id}`, kind: "draft", name: t.name, amount: Number(t.amount), type: t.type, dueDate: null, sortDate: t.date, refId: t.id });
+    out.push({ id: `draft:${t.id}`, kind: "draft", name: t.name, amount: Number(t.amount), type: t.type, dueDate: null, sortDate: t.date, refId: t.id, priority: false });
   }
   const order = { overdue: 0, due: 1, draft: 2, upcoming: 3 };
-  out.sort((a, b) => order[a.kind] - order[b.kind] || (a.sortDate < b.sortDate ? -1 : a.sortDate > b.sortDate ? 1 : 0));
+  out.sort((a, b) => (b.priority - a.priority) || (order[a.kind] - order[b.kind]) || (a.sortDate < b.sortDate ? -1 : a.sortDate > b.sortDate ? 1 : 0));
   return json({ notifications: out });
 }
 __name(listNotifications, "listNotifications");
 async function createRecurring(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();
-  const { name, amount, type, scope, frequency, dueDay, walletId, categoryId, subCategoryId, autoCreate, nextDueDate, dueHour } = body;
+  const { name, amount, type, scope, frequency, dueDay, walletId, categoryId, subCategoryId, autoCreate, nextDueDate, dueHour, notifyMuted, notifyLeadDays, notifyPriority } = body;
   if (!name || !amount || !type || !scope || !frequency || !dueDay || !walletId) {
     return json({ error: "fields required" }, 400);
   }
+  const leadDays = notifyLeadDays == null || notifyLeadDays === "" ? null : Math.min(Math.max(parseInt(notifyLeadDays, 10), 1), 60) || null;
   if (!["income", "expense"].includes(type)) return json({ error: "invalid type" }, 400);
   if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
   if (!["daily", "weekly", "monthly", "yearly"].includes(frequency)) return json({ error: "invalid frequency" }, 400);
@@ -828,8 +831,8 @@ async function createRecurring(request, env, user) {
   const { draftMode } = body;
   const id = "rec_" + crypto.randomUUID().slice(0, 12);
   await env.DB.prepare(
-    "INSERT INTO recurring_templates (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, frequency, due_day, auto_create, next_due_date, draft_mode, due_hour) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, walletId, categoryId || null, subCategoryId || null, name, Number(amount), type, scope, frequency, dueDay, autoCreate ? 1 : 0, nextDueDate || null, draftMode ? 1 : 0, dueHour ?? null).run();
+    "INSERT INTO recurring_templates (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, frequency, due_day, auto_create, next_due_date, draft_mode, due_hour, notify_muted, notify_lead_days, notify_priority) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, walletId, categoryId || null, subCategoryId || null, name, Number(amount), type, scope, frequency, dueDay, autoCreate ? 1 : 0, nextDueDate || null, draftMode ? 1 : 0, dueHour ?? null, notifyMuted ? 1 : 0, leadDays, notifyPriority ? 1 : 0).run();
   const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ?").bind(id).first();
   return json({ recurring: formatRecurring(rec) }, 201);
 }
@@ -839,7 +842,7 @@ async function updateRecurring(id, request, env, user) {
   const rec = await env.DB.prepare("SELECT * FROM recurring_templates WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!rec) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A recurring" }, 404);
   const body = await request.json();
-  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode", "due_hour", "notify_muted"];
+  const fields = ["name", "amount", "type", "scope", "frequency", "due_day", "auto_create", "next_due_date", "is_active", "wallet_id", "category_id", "sub_category_id", "draft_mode", "due_hour", "notify_muted", "notify_lead_days", "notify_priority"];
   const updates = [], args = [];
   for (const f of fields) {
     const camelKey = f.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
@@ -2012,6 +2015,8 @@ function formatRecurring(r) {
     nextDueDate: r.next_due_date,
     isActive: !!r.is_active,
     notifyMuted: !!r.notify_muted,
+    notifyLeadDays: r.notify_lead_days ?? null,
+    notifyPriority: !!r.notify_priority,
     createdAt: r.created_at
   };
 }

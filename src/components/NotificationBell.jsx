@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, AlertTriangle, Clock, FileText, Zap, Check, X, Settings, ChevronLeft, BellOff } from 'lucide-react'
+import { Bell, AlertTriangle, Clock, FileText, Zap, Check, X, Settings, ChevronLeft, BellOff, Flame } from 'lucide-react'
 import { thb } from '../fmt'
+import RecurringNotifyControls from './RecurringNotifyControls'
 
 // Per-kind visual language. Distinct icon SHAPES (not colour alone) satisfy color-not-only a11y.
 const KIND = {
@@ -41,12 +42,13 @@ function Toggle({ on, onClick }) {
 }
 
 export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
-  const { list, unreadCount, seen, markAllRead, settings, setDays, toggleKind, mute, unmute, getMuted } = ctrl
+  const { list, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems } = ctrl
   const nav = useNavigate()
   const [open, setOpen] = useState(false)
   const [view, setView] = useState('list')     // 'list' | 'settings'
   const [highlight, setHighlight] = useState(() => new Set())
-  const [muted, setMuted] = useState([])
+  const [items, setItems] = useState([])
+  const [expandedId, setExpandedId] = useState(null)
 
   const toggle = () => {
     if (!open) {
@@ -65,10 +67,16 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
     return () => window.removeEventListener('keydown', onKey)
   }, [open])
 
-  const openSettings = async () => { setView('settings'); setMuted(await getMuted()) }
+  const openSettings = async () => { setView('settings'); setExpandedId(null); setItems(await getItems()) }
   const goto = (n) => { close(); nav(KIND[n.kind]?.to || '/') }
-  const doMute = async (e, n) => { e.stopPropagation(); await mute(n.refId) }
-  const doUnmute = async (id) => { await unmute(id); setMuted(await getMuted()) }
+  const doMute = async (e, n) => { e.stopPropagation(); await saveItem(n.refId, { notifyMuted: true }) }
+  const changeItem = async (id, patch) => { setItems(prev => prev.map(it => it.id === id ? { ...it, ...patch } : it)); await saveItem(id, patch) }
+
+  const itemSummary = (it) => {
+    if (it.notifyMuted) return <span className="text-slate-600">ปิดเสียง</span>
+    const lead = it.notifyLeadDays == null ? `ค่าเริ่มต้น (${settings.days} วัน)` : `เตือน ${it.notifyLeadDays} วัน`
+    return <>{lead}{it.notifyPriority && <span className="text-red-400"> · เร่งด่วน</span>}</>
+  }
 
   const panelStyle = placement === 'topbar'
     ? { position: 'fixed', top: '3.5rem', left: '0.75rem', right: '0.75rem', zIndex: 61 }
@@ -110,7 +118,6 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
             className="notif-pop rounded-2xl overflow-hidden flex flex-col"
             style={{ ...panelStyle, background: '#161b2e', border: '1px solid #2e3349', boxShadow: '0 20px 50px rgba(0,0,0,.55)', maxHeight: 'min(70vh, 520px)' }}>
 
-            {/* Header */}
             <div className="flex items-center justify-between px-4 py-3 flex-shrink-0" style={{ borderBottom: '1px solid #1f2937' }}>
               {view === 'settings' ? (
                 <button onClick={() => setView('list')} className="flex items-center gap-1.5 text-slate-300 hover:text-white text-sm font-semibold" aria-label="ย้อนกลับ">
@@ -135,7 +142,7 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
             {view === 'settings' ? (
               <div className="overflow-y-auto p-4 space-y-5">
                 <div>
-                  <p className="text-xs font-medium text-slate-400 mb-2">เตือนล่วงหน้าก่อนถึงกำหนด</p>
+                  <p className="text-xs font-medium text-slate-400 mb-2">เตือนล่วงหน้า · ค่าเริ่มต้น <span className="text-slate-600">(รายการที่ไม่ได้ตั้งเอง)</span></p>
                   <div className="flex gap-2">
                     {DAY_OPTIONS.map(d => (
                       <button key={d} onClick={() => setDays(d)}
@@ -162,19 +169,37 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
                 </div>
 
                 <div>
-                  <p className="text-xs font-medium text-slate-400 mb-2">รายการที่ปิดเสียง</p>
-                  {muted.length === 0 ? (
-                    <p className="text-xs text-slate-600">— ไม่มี —</p>
+                  <p className="text-xs font-medium text-slate-400 mb-2">ตั้งค่ารายรายการ</p>
+                  {items.length === 0 ? (
+                    <p className="text-xs text-slate-600">— ไม่มีรายการประจำ —</p>
                   ) : (
-                    <div className="space-y-1">
-                      {muted.map(r => (
-                        <div key={r.id} className="flex items-center justify-between gap-2 py-1.5">
-                          <span className="text-sm text-slate-300 truncate flex items-center gap-2">
-                            <BellOff className="w-3.5 h-3.5 text-slate-500 flex-shrink-0" /> {r.name}
-                          </span>
-                          <button onClick={() => doUnmute(r.id)} className="text-xs text-emerald-400 hover:text-emerald-300 flex-shrink-0">เปิดเสียง</button>
-                        </div>
-                      ))}
+                    <div className="space-y-2">
+                      {items.map(it => {
+                        const muted = it.notifyMuted
+                        return (
+                          <div key={it.id} className="rounded-lg" style={{ border: '1px solid #232a40' }}>
+                            <div className="flex items-center gap-3 p-2.5 cursor-pointer" onClick={() => setExpandedId(e => e === it.id ? null : it.id)}>
+                              <span className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+                                style={{ background: muted ? 'rgba(100,116,139,0.15)' : it.notifyPriority ? 'rgba(248,113,113,0.14)' : 'rgba(16,185,129,0.12)' }}>
+                                {muted ? <BellOff className="w-4 h-4 text-slate-500" /> : it.notifyPriority ? <Flame className="w-4 h-4" style={{ color: '#f87171' }} /> : <Bell className="w-4 h-4" style={{ color: '#34d399' }} />}
+                              </span>
+                              <div className="flex-1 min-w-0">
+                                <div className={`text-sm font-medium truncate ${muted ? 'text-slate-500' : 'text-slate-200'}`}>{it.name}</div>
+                                <div className="text-xs text-slate-500">{itemSummary(it)}</div>
+                              </div>
+                              <span className="text-sm font-bold tabular-nums flex-shrink-0" style={{ color: it.type === 'income' ? '#34d399' : '#f87171' }}>
+                                {it.type === 'income' ? '+' : '-'}{thb(it.amount)}
+                              </span>
+                              <Toggle on={!muted} onClick={(e) => { e.stopPropagation(); changeItem(it.id, { notifyMuted: !muted }) }} />
+                            </div>
+                            {expandedId === it.id && !muted && (
+                              <div className="px-2.5 pb-2.5">
+                                <RecurringNotifyControls value={it} showToggle={false} globalDays={settings.days} onChange={patch => changeItem(it.id, patch)} />
+                              </div>
+                            )}
+                          </div>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -191,23 +216,28 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
               <div className="overflow-y-auto">
                 {list.map((n, i) => {
                   const k = KIND[n.kind] || KIND.due
-                  const Icon = k.icon
+                  const urgent = n.priority
+                  const Icon = urgent ? Flame : k.icon
+                  const color = urgent ? '#f87171' : k.color
+                  const tint = urgent ? 'rgba(248,113,113,0.14)' : k.tint
+                  const tag = urgent ? 'เร่งด่วน' : k.tag
                   const isNew = highlight.has(n.id)
                   const canMute = n.kind !== 'draft'
+                  const bg = urgent ? 'rgba(248,113,113,0.06)' : isNew ? 'rgba(16,185,129,0.045)' : undefined
                   return (
                     <div key={n.id} role="button" tabIndex={0}
                       onClick={() => goto(n)}
                       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goto(n) } }}
                       className="notif-row w-full text-left flex gap-3 px-4 py-3 transition-colors hover:bg-slate-500/5 relative cursor-pointer"
-                      style={{ borderBottom: '1px solid #1f2937', animationDelay: `${Math.min(i, 8) * 35}ms`, background: isNew ? 'rgba(16,185,129,0.045)' : undefined }}>
+                      style={{ borderBottom: '1px solid #1f2937', borderLeft: urgent ? '3px solid #f87171' : undefined, animationDelay: `${Math.min(i, 8) * 35}ms`, background: bg }}>
                       {isNew && <span className="absolute left-1.5 top-1/2 -translate-y-1/2 w-1.5 h-1.5 rounded-full" style={{ background: '#34d399' }} aria-hidden="true" />}
-                      <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: k.tint }}>
-                        <Icon className="w-[18px] h-[18px]" style={{ color: k.color }} />
+                      <span className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0" style={{ background: tint }}>
+                        <Icon className="w-[18px] h-[18px]" style={{ color }} />
                       </span>
                       <span className="flex-1 min-w-0">
                         <span className="flex items-center gap-2 mb-0.5">
                           <span className="font-semibold text-slate-200 text-sm truncate">{n.name}</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 font-semibold" style={{ color: k.color, background: k.tint }}>{k.tag}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 font-semibold" style={{ color, background: tint }}>{tag}</span>
                         </span>
                         <span className="block text-xs text-slate-500 leading-snug">{describe(n)}</span>
                       </span>

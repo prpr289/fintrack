@@ -3,12 +3,13 @@ import { api } from '../api'
 import { thb } from '../fmt'
 import { useAuth } from '../AuthContext'
 import { Plus, Pencil, Trash2, X, Play, Pause, Zap, RefreshCw } from 'lucide-react'
+import RecurringNotifyControls from '../components/RecurringNotifyControls'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
 const INPUT_STYLE = { background: '#0d1120' }
 const FREQ_LABEL = { daily: 'ทุกวัน', weekly: 'ทุกสัปดาห์', monthly: 'ทุกเดือน', yearly: 'ทุกปี' }
-const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', frequency: 'monthly', dueDay: '1', walletId: '', categoryId: '', autoCreate: true, draftMode: false, nextDueDate: '', dueHour: '' }
+const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', frequency: 'monthly', dueDay: '1', walletId: '', categoryId: '', autoCreate: true, draftMode: false, nextDueDate: '', dueHour: '', notifyMuted: false, notifyLeadDays: null, notifyPriority: false }
 
 function Label({ children }) {
   return <label className="block text-xs font-medium text-slate-400 mb-1.5">{children}</label>
@@ -58,6 +59,7 @@ export default function Recurring() {
       categoryId: r.categoryId || '', autoCreate: r.autoCreate,
       draftMode: r.draftMode || false, nextDueDate: r.nextDueDate || '',
       dueHour: r.dueHour == null ? '' : String(r.dueHour),
+      notifyMuted: r.notifyMuted || false, notifyLeadDays: r.notifyLeadDays ?? null, notifyPriority: r.notifyPriority || false,
     })
     setErr('')
     setShowForm(true)
@@ -306,6 +308,7 @@ export default function Recurring() {
                   <p className="text-xs text-slate-500">สร้างเป็น Draft ให้ยืนยันยอด+แนบสลิปในภายหลัง</p>
                 </div>
               </label>
+              <RecurringNotifyControls value={form} onChange={patch => setForm(f => ({ ...f, ...patch }))} />
               {err && <p className="text-red-400 text-sm">{err}</p>}
               <button type="submit" disabled={saving}
                 className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors">

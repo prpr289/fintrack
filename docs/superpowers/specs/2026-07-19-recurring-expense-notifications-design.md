@@ -34,7 +34,14 @@ Goal: a bell icon with an unread badge and a dropdown listing what needs attenti
 **Settings (added 2026-07-19, gear ⚙️ in the bell panel):**
 - **Lead-time days** (default 3) — per-user localStorage; sent to the API as `?days=` (server clamps 1–60, computes `horizon = today+days`).
 - **Kind toggles** (upcoming / manual[due+overdue] / draft) — per-user localStorage; applied client-side (hide disabled kinds; unreadCount follows).
-- **Mute per item** — server-side, workspace-wide: `recurring_templates.notify_muted` (INTEGER DEFAULT 0). Muting = `updateRecurring(refId, {notifyMuted:true})`; `listNotifications` excludes `notify_muted=1`. Muted list (unmute) reads `api.recurring()` filtered by `notifyMuted`. Drafts are not muteable. Requires D1 migration: `ALTER TABLE recurring_templates ADD COLUMN notify_muted INTEGER DEFAULT 0;`
+- **Mute per item** — server-side, workspace-wide: `recurring_templates.notify_muted` (INTEGER DEFAULT 0). Muting = `updateRecurring(refId, {notifyMuted:true})`; `listNotifications` excludes `notify_muted=1`. Drafts are not muteable. Requires D1 migration: `ALTER TABLE recurring_templates ADD COLUMN notify_muted INTEGER DEFAULT 0;`
+
+**Per-item notification (added 2026-07-19):** each recurring item carries its own notification prefs, overriding the global default. Server columns on `recurring_templates`:
+- `notify_lead_days` INTEGER NULL — null = use the user's global default; a number (1–60) = this item's own lead-time. `listNotifications` computes `lead = notify_lead_days ?? globalDays` per item (no single horizon).
+- `notify_priority` INTEGER DEFAULT 0 — urgent items sort to the **top** of the bell and render with a red accent + "เร่งด่วน" tag + flame icon (`out.sort` keys on `priority` first).
+- `notify_muted` (existing) — on/off.
+
+Settable in **two places**, both via `updateRecurring`/`createRecurring`: (1) the recurring create/edit form (a "การแจ้งเตือน" card), and (2) the bell settings menu's "ตั้งค่ารายรายการ" list (per-item row → expand). Both reuse `RecurringNotifyControls` (on/off toggle + lead-time chips incl. custom + priority chips). Migration: `ALTER TABLE recurring_templates ADD COLUMN notify_lead_days INTEGER; ALTER TABLE recurring_templates ADD COLUMN notify_priority INTEGER DEFAULT 0;`
 
 **Out (YAGNI — add later if wanted):**
 - `posted` (FYI that an `auto_create=1` item was auto-charged) — cut by user, too noisy.
