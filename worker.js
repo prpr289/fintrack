@@ -350,7 +350,7 @@ __name(listTransactions, "listTransactions");
 async function createTransaction(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();
-  const { name, amount, type, scope, date, note, walletId, categoryId, subCategoryId, submittedBy } = body;
+  const { name, amount, type, scope, date, note, walletId, categoryId, subCategoryId, submittedBy, source } = body;
   if (!name || !amount || !type || !scope || !date) {
     return json({ error: "fields required: name, amount, type, scope, date" }, 400);
   }
@@ -371,10 +371,13 @@ async function createTransaction(request, env, user) {
   const id = "tx_" + crypto.randomUUID();
   const amt = Number(amount);
   const balanceChange = type === "income" ? amt : -amt;
+  // "auto" marks rows pushed by an integration (HR OS payroll sync) vs hand-keyed.
+  // Only "auto" is honoured from the payload; anything else falls back to "manual".
+  const txSource = source === "auto" ? "auto" : "manual";
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, user.workspace_id, user.id, resolvedWalletId, categoryId || null, subCategoryId || null, name, amt, type, scope, date, note || null, submittedBy || null),
+      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, user.workspace_id, user.id, resolvedWalletId, categoryId || null, subCategoryId || null, name, amt, type, scope, date, note || null, submittedBy || null, txSource),
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, resolvedWalletId)
   ]);
   await logAudit(env, user, "create", "transaction", id, { name, amount: amt });
@@ -1984,6 +1987,7 @@ function formatTransaction(t) {
     isDraft: !!t.is_draft,
     recurringId: t.recurring_id || null,
     submittedBy: t.submitted_by || null,
+    source: t.source || "manual",
     pendingChanges: t.pending_changes ? (() => { try { return JSON.parse(t.pending_changes); } catch { return null; } })() : null,
     editedBy: t.edited_by || null,
     editedAt: t.edited_at || null,

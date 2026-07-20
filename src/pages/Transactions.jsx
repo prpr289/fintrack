@@ -54,6 +54,11 @@ function isAuto(t) {
   return typeof t?.note === 'string' && t.note.startsWith('auto:HROS')
 }
 
+// Prefer the backend `source` field; fall back to the note marker (older rows / transition).
+function isAutoTx(t) {
+  return t?.source === 'auto' || isAuto(t)
+}
+
 // "ระบบ" chip — marks a transaction pulled automatically from HR OS (vs hand-keyed).
 function AutoBadge() {
   return (
@@ -1256,7 +1261,7 @@ export default function Transactions() {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="leading-snug" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</p>
-                              {isAuto(t) && <AutoBadge />}
+                              {isAutoTx(t) && <AutoBadge />}
                             </div>
                             {t.categoryName ? (
                               <div className="inline-flex items-center gap-1.5 mt-1 max-w-full">
@@ -1367,7 +1372,7 @@ export default function Transactions() {
                               <span className="truncate" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</span>
                               {t.isDraft && <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full"><Clock className="w-2.5 h-2.5" /> Draft</span>}
                               {t.pendingChanges && <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full"><Pencil className="w-2.5 h-2.5" /> แก้ไข</span>}
-                              {isAuto(t) && <AutoBadge />}
+                              {isAutoTx(t) && <AutoBadge />}
                             </div>
                             {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
                             {t.submittedBy && (
