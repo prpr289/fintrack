@@ -47,6 +47,30 @@ function CreditCardIcon() {
   )
 }
 
+// Rows created by the HR OS → Fintrack auto-sync carry a note prefixed "auto:HROS ".
+// Interim signal (badge + hide the raw marker) until fintrack-api adds a first-class
+// `source` field. Manually-keyed notes never start with this prefix.
+function isAuto(t) {
+  return typeof t?.note === 'string' && t.note.startsWith('auto:HROS')
+}
+
+// Prefer the backend `source` field; fall back to the note marker (older rows / transition).
+function isAutoTx(t) {
+  return t?.source === 'auto' || isAuto(t)
+}
+
+// "ระบบ" chip — marks a transaction pulled automatically from HR OS (vs hand-keyed).
+function AutoBadge() {
+  return (
+    <span title="ดึงจาก HR OS อัตโนมัติ"
+      className="inline-flex items-center gap-1 text-xs px-1.5 py-0.5 rounded-full flex-none"
+      style={{ color: '#a5b4fc', background: 'rgba(129,140,248,0.12)', border: '1px solid rgba(129,140,248,0.28)' }}>
+      <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#818cf8' }} />
+      ระบบ
+    </span>
+  )
+}
+
 // Group an already-date-sorted tx list into day buckets with a running net.
 function groupByDate(list) {
   const groups = []
@@ -1235,7 +1259,10 @@ export default function Transactions() {
                         )}
                         <div className="flex items-start justify-between gap-3">
                           <div className="min-w-0 flex-1">
-                            <p className="leading-snug" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</p>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="leading-snug" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</p>
+                              {isAutoTx(t) && <AutoBadge />}
+                            </div>
                             {t.categoryName ? (
                               <div className="inline-flex items-center gap-1.5 mt-1 max-w-full">
                                 <span className="flex-none" style={{ width: 6, height: 6, borderRadius: '50%', background: dotColor(t) }} />
@@ -1249,7 +1276,7 @@ export default function Transactions() {
                             {thb(t.amount)}
                           </span>
                         </div>
-                        {t.note && t.note !== 'draft — รอยืนยัน' && <p className="truncate mt-1.5" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</p>}
+                        {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <p className="truncate mt-1.5" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</p>}
                         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mt-2" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>
                           {t.walletName && (
                             <span className="inline-flex items-center gap-1.5 min-w-0">
@@ -1345,8 +1372,9 @@ export default function Transactions() {
                               <span className="truncate" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</span>
                               {t.isDraft && <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full"><Clock className="w-2.5 h-2.5" /> Draft</span>}
                               {t.pendingChanges && <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full"><Pencil className="w-2.5 h-2.5" /> แก้ไข</span>}
+                              {isAutoTx(t) && <AutoBadge />}
                             </div>
-                            {t.note && t.note !== 'draft — รอยืนยัน' && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
+                            {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
                             {t.submittedBy && (
                               <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.7)' }}>
                                 <span className="flex items-center justify-center flex-none" style={{ width: 16, height: 16, borderRadius: '50%', fontSize: 8.5, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>

@@ -1,0 +1,11 @@
+-- Add `source` to transactions:
+--   "manual" — hand-keyed by a user (default)
+--   "auto"   — pushed by an integration (e.g. the HR OS payroll sync)
+--
+-- Backward-compatible: existing rows + any INSERT that omits the column get "manual",
+-- so this is SAFE to apply BEFORE deploying the matching worker.js.
+--
+-- Apply ONCE against the live D1 (SQLite ADD COLUMN has no IF NOT EXISTS — do not re-run):
+--   npx wrangler d1 execute fintrack-db --remote \
+--     --command "ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'"
+ALTER TABLE transactions ADD COLUMN source TEXT NOT NULL DEFAULT 'manual';
