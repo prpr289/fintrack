@@ -174,6 +174,13 @@ async function requireAuth(request, env) {
     const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.SERVICE_USER_ID).first();
     if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" } };
   }
+  // Independent long-lived token for the HR OS -> Fintrack expense sync. Kept
+  // SEPARATE from SERVICE_TOKEN/SERVICE_USER_ID so HR OS config can never affect
+  // the LINE bot (and vice versa). INERT until both HROS_* secrets are set.
+  if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && token === env.HROS_SERVICE_TOKEN) {
+    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.HROS_SERVICE_USER_ID).first();
+    if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "HR OS" } };
+  }
   const payload = await verifyJWT(token, env);
   if (!payload) return { ok: false, error: "Invalid token", status: 401 };
   const user = { id: payload.sub, workspace_id: payload.ws, role: payload.role, name: payload.name || "" };
