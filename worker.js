@@ -2093,6 +2093,7 @@ function formatPendingBill(b) {
     rejectReason: b.reject_reason || null,
     createdTxId: b.created_tx_id || null,
     paidAt: b.paid_at || null,
+    paidWalletId: b.paid_wallet_id || null,
     refundTxId: b.refund_tx_id || null,
     refundedAt: b.refunded_at || null,
     isDeposit: !!b.is_deposit,
@@ -2342,6 +2343,7 @@ async function refundPendingBill(id, request, env, user) {
   const amt = Number(body.amount || b.amount);
   const date = body.date || new Date().toISOString().slice(0, 10);
   if (!walletId || !(amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "ข้อมูลคืนเงินไม่ถูกต้อง" }, 400);
+  if (amt > Number(b.amount)) return json({ error: "คืนเกินยอดบิล" }, 400);
   const wallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(walletId, user.workspace_id).first();
   if (!wallet) return json({ error: "ไม่พบกระเป๋า" }, 404);
   const txId = "tx_" + crypto.randomUUID();
@@ -2365,10 +2367,12 @@ async function refundPendingBill(id, request, env, user) {
 __name(refundPendingBill, "refundPendingBill");
 
 async function markGoodsReceived(id, env, user) {
-  const b = await env.DB.prepare("SELECT status, is_deposit, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  const b = await env.DB.prepare("SELECT status, is_deposit, submitted_by_user_id, goods_received_at FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
   if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
   if (!b.is_deposit) return json({ error: "ไม่ใช่บิลมัดจำ" }, 400);
+  if (b.status !== "paid") return json({ error: "บิลนี้ยังไม่จ่าย" }, 400);
+  if (b.goods_received_at) return json({ error: "บันทึกว่าได้รับของแล้ว" }, 409);
   await env.DB.prepare("UPDATE pending_bills SET goods_received_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
   await logAudit(env, user, "goods_received", "pending_bill", id, {});
   return json({ ok: true });

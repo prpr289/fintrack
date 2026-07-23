@@ -187,7 +187,7 @@ function RefundModal({ bill, onClose, onDone }) {
   const [date, setDate] = useState(new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
-  useEffect(() => { api.wallets().then(d => { const ws = d.wallets || d || []; setWallets(ws); if (ws[0]) setWalletId(ws[0].id) }).catch(() => {}) }, [])
+  useEffect(() => { api.wallets().then(d => { const ws = d.wallets || d || []; setWallets(ws); const paid = bill.paidWalletId && ws.some(w => w.id === bill.paidWalletId) ? bill.paidWalletId : (ws[0] && ws[0].id); if (paid) setWalletId(paid) }).catch(() => {}) }, [bill.paidWalletId])
   const refund = async (e) => {
     e.preventDefault(); setSaving(true); setErr('')
     try { await api.refundPendingBill(bill.id, { walletId, amount: Number(amount), date }); onDone(); onClose() }
