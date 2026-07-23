@@ -28,24 +28,32 @@ function Overlay({ children, onClose }) {
 
 function SubmitBillModal({ me, onClose, onDone }) {
   const [categories, setCategories] = useState([])
-  const [form, setForm] = useState({ name: '', amount: '', scope: 'business', categoryId: '', note: '', payeeType: 'employee', evidenceType: 'slip_transfer' })
+  const [vendors, setVendors] = useState([])
+  const [form, setForm] = useState({ name: '', amount: '', scope: 'business', categoryId: '', note: '', payeeType: 'employee', vendorRefId: '', evidenceType: 'slip_transfer' })
   const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   useEffect(() => { api.categories().then(d => setCategories(d.categories || d || [])).catch(() => {}) }, [])
+  useEffect(() => { api.vendorProfiles().then(d => setVendors(d.vendors || [])).catch(() => {}) }, [])
   const weak = isWeakEvidence(form.evidenceType)
   const submit = async (e) => {
     e.preventDefault(); setErr('')
     if (!file) { setErr('ต้องแนบรูปหลักฐาน'); return }
+    if (form.payeeType === 'vendor' && !form.vendorRefId) { setErr('เลือกร้านค้าปลายทาง'); return }
     setSaving(true)
+    const body = { name: form.name, amount: Number(form.amount), scope: form.scope, note: form.note || undefined,
+      categoryId: form.categoryId || undefined, payeeType: form.payeeType,
+      payeeRefId: form.payeeType === 'employee' ? me.id : form.vendorRefId, evidenceType: form.evidenceType }
+    let created = null
     try {
-      const body = { name: form.name, amount: Number(form.amount), scope: form.scope, note: form.note || undefined,
-        categoryId: form.categoryId || undefined, payeeType: form.payeeType,
-        payeeRefId: form.payeeType === 'employee' ? me.id : undefined, evidenceType: form.evidenceType }
       const res = await api.createPendingBill(body)
-      await api.uploadBillEvidence(res.bill.id, file)
+      created = res.bill
+      await api.uploadBillEvidence(created.id, file)
       onDone(); onClose()
-    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+    } catch (e) {
+      if (created) { try { await api.deletePendingBill(created.id) } catch {} }
+      setErr(e.message)
+    } finally { setSaving(false) }
   }
   return (
     <Overlay onClose={onClose}>
@@ -78,10 +86,27 @@ function SubmitBillModal({ me, onClose, onDone }) {
           </select>
         </div>
         <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">ปลายทางการโอน</label>
+          <select className={INPUT} style={INPUT_STYLE} value={form.payeeType}
+            onChange={e => setForm({ ...form, payeeType: e.target.value, vendorRefId: '' })}>
+            <option value="employee">ตัวเอง (สำรองจ่าย)</option>
+            <option value="vendor">ร้านค้า/ซัพพลายเออร์</option>
+          </select>
+        </div>
+        {form.payeeType === 'vendor' && (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">เลือกร้านค้า/ซัพพลายเออร์</label>
+            <select className={INPUT} style={INPUT_STYLE} value={form.vendorRefId} onChange={e => setForm({ ...form, vendorRefId: e.target.value })}>
+              <option value="">— เลือกร้านค้า —</option>
+              {vendors.map(v => <option key={v.id} value={v.id}>{v.vendorName}</option>)}
+            </select>
+          </div>
+        )}
+        <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายด้วยวิธีไหน</label>
           <div className="space-y-2">
             {EVIDENCE_TIERS.map(([v, label, strength]) => (
-              <button type="button" key={v} onClick={() => setForm({ ...form, evidenceType: v })}
+              <button type="button" key={v} aria-pressed={form.evidenceType === v} onClick={() => setForm({ ...form, evidenceType: v })}
                 className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-sm border transition-colors"
                 style={{ borderColor: form.evidenceType === v ? '#10b981' : '#2e3349', color: '#e2e8f0', background: form.evidenceType === v ? '#10b98115' : 'transparent' }}>
                 <span>{label}</span>
@@ -186,17 +211,36 @@ function BillCard({ bill, isAdmin, onPay, onReject, onView }) {
 export default function PendingBills() {
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
+  const isViewer = !!user && user.role !== 'admin' && user.role !== 'staff'
   const [bills, setBills] = useState([])
   const [loading, setLoading] = useState(true)
   const [showSubmit, setShowSubmit] = useState(false)
   const [payBill, setPayBill] = useState(null)
   // admin: คิวเฉพาะ pending · staff: บิลของฉันทุกสถานะ (เห็นจ่ายแล้ว/ปฏิเสธ+เหตุผล ตาม acceptance #6)
-  const load = () => { setLoading(true); api.pendingBills(isAdmin ? { status: 'pending' } : {}).then(d => setBills(d.bills || [])).catch(() => setBills([])).finally(() => setLoading(false)) }
+  // viewer: ไม่มีสิทธิ์เข้าถึงบิลรอจ่าย เลย ข้ามการเรียก api ไปเลย (กัน 403 ที่ถูกกลืน)
+  const load = () => {
+    if (isViewer) { setLoading(false); return }
+    setLoading(true)
+    api.pendingBills(isAdmin ? { status: 'pending' } : {}).then(d => setBills(d.bills || [])).catch(() => setBills([])).finally(() => setLoading(false))
+  }
   useEffect(() => { load() }, [])
-  const reject = async (bill) => { const reason = window.prompt('เหตุผลที่ปฏิเสธ:'); if (reason === null) return; await api.rejectPendingBill(bill.id, { reason }); load() }
+  const reject = async (bill) => {
+    const reason = window.prompt('เหตุผลที่ปฏิเสธ:')
+    if (reason === null) return
+    try { await api.rejectPendingBill(bill.id, { reason }); load() } catch (e) { alert(e.message) }
+  }
   const view = async (bill) => { try { const url = await api.fetchBillEvidenceBlob(bill.id); window.open(url, '_blank') } catch (e) { alert(e.message) } }
   const ratios = weakRatioByUser(bills.map(b => ({ submittedByUserId: b.submittedByUserId, amount: b.amount, evidenceType: b.evidenceType })))
   const total = bills.reduce((s, b) => s + b.amount, 0)
+  if (isViewer) {
+    return (
+      <div className="max-w-3xl mx-auto p-4">
+        <div className="rounded-xl p-8 text-center" style={CARD}>
+          <p className="text-slate-300 text-sm">คุณไม่มีสิทธิ์เข้าถึงบิลรอจ่าย</p>
+        </div>
+      </div>
+    )
+  }
   return (
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
