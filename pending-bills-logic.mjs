@@ -46,3 +46,16 @@ export function weakRatioByUser(bills) {
   }
   return out
 }
+
+export function duplicateIds(bills) {
+  const byKey = {}
+  for (const b of bills) {
+    const k = dupKey(b)
+    ;(byKey[k] = byKey[k] || []).push(b.id)
+  }
+  const out = new Set()
+  for (const k of Object.keys(byKey)) {
+    if (byKey[k].length > 1) byKey[k].forEach(id => out.add(id))
+  }
+  return out
+}

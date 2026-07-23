@@ -1,7 +1,7 @@
 // Run: node pending-bills-logic.test.mjs
 import assert from 'node:assert'
 import {
-  NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser,
+  NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds,
 } from './pending-bills-logic.mjs'
 
 // --- validateBillInput ---
@@ -37,5 +37,18 @@ const bills = [
   { submittedByUserId: 'u2', amount: 200, evidenceType: 'slip_transfer' },
 ]
 assert.deepStrictEqual(weakRatioByUser(bills), { u1: 90, u2: 0 })
+
+// --- duplicateIds ---
+const dupBills = [
+  { id: 'a', payeeRefId: 'u1', amount: 500, date: '2026-07-23' },
+  { id: 'b', payeeRefId: 'u1', amount: 500, date: '2026-07-23' }, // dup of a
+  { id: 'c', payeeRefId: 'u1', amount: 500, date: '2026-07-24' }, // different day
+  { id: 'd', payeeRefId: 'u2', amount: 500, date: '2026-07-23' }, // different payee
+]
+const dups = duplicateIds(dupBills)
+assert.strictEqual(dups.has('a'), true)
+assert.strictEqual(dups.has('b'), true)
+assert.strictEqual(dups.has('c'), false)
+assert.strictEqual(dups.has('d'), false)
 
 console.log('pending-bills-logic.test.mjs OK')
