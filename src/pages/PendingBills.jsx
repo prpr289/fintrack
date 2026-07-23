@@ -320,7 +320,7 @@ export default function PendingBills() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-semibold text-slate-100">{isAdmin ? (adminFilter === 'paid' ? 'บิลที่จ่ายแล้ว' : 'คิวบิลรอจ่าย') : 'บิลรอจ่ายของฉัน'}</h1>
-          {isAdmin && <p className="text-sm text-slate-400 tabular-nums">รอจ่าย {bills.length} รายการ · รวม {thb(total)}</p>}
+          {isAdmin && <p className="text-sm text-slate-400 tabular-nums">{adminFilter === 'paid' ? 'จ่ายแล้ว' : 'รอจ่าย'} {bills.length} รายการ · รวม {thb(total)}</p>}
           {depositAwaitingCount > 0 && <p className="text-sm text-blue-400 tabular-nums">มัดจำรอของ {depositAwaitingCount}</p>}
         </div>
         {!isAdmin && <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>}
@@ -337,7 +337,7 @@ export default function PendingBills() {
         </div>
       )}
       {loading ? <p className="text-slate-500 text-sm">กำลังโหลด...</p>
-        : bills.length === 0 ? <div className="text-center text-slate-500 py-12"><Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>ยังไม่มีบิลรอจ่าย</p></div>
+        : bills.length === 0 ? <div className="text-center text-slate-500 py-12"><Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>{isAdmin && adminFilter === 'paid' ? 'ยังไม่มีบิลที่จ่ายแล้ว' : 'ยังไม่มีบิลรอจ่าย'}</p></div>
         : <div className="space-y-3">{bills.map(b => <BillCard key={b.id} bill={b} isAdmin={isAdmin} isDup={dupSet.has(b.id)} onPay={setPayBill} onReject={reject} onView={view} onReceived={received} onRefund={setRefundBill} />)}</div>}
       {isAdmin && Object.entries(ratios).filter(([, r]) => r >= 40).map(([uid, r]) => {
         const nm = bills.find(b => b.submittedByUserId === uid)?.submittedByName || uid
