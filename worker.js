@@ -2123,7 +2123,7 @@ async function createPendingBill(request, env, user) {
     "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType).run();
   await logAudit(env, user, "create", "pending_bill", id, { name, amount: Number(amount) });
-  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE pb.id = ?").bind(id).first();
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
   return json({ bill: formatPendingBill(b) }, 201);
 }
 __name(createPendingBill, "createPendingBill");
@@ -2136,14 +2136,14 @@ async function listPendingBills(request, env, user) {
   if (status) { clauses.push("pb.status = ?"); args.push(status); }
   if (user.role !== "admin") { clauses.push("pb.submitted_by_user_id = ?"); args.push(user.id); }
   const rows = await env.DB.prepare(
-    `SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE ${clauses.join(" AND ")} ORDER BY pb.created_at ASC`
+    `SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE ${clauses.join(" AND ")} ORDER BY pb.created_at ASC`
   ).bind(...args).all();
   return json({ bills: (rows.results || []).map(formatPendingBill) });
 }
 __name(listPendingBills, "listPendingBills");
 
 async function getPendingBill(id, env, user) {
-  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE pb.id = ? AND pb.workspace_id = ?").bind(id, user.workspace_id).first();
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ? AND pb.workspace_id = ?").bind(id, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
   if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
   return json({ bill: formatPendingBill(b) });
@@ -2207,12 +2207,14 @@ async function payPendingBill(id, request, env, user) {
         "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
       ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
     ]);
-  } catch {
+  } catch (e) {
+    console.error("payPendingBill batch failed:", e);
     // batch failed after the claim committed — revert so the bill isn't stuck as paid-with-no-tx
     await env.DB.prepare("UPDATE pending_bills SET status = 'pending', created_tx_id = NULL, paid_wallet_id = NULL, paid_by_user_id = NULL, paid_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
     return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
   }
   await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
   const tx = await fetchTxFull(env, txId);
   return json({ ok: true, transaction: formatTransaction(tx), txId });
 }
