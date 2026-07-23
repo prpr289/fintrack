@@ -60,13 +60,17 @@ export const voucherStyle = `
 // The voucher document itself (white card). Loads its own attached slips by
 // transaction id, with the URL slip id (data.si) as an unauthenticated fallback.
 // `data` shape: { id, n, amt, d, b, r, si, ty, mo }
+// ty: 'income' (ใบรับเงิน) | 'expense'/other (ใบสำคัญจ่าย, default) | 'cert' (ใบรับรองแทนใบเสร็จรับเงิน)
 export default function VoucherDoc({ data }) {
   const [attachments, setAttachments] = useState([])
   const [slipStatus, setSlipStatus] = useState('idle') // idle | loading | empty | unauthed | error
   const [slipErr, setSlipErr] = useState('')
 
   useEffect(() => {
-    if (!data?.id) return
+    // 'cert' docs aren't backed by a real transaction (they're issued for
+    // self-declared pending bills), so there's no transaction id to fetch
+    // slips for — skip the lookup instead of surfacing a confusing error.
+    if (!data?.id || data.ty === 'cert') return
     const token = localStorage.getItem('ft_token')
 
     const loadOne = async (sid) => {
@@ -123,12 +127,16 @@ export default function VoucherDoc({ data }) {
 
   const amount = parseFloat(data.amt) || 0
   const isIncome = data.ty === 'income'
-  const docPrefix = isIncome ? 'RV' : 'PV'
+  const isCert = data.ty === 'cert'
+  const docPrefix = isCert ? 'CR' : (isIncome ? 'RV' : 'PV')
   const voucherNo = `${docPrefix}-${(data.d || '').replace(/-/g, '')}-${(data.id || 'XXXX').slice(-4).toUpperCase()}`
-  const docTitle = isIncome ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'
-  const docSubtitle = isIncome ? 'Money Receipt' : 'Payment Voucher'
-  const payToLabel = isIncome ? 'รับจาก / From' : 'จ่ายให้ / Pay to'
-  const defaultDesc = isIncome ? 'รับชำระค่าสินค้า/บริการ' : 'ชำระค่าสินค้า/บริการ'
+  const docTitle = isCert ? 'ใบรับรองแทนใบเสร็จรับเงิน' : (isIncome ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย')
+  const docSubtitle = isCert ? 'Certificate in Lieu of Receipt' : (isIncome ? 'Money Receipt' : 'Payment Voucher')
+  const payToLabel = isCert ? 'จ่ายให้ / Pay to' : (isIncome ? 'รับจาก / From' : 'จ่ายให้ / Pay to')
+  const defaultDesc = isCert ? 'ชำระค่าสินค้า/บริการ' : (isIncome ? 'รับชำระค่าสินค้า/บริการ' : 'ชำระค่าสินค้า/บริการ')
+  const sigLabels = isCert
+    ? [['ผู้จ่ายเงิน', 'Paid by'], ['ผู้อนุมัติ', 'Approved by']]
+    : [['ผู้รับเงิน', 'Received by'], ['ผู้อนุมัติ', 'Approved by']]
 
   return (
     <div className="voucher-doc" style={{ background: '#fff', borderRadius: '0.75rem', boxShadow: '0 4px 16px rgba(0,0,0,.1)', borderTop: '4px solid #059669', padding: '2rem 2.5rem', fontFamily: '"Sarabun", "Noto Sans Thai", sans-serif', color: '#111', lineHeight: 1.6 }}>
@@ -195,9 +203,16 @@ export default function VoucherDoc({ data }) {
         </div>
       )}
 
+      {/* Reason for no receipt (cert docs only) */}
+      {isCert && (
+        <div style={{ fontSize: '0.8rem', color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '0.5rem', padding: '0.65rem 0.9rem', marginBottom: '1.25rem' }}>
+          <strong>เหตุที่ไม่มีใบเสร็จ:</strong> ซื้อจากผู้ขายรายย่อยในตลาดสดซึ่งไม่ออกใบเสร็จ
+        </div>
+      )}
+
       {/* Signatures */}
       <div className="v-sigs" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '2.5rem', marginTop: '3rem' }}>
-        {[['ผู้รับเงิน', 'Received by'], ['ผู้อนุมัติ', 'Approved by']].map(([th2, en]) => (
+        {sigLabels.map(([th2, en]) => (
           <div key={th2} style={{ textAlign: 'center' }}>
             <div className="v-sig-line" style={{ borderBottom: '1.5px solid #374151', marginBottom: '0.4rem', height: '2.5rem' }} />
             <div style={{ fontWeight: 600, fontSize: '0.82rem' }}>{th2} / {en}</div>

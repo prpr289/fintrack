@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, X, Receipt, AlertTriangle } from 'lucide-react'
+import { Plus, X, Receipt, AlertTriangle, FileText } from 'lucide-react'
 import { isWeakEvidence, weakRatioByUser } from '../../pending-bills-logic.mjs'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -177,6 +177,14 @@ function PayModal({ bill, onClose, onDone }) {
 
 function BillCard({ bill, isAdmin, onPay, onReject, onView }) {
   const weak = isWeakEvidence(bill.evidenceType)
+  const showCert = bill.status === 'paid' && bill.evidenceType === 'self_declared'
+  const openCert = () => {
+    const payload = encodeURIComponent(JSON.stringify({
+      id: bill.id, n: bill.payeeName || bill.submittedByName || '-', amt: bill.amount,
+      d: (bill.paidAt || bill.createdAt || '').slice(0, 10), b: bill.payeeBank || '', r: '', si: '', ty: 'cert', mo: bill.name || '',
+    }))
+    window.open(`/voucher?d=${payload}`, '_blank')
+  }
   return (
     <div className="rounded-xl p-4" style={{ ...CARD, borderColor: weak ? '#b45309' : '#1f2937' }}>
       <div className="flex items-start justify-between gap-3">
@@ -199,6 +207,11 @@ function BillCard({ bill, isAdmin, onPay, onReject, onView }) {
       </div>
       <div className="flex gap-2 mt-3">
         {bill.hasEvidence && <button onClick={() => onView(bill)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">ดูหลักฐาน</button>}
+        {showCert && (
+          <button onClick={openCert} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">
+            <FileText className="w-3.5 h-3.5" />ใบรับรอง
+          </button>
+        )}
         {isAdmin && bill.status === 'pending' && <>
           <button onClick={() => onPay(bill)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">จ่ายแล้ว</button>
           <button onClick={() => onReject(bill)} className="text-xs px-3 py-1.5 rounded-lg text-red-400">ปฏิเสธ</button>
