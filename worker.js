@@ -1,4 +1,5 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
+import { validateBillInput, checkNoBillCap } from "./pending-bills-logic.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -110,6 +111,18 @@ var worker_default = {
       const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
       if (lineUserMatch && method === "DELETE") return cors(await deleteLineUser(lineUserMatch[1], env, user));
       if (path === "/line-users/lookup" && method === "GET") return cors(await lookupLineUser(request, env, user));
+      if (path === "/pending-bills" && method === "POST") return cors(await createPendingBill(request, env, user));
+      if (path === "/pending-bills" && method === "GET") return cors(await listPendingBills(request, env, user));
+      const pbMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)$/);
+      if (pbMatch && method === "GET") return cors(await getPendingBill(pbMatch[1], env, user));
+      if (pbMatch && method === "DELETE") return cors(await deletePendingBill(pbMatch[1], env, user));
+      const pbEvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/evidence$/);
+      if (pbEvMatch && method === "POST") return cors(await uploadBillEvidence(pbEvMatch[1], request, env, user));
+      if (pbEvMatch && method === "GET") return cors(await getBillEvidence(pbEvMatch[1], env, user));
+      const pbPayMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/pay$/);
+      if (pbPayMatch && method === "POST") return cors(await payPendingBill(pbPayMatch[1], request, env, user));
+      const pbRejMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/reject$/);
+      if (pbRejMatch && method === "POST") return cors(await rejectPendingBill(pbRejMatch[1], request, env, user));
       return cors(json({ error: "Not found" }, 404));
     } catch (err) {
       console.error("Error:", err);
@@ -2032,6 +2045,174 @@ function formatRecurring(r) {
   };
 }
 __name(formatRecurring, "formatRecurring");
+function formatPendingBill(b) {
+  if (!b) return null;
+  return {
+    id: b.id,
+    workspaceId: b.workspace_id,
+    status: b.status,
+    source: b.source,
+    submittedByUserId: b.submitted_by_user_id || null,
+    submittedByName: b.submitted_by_name || null,
+    name: b.name,
+    amount: Number(b.amount),
+    categoryId: b.category_id || null,
+    categoryName: b.category_name || null,
+    subCategoryId: b.sub_category_id || null,
+    scope: b.scope,
+    note: b.note || null,
+    payeeType: b.payee_type,
+    payeeRefId: b.payee_ref_id || null,
+    payeeName: b.payee_name || null,
+    payeeBank: b.payee_bank || null,
+    payeeAccountNo: b.payee_account_no || null,
+    evidenceType: b.evidence_type,
+    hasEvidence: !!b.evidence_key,
+    rejectReason: b.reject_reason || null,
+    createdTxId: b.created_tx_id || null,
+    paidAt: b.paid_at || null,
+    createdAt: b.created_at,
+    updatedAt: b.updated_at
+  };
+}
+__name(formatPendingBill, "formatPendingBill");
+
+async function snapshotPayee(env, workspaceId, payeeType, payeeRefId) {
+  // freeze ชื่อ+บัญชีปลายทางลงบิล ณ ตอนส่ง
+  if (payeeType === "employee" && payeeRefId) {
+    const u = await env.DB.prepare("SELECT name, bank_name, bank_account_no FROM users WHERE id = ? AND workspace_id = ?").bind(payeeRefId, workspaceId).first();
+    if (u) return { name: u.name || null, bank: u.bank_name || null, acc: u.bank_account_no || null };
+  }
+  if (payeeType === "vendor" && payeeRefId) {
+    const v = await env.DB.prepare("SELECT vendor_name, bank_name, bank_account_no FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(payeeRefId, workspaceId).first();
+    if (v) return { name: v.vendor_name || null, bank: v.bank_name || null, acc: v.bank_account_no || null };
+  }
+  return { name: null, bank: null, acc: null };
+}
+__name(snapshotPayee, "snapshotPayee");
+
+async function createPendingBill(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const body = await request.json();
+  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType } = body;
+  const v = validateBillInput({ name, amount, scope, payeeType, evidenceType });
+  if (!v.ok) return json({ error: v.error }, 400);
+  const cap = checkNoBillCap(evidenceType, amount);
+  if (!cap.ok) return json({ error: cap.error }, 400);
+  const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
+  const id = "pb_" + crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType).run();
+  await logAudit(env, user, "create", "pending_bill", id, { name, amount: Number(amount) });
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE pb.id = ?").bind(id).first();
+  return json({ bill: formatPendingBill(b) }, 201);
+}
+__name(createPendingBill, "createPendingBill");
+
+async function listPendingBills(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const status = new URL(request.url).searchParams.get("status");
+  const clauses = ["pb.workspace_id = ?"];
+  const args = [user.workspace_id];
+  if (status) { clauses.push("pb.status = ?"); args.push(status); }
+  if (user.role !== "admin") { clauses.push("pb.submitted_by_user_id = ?"); args.push(user.id); }
+  const rows = await env.DB.prepare(
+    `SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE ${clauses.join(" AND ")} ORDER BY pb.created_at ASC`
+  ).bind(...args).all();
+  return json({ bills: (rows.results || []).map(formatPendingBill) });
+}
+__name(listPendingBills, "listPendingBills");
+
+async function getPendingBill(id, env, user) {
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id WHERE pb.id = ? AND pb.workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  return json({ bill: formatPendingBill(b) });
+}
+__name(getPendingBill, "getPendingBill");
+
+async function uploadBillEvidence(billId, request, env, user) {
+  const b = await env.DB.prepare("SELECT id, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/") && contentType !== "application/pdf") return json({ error: "Only images and PDF allowed" }, 400);
+  const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const fileKey = `${user.workspace_id}/bills/${billId}/${slipId}`;
+  const bodyBuf = await request.arrayBuffer();
+  if (bodyBuf.byteLength > 10 * 1024 * 1024) return json({ error: "File too large (max 10MB)" }, 400);
+  await env.SLIPS.put(fileKey, bodyBuf, { httpMetadata: { contentType }, customMetadata: { workspaceId: user.workspace_id, billId } });
+  await env.DB.prepare("UPDATE pending_bills SET evidence_key = ?, evidence_mime = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(fileKey, contentType, billId).run();
+  return json({ ok: true }, 201);
+}
+__name(uploadBillEvidence, "uploadBillEvidence");
+
+async function getBillEvidence(id, env, user) {
+  const b = await env.DB.prepare("SELECT evidence_key, evidence_mime, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b || !b.evidence_key) return json({ error: "ไม่พบหลักฐาน" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const obj = await env.SLIPS.get(b.evidence_key);
+  if (!obj) return json({ error: "not found" }, 404);
+  return new Response(obj.body, { headers: { "Content-Type": b.evidence_mime || "application/octet-stream" } });
+}
+__name(getBillEvidence, "getBillEvidence");
+
+async function payPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  if (!b.evidence_key) return json({ error: "ต้องแนบหลักฐานก่อน" }, 400);
+  const body = await request.json().catch(() => ({}));
+  const { walletId, date } = body;
+  if (!walletId || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return json({ error: "ต้องระบุกระเป๋าและวันที่" }, 400);
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(walletId, user.workspace_id).first();
+  if (!wallet) return json({ error: "ไม่พบกระเป๋า" }, 404);
+  const txId = "tx_" + crypto.randomUUID();
+  const amt = Number(b.amount);
+  const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const slipType = b.evidence_type === "slip_transfer" ? "transfer" : (b.evidence_type === "receipt" ? "receipt" : "other");
+  await env.DB.batch([
+    env.DB.prepare(
+      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
+    ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
+    env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
+    env.DB.prepare(
+      "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null),
+    env.DB.prepare("UPDATE pending_bills SET status = 'paid', created_tx_id = ?, paid_wallet_id = ?, paid_by_user_id = ?, paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(txId, walletId, user.id, id)
+  ]);
+  await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
+  const tx = await fetchTxFull(env, txId);
+  return json({ ok: true, transaction: formatTransaction(tx), txId });
+}
+__name(payPendingBill, "payPendingBill");
+
+async function rejectPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT status FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  const { reason } = await request.json().catch(() => ({}));
+  await env.DB.prepare("UPDATE pending_bills SET status = 'rejected', reject_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(reason || null, id).run();
+  await logAudit(env, user, "reject", "pending_bill", id, { reason: reason || null });
+  return json({ ok: true });
+}
+__name(rejectPendingBill, "rejectPendingBill");
+
+async function deletePendingBill(id, env, user) {
+  const b = await env.DB.prepare("SELECT status, submitted_by_user_id, evidence_key FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (b.status !== "pending") return json({ error: "ลบได้เฉพาะบิลที่ยังรอจ่าย" }, 400);
+  if (b.evidence_key) { try { await env.SLIPS.delete(b.evidence_key); } catch { /* best-effort cleanup */ } }
+  await env.DB.prepare("DELETE FROM pending_bills WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "delete", "pending_bill", id, {});
+  return json({ ok: true });
+}
+__name(deletePendingBill, "deletePendingBill");
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
