@@ -13,6 +13,9 @@ export default function Profile() {
   const { user, refreshUser } = useAuth()
   const [name, setName] = useState(user?.name || '')
   const [phone, setPhone] = useState(user?.phone || '')
+  const [bankName, setBankName] = useState(user?.bankName || '')
+  const [bankAccountNo, setBankAccountNo] = useState(user?.bankAccountNo || '')
+  const [bankAccountName, setBankAccountName] = useState(user?.bankAccountName || '')
   const [profileMsg, setProfileMsg] = useState('')
   const [savingProfile, setSavingProfile] = useState(false)
   const [currentPw, setCurrentPw] = useState('')
@@ -58,7 +61,7 @@ export default function Profile() {
     setSavingProfile(true)
     setProfileMsg('')
     try {
-      await api.updateMe({ name, phone })
+      await api.updateMe({ name, phone, bankName, bankAccountNo, bankAccountName })
       await refreshUser()
       setProfileMsg('บันทึกแล้ว ✓')
     } catch (err) { setProfileMsg(err.message) } finally { setSavingProfile(false) }
@@ -124,6 +127,18 @@ export default function Profile() {
           <div>
             <label className="block text-xs font-medium text-slate-400 mb-1.5">เบอร์โทร</label>
             <input value={phone} onChange={e => setPhone(e.target.value)} className={INPUT} style={INPUT_STYLE} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">ธนาคาร</label>
+            <input value={bankName} onChange={e => setBankName(e.target.value)} className={INPUT} style={INPUT_STYLE} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">เลขที่บัญชี</label>
+            <input value={bankAccountNo} onChange={e => setBankAccountNo(e.target.value)} className={INPUT} style={INPUT_STYLE} />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">ชื่อบัญชี</label>
+            <input value={bankAccountName} onChange={e => setBankAccountName(e.target.value)} className={INPUT} style={INPUT_STYLE} />
           </div>
           {profileMsg && (
             <p className={`text-sm ${profileMsg.includes('✓') ? 'text-emerald-400' : 'text-red-400'}`}>{profileMsg}</p>

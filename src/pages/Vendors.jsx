@@ -21,6 +21,8 @@ function EditModal({ vendor, cats, wallets, onClose, onDone }) {
     categoryId: vendor.typicalCategoryId || '',
     subCategoryId: vendor.typicalSubCategoryId || '',
     walletId: vendor.typicalWalletId || '',
+    bankName: vendor.bankName || '',
+    bankAccountNo: vendor.bankAccountNo || '',
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -37,6 +39,8 @@ function EditModal({ vendor, cats, wallets, onClose, onDone }) {
         categoryId: form.categoryId,
         subCategoryId: form.categoryId ? form.subCategoryId : '',
         walletId: form.walletId,
+        bankName: form.bankName,
+        bankAccountNo: form.bankAccountNo,
       })
       onDone(); onClose()
     } catch (e) { setErr(e.message); setSaving(false) }
@@ -92,6 +96,16 @@ function EditModal({ vendor, cats, wallets, onClose, onDone }) {
           <div>
             <Label>ที่อยู่</Label>
             <input value={form.address} onChange={e => setForm(f => ({ ...f, address: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>ธนาคาร</Label>
+              <input value={form.bankName} onChange={e => setForm(f => ({ ...f, bankName: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+            </div>
+            <div>
+              <Label>เลขที่บัญชี</Label>
+              <input value={form.bankAccountNo} onChange={e => setForm(f => ({ ...f, bankAccountNo: e.target.value }))} className={INPUT} style={INPUT_STYLE} />
+            </div>
           </div>
           {err && <p className="text-red-400 text-sm">{err}</p>}
           <button type="submit" disabled={saving}

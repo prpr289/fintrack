@@ -13,7 +13,7 @@ const ROLE_STYLE = {
   staff: { color: '#60a5fa', background: 'rgba(96,165,250,0.15)' },
   viewer: { color: '#94a3b8', background: 'rgba(148,163,184,0.15)' },
 }
-const EMPTY = { email: '', password: '', name: '', role: 'staff' }
+const EMPTY = { email: '', password: '', name: '', role: 'staff', bankName: '', bankAccountNo: '', bankAccountName: '' }
 
 function Modal({ title, onClose, children }) {
   return (
@@ -52,7 +52,7 @@ export default function Users() {
   useEffect(() => { load() }, [load])
 
   const openCreate = () => { setEditing(null); setForm(EMPTY); setErr(''); setShowForm(true) }
-  const openEdit = (u) => { setEditing(u); setForm({ email: u.email, password: '', name: u.name, role: u.role }); setErr(''); setShowForm(true) }
+  const openEdit = (u) => { setEditing(u); setForm({ email: u.email, password: '', name: u.name, role: u.role, bankName: u.bankName || '', bankAccountNo: u.bankAccountNo || '', bankAccountName: u.bankAccountName || '' }); setErr(''); setShowForm(true) }
 
   const save = async (e) => {
     e.preventDefault()
@@ -60,7 +60,7 @@ export default function Users() {
     setErr('')
     try {
       if (editing) {
-        const body = { name: form.name, role: form.role }
+        const body = { name: form.name, role: form.role, bankName: form.bankName, bankAccountNo: form.bankAccountNo, bankAccountName: form.bankAccountName }
         if (form.password) body.password = form.password
         await api.updateUser(editing.id, body)
       } else {
@@ -215,6 +215,12 @@ export default function Users() {
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} className={INPUT} style={INPUT_STYLE}>
                 {ROLES.map(r => <option key={r} value={r}>{ROLE_LABEL[r]}</option>)}
               </select></div>
+            <div><label className="block text-xs font-medium text-slate-400 mb-1.5">ธนาคาร</label>
+              <input value={form.bankName} onChange={e => setForm(f => ({ ...f, bankName: e.target.value }))} className={INPUT} style={INPUT_STYLE} /></div>
+            <div><label className="block text-xs font-medium text-slate-400 mb-1.5">เลขที่บัญชี</label>
+              <input value={form.bankAccountNo} onChange={e => setForm(f => ({ ...f, bankAccountNo: e.target.value }))} className={INPUT} style={INPUT_STYLE} /></div>
+            <div><label className="block text-xs font-medium text-slate-400 mb-1.5">ชื่อบัญชี</label>
+              <input value={form.bankAccountName} onChange={e => setForm(f => ({ ...f, bankAccountName: e.target.value }))} className={INPUT} style={INPUT_STYLE} /></div>
             {err && <p className="text-red-400 text-sm">{err}</p>}
             <button type="submit" disabled={saving}
               className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-2.5 text-sm font-semibold transition-colors">
