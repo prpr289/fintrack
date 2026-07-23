@@ -121,6 +121,10 @@ var worker_default = {
       if (pbEvMatch && method === "GET") return cors(await getBillEvidence(pbEvMatch[1], env, user));
       const pbPayMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/pay$/);
       if (pbPayMatch && method === "POST") return cors(await payPendingBill(pbPayMatch[1], request, env, user));
+      const pbRefundMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/refund$/);
+      if (pbRefundMatch && method === "POST") return cors(await refundPendingBill(pbRefundMatch[1], request, env, user));
+      const pbRecvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/received$/);
+      if (pbRecvMatch && method === "POST") return cors(await markGoodsReceived(pbRecvMatch[1], env, user));
       const pbRejMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/reject$/);
       if (pbRejMatch && method === "POST") return cors(await rejectPendingBill(pbRejMatch[1], request, env, user));
       return cors(json({ error: "Not found" }, 404));
@@ -2089,6 +2093,10 @@ function formatPendingBill(b) {
     rejectReason: b.reject_reason || null,
     createdTxId: b.created_tx_id || null,
     paidAt: b.paid_at || null,
+    refundTxId: b.refund_tx_id || null,
+    refundedAt: b.refunded_at || null,
+    isDeposit: !!b.is_deposit,
+    goodsReceivedAt: b.goods_received_at || null,
     createdAt: b.created_at,
     updatedAt: b.updated_at
   };
@@ -2112,7 +2120,7 @@ __name(snapshotPayee, "snapshotPayee");
 async function createPendingBill(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
   const body = await request.json();
-  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType } = body;
+  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType, isDeposit } = body;
   const v = validateBillInput({ name, amount, scope, payeeType, evidenceType });
   if (!v.ok) return json({ error: v.error }, 400);
   const cap = checkNoBillCap(evidenceType, amount);
@@ -2120,8 +2128,8 @@ async function createPendingBill(request, env, user) {
   const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
   const id = "pb_" + crypto.randomUUID();
   await env.DB.prepare(
-    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType).run();
+    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0).run();
   await logAudit(env, user, "create", "pending_bill", id, { name, amount: Number(amount) });
   const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
   return json({ bill: formatPendingBill(b) }, 201);
@@ -2323,6 +2331,49 @@ function unb64url(str) {
   return new Uint8Array(atob(str).split("").map((c) => c.charCodeAt(0)));
 }
 __name(unb64url, "unb64url");
+async function refundPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "paid") return json({ error: "คืนได้เฉพาะบิลที่จ่ายแล้ว" }, 400);
+  if (b.refund_tx_id) return json({ error: "บิลนี้คืนเงินไปแล้ว" }, 409);
+  const body = await request.json().catch(() => ({}));
+  const walletId = body.walletId || b.paid_wallet_id;
+  const amt = Number(body.amount || b.amount);
+  const date = body.date || new Date().toISOString().slice(0, 10);
+  if (!walletId || !(amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "ข้อมูลคืนเงินไม่ถูกต้อง" }, 400);
+  const wallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(walletId, user.workspace_id).first();
+  if (!wallet) return json({ error: "ไม่พบกระเป๋า" }, 404);
+  const txId = "tx_" + crypto.randomUUID();
+  // claim first so a double-click can't create two refunds
+  const claim = await env.DB.prepare("UPDATE pending_bills SET refund_tx_id = ?, refunded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'paid' AND refund_tx_id IS NULL").bind(txId, id, user.workspace_id).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้คืนเงินไปแล้ว" }, 409);
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'income', ?, ?, ?, ?, 'manual')").bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, "คืนเงิน: " + b.name, amt, b.scope, date, "คืนจากบิล " + id, b.submitted_by_name || null),
+      env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId)
+    ]);
+  } catch (e) {
+    console.error("refundPendingBill batch failed:", e);
+    await env.DB.prepare("UPDATE pending_bills SET refund_tx_id = NULL, refunded_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
+  }
+  await logAudit(env, user, "refund", "pending_bill", id, { txId, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
+  return json({ ok: true, txId });
+}
+__name(refundPendingBill, "refundPendingBill");
+
+async function markGoodsReceived(id, env, user) {
+  const b = await env.DB.prepare("SELECT status, is_deposit, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (!b.is_deposit) return json({ error: "ไม่ใช่บิลมัดจำ" }, 400);
+  await env.DB.prepare("UPDATE pending_bills SET goods_received_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "goods_received", "pending_bill", id, {});
+  return json({ ok: true });
+}
+__name(markGoodsReceived, "markGoodsReceived");
 export {
   WorkspaceRoom,
   worker_default as default
