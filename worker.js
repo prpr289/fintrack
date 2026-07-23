@@ -809,7 +809,8 @@ async function listNotifications(request, env, user) {
     const eff = effectiveDue(r, today);
     if (!eff) continue;
     // per-item lead-time overrides the global default; overdue always shows
-    const lead = r.notify_lead_days != null ? Math.min(Math.max(r.notify_lead_days, 1), 60) : days;
+    let lead = r.notify_lead_days != null ? Math.min(Math.max(r.notify_lead_days, 1), 60) : days;
+    if (r.notify_priority && lead < 14) lead = 14; // urgent items warn earlier automatically (>=14d floor)
     if (eff > addDays(today, lead)) continue;
     // auto items charge themselves -> heads-up only; manual items must be recorded -> due/overdue
     const kind = r.auto_create ? "upcoming" : eff < today ? "overdue" : "due";
