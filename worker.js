@@ -2135,8 +2135,8 @@ __name(getPendingBill, "getPendingBill");
 async function uploadBillEvidence(billId, request, env, user) {
   const b = await env.DB.prepare("SELECT id, status, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
-  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   const contentType = request.headers.get("Content-Type") || "";
   if (!contentType.startsWith("image/") && contentType !== "application/pdf") return json({ error: "Only images and PDF allowed" }, 400);
   const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
@@ -2179,15 +2179,21 @@ async function payPendingBill(id, request, env, user) {
     "UPDATE pending_bills SET status = 'paid', created_tx_id = ?, paid_wallet_id = ?, paid_by_user_id = ?, paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'pending'"
   ).bind(txId, walletId, user.id, id, user.workspace_id).run();
   if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
-  await env.DB.batch([
-    env.DB.prepare(
-      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
-    ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
-    env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
-    env.DB.prepare(
-      "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
-  ]);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
+      ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
+      env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
+      env.DB.prepare(
+        "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
+    ]);
+  } catch {
+    // batch failed after the claim committed — revert so the bill isn't stuck as paid-with-no-tx
+    await env.DB.prepare("UPDATE pending_bills SET status = 'pending', created_tx_id = NULL, paid_wallet_id = NULL, paid_by_user_id = NULL, paid_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
+  }
   await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
   const tx = await fetchTxFull(env, txId);
   return json({ ok: true, transaction: formatTransaction(tx), txId });
