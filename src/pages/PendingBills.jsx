@@ -1,0 +1,220 @@
+import { useState, useEffect } from 'react'
+import { api } from '../api'
+import { useAuth } from '../AuthContext'
+import { Plus, X, Receipt, AlertTriangle } from 'lucide-react'
+import { isWeakEvidence, weakRatioByUser } from '../../pending-bills-logic.mjs'
+
+const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
+const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
+const INPUT_STYLE = { background: '#0d1120' }
+const thb = (n) => '฿' + Number(n || 0).toLocaleString('th-TH')
+
+const EVIDENCE_TIERS = [
+  ['slip_transfer', 'โอน / PromptPay', 'แข็ง'],
+  ['receipt', 'เงินสด + ใบเสร็จ', 'แข็ง'],
+  ['self_declared', 'เงินสด ตลาดสด (ไม่มีบิล)', 'อ่อน'],
+]
+
+function Overlay({ children, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50" onClick={onClose}>
+      <div className="w-full sm:max-w-md sm:mx-4 rounded-t-2xl sm:rounded-2xl max-h-[92vh] flex flex-col"
+        style={{ background: '#161b2e', border: '1px solid #2e3349' }} onClick={e => e.stopPropagation()}>
+        {children}
+      </div>
+    </div>
+  )
+}
+
+function SubmitBillModal({ me, onClose, onDone }) {
+  const [categories, setCategories] = useState([])
+  const [form, setForm] = useState({ name: '', amount: '', scope: 'business', categoryId: '', note: '', payeeType: 'employee', evidenceType: 'slip_transfer' })
+  const [file, setFile] = useState(null)
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { api.categories().then(d => setCategories(d.categories || d || [])).catch(() => {}) }, [])
+  const weak = isWeakEvidence(form.evidenceType)
+  const submit = async (e) => {
+    e.preventDefault(); setErr('')
+    if (!file) { setErr('ต้องแนบรูปหลักฐาน'); return }
+    setSaving(true)
+    try {
+      const body = { name: form.name, amount: Number(form.amount), scope: form.scope, note: form.note || undefined,
+        categoryId: form.categoryId || undefined, payeeType: form.payeeType,
+        payeeRefId: form.payeeType === 'employee' ? me.id : undefined, evidenceType: form.evidenceType }
+      const res = await api.createPendingBill(body)
+      await api.uploadBillEvidence(res.bill.id, file)
+      onDone(); onClose()
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <h3 className="font-semibold text-slate-100">แจ้งบิลรอจ่าย</h3>
+        <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
+      </div>
+      <form onSubmit={submit} className="p-4 space-y-3 overflow-y-auto">
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">ชื่อรายการ</label>
+          <input className={INPUT} style={INPUT_STYLE} value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} required />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">จำนวนเงิน</label>
+            <input className={INPUT} style={INPUT_STYLE} type="number" inputMode="decimal" min="0" step="0.01" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} required />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">ขอบเขต</label>
+            <select className={INPUT} style={INPUT_STYLE} value={form.scope} onChange={e => setForm({ ...form, scope: e.target.value })}>
+              <option value="business">ธุรกิจ</option><option value="personal">ส่วนตัว</option>
+            </select>
+          </div>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">หมวดหมู่</label>
+          <select className={INPUT} style={INPUT_STYLE} value={form.categoryId} onChange={e => setForm({ ...form, categoryId: e.target.value })}>
+            <option value="">— ไม่ระบุ —</option>
+            {categories.filter(c => !c.parentId).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายด้วยวิธีไหน</label>
+          <div className="space-y-2">
+            {EVIDENCE_TIERS.map(([v, label, strength]) => (
+              <button type="button" key={v} onClick={() => setForm({ ...form, evidenceType: v })}
+                className="w-full flex items-center justify-between rounded-lg px-3 py-2 text-sm border transition-colors"
+                style={{ borderColor: form.evidenceType === v ? '#10b981' : '#2e3349', color: '#e2e8f0', background: form.evidenceType === v ? '#10b98115' : 'transparent' }}>
+                <span>{label}</span>
+                <span className="text-xs" style={{ color: strength === 'อ่อน' ? '#f59e0b' : '#34d399' }}>หลักฐาน{strength}</span>
+              </button>
+            ))}
+          </div>
+          {weak && <p className="text-xs text-amber-400 mt-2">ตลาดสดไม่มีบิล: บังคับแนบรูปของ · ยอดเกิน ฿1,000 ต้องจ่ายแบบโอน · ระบบจะออกใบรับรองแทนใบเสร็จให้</p>}
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">แนบรูปหลักฐาน{weak ? ' (รูปของ)' : ''}</label>
+          <input type="file" accept="image/*,application/pdf" onChange={e => setFile(e.target.files?.[0] || null)}
+            className="block w-full text-xs text-slate-400" />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">หมายเหตุ</label>
+          <input className={INPUT} style={INPUT_STYLE} value={form.note} onChange={e => setForm({ ...form, note: e.target.value })} />
+        </div>
+        {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
+        <button type="submit" disabled={saving}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
+          {saving ? 'กำลังส่ง...' : 'ส่งบิลรอจ่าย'}
+        </button>
+      </form>
+    </Overlay>
+  )
+}
+
+function PayModal({ bill, onClose, onDone }) {
+  const [wallets, setWallets] = useState([])
+  const [walletId, setWalletId] = useState('')
+  const [date, setDate] = useState(new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { api.wallets().then(d => { const ws = d.wallets || d || []; setWallets(ws); if (ws[0]) setWalletId(ws[0].id) }).catch(() => {}) }, [])
+  const pay = async (e) => {
+    e.preventDefault(); setSaving(true); setErr('')
+    try { await api.payPendingBill(bill.id, { walletId, date }); onDone(); onClose() }
+    catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <h3 className="font-semibold text-slate-100">ยืนยันจ่ายแล้ว · {thb(bill.amount)}</h3>
+        <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
+      </div>
+      <form onSubmit={pay} className="p-4 space-y-3">
+        <p className="text-xs text-slate-400">บันทึกเป็นรายจ่าย {thb(bill.amount)} เข้าเล่มบัญชี — จะตัดยอดกระเป๋าที่เลือก</p>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายออกจากกระเป๋าเงิน</label>
+          <select className={INPUT} style={INPUT_STYLE} value={walletId} onChange={e => setWalletId(e.target.value)} required>
+            {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">วันที่จ่าย</label>
+          <input className={INPUT} style={INPUT_STYLE} type="date" value={date} onChange={e => setDate(e.target.value)} required />
+        </div>
+        {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
+        <button type="submit" disabled={saving}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
+          {saving ? 'กำลังบันทึก...' : 'บันทึกเข้าเล่ม'}
+        </button>
+      </form>
+    </Overlay>
+  )
+}
+
+function BillCard({ bill, isAdmin, onPay, onReject, onView }) {
+  const weak = isWeakEvidence(bill.evidenceType)
+  return (
+    <div className="rounded-xl p-4" style={{ ...CARD, borderColor: weak ? '#b45309' : '#1f2937' }}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium text-slate-100">{bill.name}</span>
+            <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: weak ? '#b4530922' : '#15803d22', color: weak ? '#f59e0b' : '#34d399' }}>
+              หลักฐาน{weak ? 'อ่อน' : 'แข็ง'}
+            </span>
+            {bill.status !== 'pending' && <span className="text-xs text-slate-500">· {bill.status === 'paid' ? 'จ่ายแล้ว' : 'ปฏิเสธ'}</span>}
+          </div>
+          <div className="text-xs text-slate-400 mt-1 flex gap-2 flex-wrap">
+            <span>โดย {bill.submittedByName || '—'}</span>
+            {bill.categoryName && <span>· {bill.categoryName}</span>}
+            {bill.payeeAccountNo && <span>· โอนไป {bill.payeeBank || ''} ••{String(bill.payeeAccountNo).slice(-4)}</span>}
+          </div>
+          {bill.status === 'rejected' && bill.rejectReason && <p className="text-xs text-red-400 mt-1">เหตุผล: {bill.rejectReason}</p>}
+        </div>
+        <div className="text-lg font-bold text-slate-100 tabular-nums">{thb(bill.amount)}</div>
+      </div>
+      <div className="flex gap-2 mt-3">
+        {bill.hasEvidence && <button onClick={() => onView(bill)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">ดูหลักฐาน</button>}
+        {isAdmin && bill.status === 'pending' && <>
+          <button onClick={() => onPay(bill)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">จ่ายแล้ว</button>
+          <button onClick={() => onReject(bill)} className="text-xs px-3 py-1.5 rounded-lg text-red-400">ปฏิเสธ</button>
+        </>}
+      </div>
+    </div>
+  )
+}
+
+export default function PendingBills() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [bills, setBills] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [showSubmit, setShowSubmit] = useState(false)
+  const [payBill, setPayBill] = useState(null)
+  // admin: คิวเฉพาะ pending · staff: บิลของฉันทุกสถานะ (เห็นจ่ายแล้ว/ปฏิเสธ+เหตุผล ตาม acceptance #6)
+  const load = () => { setLoading(true); api.pendingBills(isAdmin ? { status: 'pending' } : {}).then(d => setBills(d.bills || [])).catch(() => setBills([])).finally(() => setLoading(false)) }
+  useEffect(() => { load() }, [])
+  const reject = async (bill) => { const reason = window.prompt('เหตุผลที่ปฏิเสธ:'); if (reason === null) return; await api.rejectPendingBill(bill.id, { reason }); load() }
+  const view = async (bill) => { try { const url = await api.fetchBillEvidenceBlob(bill.id); window.open(url, '_blank') } catch (e) { alert(e.message) } }
+  const ratios = weakRatioByUser(bills.map(b => ({ submittedByUserId: b.submittedByUserId, amount: b.amount, evidenceType: b.evidenceType })))
+  const total = bills.reduce((s, b) => s + b.amount, 0)
+  return (
+    <div className="max-w-3xl mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-slate-100">{isAdmin ? 'คิวบิลรอจ่าย' : 'บิลรอจ่ายของฉัน'}</h1>
+          {isAdmin && <p className="text-sm text-slate-400 tabular-nums">รอจ่าย {bills.length} รายการ · รวม {thb(total)}</p>}
+        </div>
+        {!isAdmin && <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>}
+      </div>
+      {loading ? <p className="text-slate-500 text-sm">กำลังโหลด...</p>
+        : bills.length === 0 ? <div className="text-center text-slate-500 py-12"><Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>ยังไม่มีบิลรอจ่าย</p></div>
+        : <div className="space-y-3">{bills.map(b => <BillCard key={b.id} bill={b} isAdmin={isAdmin} onPay={setPayBill} onReject={reject} onView={view} />)}</div>}
+      {isAdmin && Object.entries(ratios).filter(([, r]) => r >= 40).map(([uid, r]) => {
+        const nm = bills.find(b => b.submittedByUserId === uid)?.submittedByName || uid
+        return <div key={uid} className="flex items-center gap-2 text-xs text-amber-400"><AlertTriangle className="w-4 h-4" />{nm}: บิลไม่มีบิล {r}% ของยอดรอจ่าย — จับตา</div>
+      })}
+      {showSubmit && <SubmitBillModal me={user} onClose={() => setShowSubmit(false)} onDone={load} />}
+      {payBill && <PayModal bill={payBill} onClose={() => setPayBill(null)} onDone={load} />}
+    </div>
+  )
+}
