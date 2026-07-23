@@ -231,7 +231,7 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
   const depositAwaiting = bill.isDeposit && bill.status === 'paid' && !bill.goodsReceivedAt
   const openCert = () => {
     const payload = encodeURIComponent(JSON.stringify({
-      id: bill.id, n: bill.payeeName || bill.submittedByName || '-', amt: bill.amount,
+      id: bill.createdTxId, n: bill.payeeName || bill.submittedByName || '-', amt: bill.amount,
       d: (bill.paidAt || bill.createdAt || '').slice(0, 10), b: bill.payeeBank || '', r: '', si: '', ty: 'cert', mo: bill.name || '',
     }))
     window.open(`/voucher?d=${payload}`, '_blank')

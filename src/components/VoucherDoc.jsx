@@ -67,10 +67,10 @@ export default function VoucherDoc({ data }) {
   const [slipErr, setSlipErr] = useState('')
 
   useEffect(() => {
-    // 'cert' docs aren't backed by a real transaction (they're issued for
-    // self-declared pending bills), so there's no transaction id to fetch
-    // slips for — skip the lookup instead of surfacing a confusing error.
-    if (!data?.id || data.ty === 'cert') return
+    // A voucher without an id has no transaction to fetch slips for — skip
+    // the lookup instead of surfacing a confusing error. 'cert' docs now
+    // carry the paid bill's real created_tx_id, so they load slips too.
+    if (!data?.id) return
     const token = localStorage.getItem('ft_token')
 
     const loadOne = async (sid) => {
