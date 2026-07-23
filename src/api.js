@@ -126,4 +126,27 @@ export const api = {
   deleteSlip: (slipId) => req('DELETE', `/slips/${slipId}`),
   lineUsers: () => req('GET', '/line-users'),
   deleteLineUser: (id) => req('DELETE', `/line-users/${id}`),
+
+  pendingBills: (params) => req('GET', '/pending-bills?' + new URLSearchParams(params || {})),
+  createPendingBill: (body) => req('POST', '/pending-bills', body),
+  getPendingBill: (id) => req('GET', `/pending-bills/${id}`),
+  deletePendingBill: (id) => req('DELETE', `/pending-bills/${id}`),
+  payPendingBill: (id, body) => req('POST', `/pending-bills/${id}/pay`, body),
+  rejectPendingBill: (id, body) => req('POST', `/pending-bills/${id}/reject`, body),
+  billEvidenceUrl: (id) => `${BASE}/pending-bills/${id}/evidence`,
+  uploadBillEvidence: (billId, file) => {
+    const t = token()
+    const headers = {}
+    if (t) headers['Authorization'] = `Bearer ${t}`
+    headers['Content-Type'] = file.type
+    const params = new URLSearchParams({ name: file.name })
+    return fetch(`${BASE}/pending-bills/${billId}/evidence?${params}`, { method: 'POST', headers, body: file })
+      .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'อัพโหลดไม่สำเร็จ'); return d })
+  },
+  fetchBillEvidenceBlob: async (id) => {
+    const t = token()
+    const r = await fetch(`${BASE}/pending-bills/${id}/evidence`, { headers: t ? { Authorization: `Bearer ${t}` } : {} })
+    if (!r.ok) throw new Error('โหลดรูปไม่สำเร็จ')
+    return URL.createObjectURL(await r.blob())
+  },
 }
