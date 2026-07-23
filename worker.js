@@ -206,7 +206,7 @@ function requireRole(user, ...roles) {
 __name(requireRole, "requireRole");
 async function updateMyProfile(request, env, user) {
   const body = await request.json();
-  const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings"];
+  const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings", "bank_name", "bank_account_no", "bank_account_name"];
   const updates = [], args = [];
   if (body.language !== void 0 && !["th", "en"].includes(body.language)) return json({ error: "invalid language" }, 400);
   if (body.theme !== void 0 && !["light", "dark"].includes(body.theme)) return json({ error: "invalid theme" }, 400);
@@ -740,7 +740,7 @@ async function deleteCategory(id, env, user) {
 __name(deleteCategory, "deleteCategory");
 async function listUsers(env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
-  const result = await env.DB.prepare("SELECT id, email, name, role, is_active, last_login_at, created_at, workspace_id, language, theme, avatar_url, phone FROM users WHERE workspace_id = ? ORDER BY created_at").bind(user.workspace_id).all();
+  const result = await env.DB.prepare("SELECT id, email, name, role, is_active, last_login_at, created_at, workspace_id, language, theme, avatar_url, phone, bank_name, bank_account_no, bank_account_name FROM users WHERE workspace_id = ? ORDER BY created_at").bind(user.workspace_id).all();
   return json({ users: (result.results || []).map(formatUser) });
 }
 __name(listUsers, "listUsers");
@@ -787,6 +787,18 @@ async function updateUser(id, request, env, user) {
     if (body.password.length < 6) return json({ error: "password too short" }, 400);
     updates.push("password_hash = ?");
     args.push(await hashPassword(body.password));
+  }
+  if (body.bankName !== void 0) {
+    updates.push("bank_name = ?");
+    args.push(body.bankName ?? null);
+  }
+  if (body.bankAccountNo !== void 0) {
+    updates.push("bank_account_no = ?");
+    args.push(body.bankAccountNo ?? null);
+  }
+  if (body.bankAccountName !== void 0) {
+    updates.push("bank_account_name = ?");
+    args.push(body.bankAccountName ?? null);
   }
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = CURRENT_TIMESTAMP");
@@ -1501,6 +1513,7 @@ function formatVendor(v) {
     typicalSubCategoryId: v.typical_sub_category_id, typicalSubCategoryName: v.typical_sub_category_name,
     typicalWalletId: v.typical_wallet_id, typicalWalletName: v.typical_wallet_name,
     occurrenceCount: v.occurrence_count, lastSeen: v.last_seen,
+    bankName: v.bank_name || null, bankAccountNo: v.bank_account_no || null,
   };
 }
 __name(formatVendor, "formatVendor");
@@ -1539,6 +1552,8 @@ async function updateVendorProfile(id, request, env, user) {
     setField("typical_wallet_id", body.walletId || null);
     setField("typical_wallet_name", w?.name || null);
   }
+  if (body.bankName !== void 0) setField("bank_name", body.bankName ?? null);
+  if (body.bankAccountNo !== void 0) setField("bank_account_no", body.bankAccountNo ?? null);
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = datetime('now')");
   args.push(id);
@@ -1938,7 +1953,10 @@ function formatUser(u) {
     theme: u.theme || "light",
     settings,
     lastLoginAt: u.last_login_at || null,
-    createdAt: u.created_at || null
+    createdAt: u.created_at || null,
+    bankName: u.bank_name || null,
+    bankAccountNo: u.bank_account_no || null,
+    bankAccountName: u.bank_account_name || null
   };
 }
 __name(formatUser, "formatUser");
