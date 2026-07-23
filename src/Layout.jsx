@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2 } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
@@ -86,6 +86,7 @@ export default function Layout() {
   const navItems = isStaff
     ? [
         { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
+        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
         { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
         { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
         { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
@@ -94,6 +95,7 @@ export default function Layout() {
     : [
         { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
         { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
+        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
         { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
         { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
         { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },

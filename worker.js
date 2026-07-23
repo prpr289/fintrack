@@ -1,4 +1,5 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
+import { validateBillInput, checkNoBillCap } from "./pending-bills-logic.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -110,6 +111,22 @@ var worker_default = {
       const lineUserMatch = path.match(/^\/line-users\/([a-zA-Z0-9_-]+)$/);
       if (lineUserMatch && method === "DELETE") return cors(await deleteLineUser(lineUserMatch[1], env, user));
       if (path === "/line-users/lookup" && method === "GET") return cors(await lookupLineUser(request, env, user));
+      if (path === "/pending-bills" && method === "POST") return cors(await createPendingBill(request, env, user));
+      if (path === "/pending-bills" && method === "GET") return cors(await listPendingBills(request, env, user));
+      const pbMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)$/);
+      if (pbMatch && method === "GET") return cors(await getPendingBill(pbMatch[1], env, user));
+      if (pbMatch && method === "DELETE") return cors(await deletePendingBill(pbMatch[1], env, user));
+      const pbEvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/evidence$/);
+      if (pbEvMatch && method === "POST") return cors(await uploadBillEvidence(pbEvMatch[1], request, env, user));
+      if (pbEvMatch && method === "GET") return cors(await getBillEvidence(pbEvMatch[1], env, user));
+      const pbPayMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/pay$/);
+      if (pbPayMatch && method === "POST") return cors(await payPendingBill(pbPayMatch[1], request, env, user));
+      const pbRefundMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/refund$/);
+      if (pbRefundMatch && method === "POST") return cors(await refundPendingBill(pbRefundMatch[1], request, env, user));
+      const pbRecvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/received$/);
+      if (pbRecvMatch && method === "POST") return cors(await markGoodsReceived(pbRecvMatch[1], env, user));
+      const pbRejMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/reject$/);
+      if (pbRejMatch && method === "POST") return cors(await rejectPendingBill(pbRejMatch[1], request, env, user));
       return cors(json({ error: "Not found" }, 404));
     } catch (err) {
       console.error("Error:", err);
@@ -193,7 +210,7 @@ function requireRole(user, ...roles) {
 __name(requireRole, "requireRole");
 async function updateMyProfile(request, env, user) {
   const body = await request.json();
-  const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings"];
+  const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings", "bank_name", "bank_account_no", "bank_account_name"];
   const updates = [], args = [];
   if (body.language !== void 0 && !["th", "en"].includes(body.language)) return json({ error: "invalid language" }, 400);
   if (body.theme !== void 0 && !["light", "dark"].includes(body.theme)) return json({ error: "invalid theme" }, 400);
@@ -727,7 +744,7 @@ async function deleteCategory(id, env, user) {
 __name(deleteCategory, "deleteCategory");
 async function listUsers(env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
-  const result = await env.DB.prepare("SELECT id, email, name, role, is_active, last_login_at, created_at, workspace_id, language, theme, avatar_url, phone FROM users WHERE workspace_id = ? ORDER BY created_at").bind(user.workspace_id).all();
+  const result = await env.DB.prepare("SELECT id, email, name, role, is_active, last_login_at, created_at, workspace_id, language, theme, avatar_url, phone, bank_name, bank_account_no, bank_account_name FROM users WHERE workspace_id = ? ORDER BY created_at").bind(user.workspace_id).all();
   return json({ users: (result.results || []).map(formatUser) });
 }
 __name(listUsers, "listUsers");
@@ -774,6 +791,18 @@ async function updateUser(id, request, env, user) {
     if (body.password.length < 6) return json({ error: "password too short" }, 400);
     updates.push("password_hash = ?");
     args.push(await hashPassword(body.password));
+  }
+  if (body.bankName !== void 0) {
+    updates.push("bank_name = ?");
+    args.push(body.bankName ?? null);
+  }
+  if (body.bankAccountNo !== void 0) {
+    updates.push("bank_account_no = ?");
+    args.push(body.bankAccountNo ?? null);
+  }
+  if (body.bankAccountName !== void 0) {
+    updates.push("bank_account_name = ?");
+    args.push(body.bankAccountName ?? null);
   }
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = CURRENT_TIMESTAMP");
@@ -1488,6 +1517,7 @@ function formatVendor(v) {
     typicalSubCategoryId: v.typical_sub_category_id, typicalSubCategoryName: v.typical_sub_category_name,
     typicalWalletId: v.typical_wallet_id, typicalWalletName: v.typical_wallet_name,
     occurrenceCount: v.occurrence_count, lastSeen: v.last_seen,
+    bankName: v.bank_name || null, bankAccountNo: v.bank_account_no || null,
   };
 }
 __name(formatVendor, "formatVendor");
@@ -1526,6 +1556,8 @@ async function updateVendorProfile(id, request, env, user) {
     setField("typical_wallet_id", body.walletId || null);
     setField("typical_wallet_name", w?.name || null);
   }
+  if (body.bankName !== void 0) setField("bank_name", body.bankName ?? null);
+  if (body.bankAccountNo !== void 0) setField("bank_account_no", body.bankAccountNo ?? null);
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = datetime('now')");
   args.push(id);
@@ -1925,7 +1957,10 @@ function formatUser(u) {
     theme: u.theme || "light",
     settings,
     lastLoginAt: u.last_login_at || null,
-    createdAt: u.created_at || null
+    createdAt: u.created_at || null,
+    bankName: u.bank_name || null,
+    bankAccountNo: u.bank_account_no || null,
+    bankAccountName: u.bank_account_name || null
   };
 }
 __name(formatUser, "formatUser");
@@ -2032,6 +2067,193 @@ function formatRecurring(r) {
   };
 }
 __name(formatRecurring, "formatRecurring");
+function formatPendingBill(b) {
+  if (!b) return null;
+  return {
+    id: b.id,
+    workspaceId: b.workspace_id,
+    status: b.status,
+    source: b.source,
+    submittedByUserId: b.submitted_by_user_id || null,
+    submittedByName: b.submitted_by_name || null,
+    name: b.name,
+    amount: Number(b.amount),
+    categoryId: b.category_id || null,
+    categoryName: b.category_name || null,
+    subCategoryId: b.sub_category_id || null,
+    scope: b.scope,
+    note: b.note || null,
+    payeeType: b.payee_type,
+    payeeRefId: b.payee_ref_id || null,
+    payeeName: b.payee_name || null,
+    payeeBank: b.payee_bank || null,
+    payeeAccountNo: b.payee_account_no || null,
+    evidenceType: b.evidence_type,
+    hasEvidence: !!b.evidence_key,
+    rejectReason: b.reject_reason || null,
+    createdTxId: b.created_tx_id || null,
+    paidAt: b.paid_at || null,
+    paidWalletId: b.paid_wallet_id || null,
+    refundTxId: b.refund_tx_id || null,
+    refundedAt: b.refunded_at || null,
+    isDeposit: !!b.is_deposit,
+    goodsReceivedAt: b.goods_received_at || null,
+    createdAt: b.created_at,
+    updatedAt: b.updated_at
+  };
+}
+__name(formatPendingBill, "formatPendingBill");
+
+async function snapshotPayee(env, workspaceId, payeeType, payeeRefId) {
+  // freeze ชื่อ+บัญชีปลายทางลงบิล ณ ตอนส่ง
+  if (payeeType === "employee" && payeeRefId) {
+    const u = await env.DB.prepare("SELECT name, bank_name, bank_account_no FROM users WHERE id = ? AND workspace_id = ?").bind(payeeRefId, workspaceId).first();
+    if (u) return { name: u.name || null, bank: u.bank_name || null, acc: u.bank_account_no || null };
+  }
+  if (payeeType === "vendor" && payeeRefId) {
+    const v = await env.DB.prepare("SELECT vendor_name, bank_name, bank_account_no FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(payeeRefId, workspaceId).first();
+    if (v) return { name: v.vendor_name || null, bank: v.bank_name || null, acc: v.bank_account_no || null };
+  }
+  return { name: null, bank: null, acc: null };
+}
+__name(snapshotPayee, "snapshotPayee");
+
+async function createPendingBill(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const body = await request.json();
+  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType, isDeposit } = body;
+  const v = validateBillInput({ name, amount, scope, payeeType, evidenceType });
+  if (!v.ok) return json({ error: v.error }, 400);
+  const cap = checkNoBillCap(evidenceType, amount);
+  if (!cap.ok) return json({ error: cap.error }, 400);
+  const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
+  const id = "pb_" + crypto.randomUUID();
+  await env.DB.prepare(
+    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0).run();
+  await logAudit(env, user, "create", "pending_bill", id, { name, amount: Number(amount) });
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
+  return json({ bill: formatPendingBill(b) }, 201);
+}
+__name(createPendingBill, "createPendingBill");
+
+async function listPendingBills(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const status = new URL(request.url).searchParams.get("status");
+  const clauses = ["pb.workspace_id = ?"];
+  const args = [user.workspace_id];
+  if (status) { clauses.push("pb.status = ?"); args.push(status); }
+  if (user.role !== "admin") { clauses.push("pb.submitted_by_user_id = ?"); args.push(user.id); }
+  const rows = await env.DB.prepare(
+    `SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE ${clauses.join(" AND ")} ORDER BY pb.created_at ASC`
+  ).bind(...args).all();
+  return json({ bills: (rows.results || []).map(formatPendingBill) });
+}
+__name(listPendingBills, "listPendingBills");
+
+async function getPendingBill(id, env, user) {
+  const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ? AND pb.workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  return json({ bill: formatPendingBill(b) });
+}
+__name(getPendingBill, "getPendingBill");
+
+async function uploadBillEvidence(billId, request, env, user) {
+  const b = await env.DB.prepare("SELECT id, status, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/") && contentType !== "application/pdf") return json({ error: "Only images and PDF allowed" }, 400);
+  const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const fileKey = `${user.workspace_id}/bills/${billId}/${slipId}`;
+  const bodyBuf = await request.arrayBuffer();
+  if (bodyBuf.byteLength > 10 * 1024 * 1024) return json({ error: "File too large (max 10MB)" }, 400);
+  await env.SLIPS.put(fileKey, bodyBuf, { httpMetadata: { contentType }, customMetadata: { workspaceId: user.workspace_id, billId } });
+  await env.DB.prepare("UPDATE pending_bills SET evidence_key = ?, evidence_mime = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(fileKey, contentType, billId).run();
+  return json({ ok: true }, 201);
+}
+__name(uploadBillEvidence, "uploadBillEvidence");
+
+async function getBillEvidence(id, env, user) {
+  const b = await env.DB.prepare("SELECT evidence_key, evidence_mime, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b || !b.evidence_key) return json({ error: "ไม่พบหลักฐาน" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const obj = await env.SLIPS.get(b.evidence_key);
+  if (!obj) return json({ error: "not found" }, 404);
+  return new Response(obj.body, { headers: { "Content-Type": b.evidence_mime || "application/octet-stream" } });
+}
+__name(getBillEvidence, "getBillEvidence");
+
+async function payPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  if (!b.evidence_key) return json({ error: "ต้องแนบหลักฐานก่อน" }, 400);
+  const body = await request.json().catch(() => ({}));
+  const { walletId, date } = body;
+  if (!walletId || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return json({ error: "ต้องระบุกระเป๋าและวันที่" }, 400);
+  const wallet = await env.DB.prepare("SELECT * FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(walletId, user.workspace_id).first();
+  if (!wallet) return json({ error: "ไม่พบกระเป๋า" }, 404);
+  const txId = "tx_" + crypto.randomUUID();
+  const amt = Number(b.amount);
+  const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const slipType = b.evidence_type === "slip_transfer" ? "transfer" : (b.evidence_type === "receipt" ? "receipt" : "other");
+  // Atomic claim — conditional UPDATE is the concurrency guard against double-pay.
+  const claim = await env.DB.prepare(
+    "UPDATE pending_bills SET status = 'paid', created_tx_id = ?, paid_wallet_id = ?, paid_by_user_id = ?, paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'pending'"
+  ).bind(txId, walletId, user.id, id, user.workspace_id).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  try {
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
+      ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
+      env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
+      env.DB.prepare(
+        "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+      ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
+    ]);
+  } catch (e) {
+    console.error("payPendingBill batch failed:", e);
+    // batch failed after the claim committed — revert so the bill isn't stuck as paid-with-no-tx
+    await env.DB.prepare("UPDATE pending_bills SET status = 'pending', created_tx_id = NULL, paid_wallet_id = NULL, paid_by_user_id = NULL, paid_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
+  }
+  await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
+  const tx = await fetchTxFull(env, txId);
+  return json({ ok: true, transaction: formatTransaction(tx), txId });
+}
+__name(payPendingBill, "payPendingBill");
+
+async function rejectPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT status FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  const { reason } = await request.json().catch(() => ({}));
+  const upd = await env.DB.prepare("UPDATE pending_bills SET status = 'rejected', reject_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'pending'").bind(reason || null, id, user.workspace_id).run();
+  if (!upd.meta || upd.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  await logAudit(env, user, "reject", "pending_bill", id, { reason: reason || null });
+  return json({ ok: true });
+}
+__name(rejectPendingBill, "rejectPendingBill");
+
+async function deletePendingBill(id, env, user) {
+  const b = await env.DB.prepare("SELECT status, submitted_by_user_id, evidence_key FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (b.status !== "pending") return json({ error: "ลบได้เฉพาะบิลที่ยังรอจ่าย" }, 400);
+  if (b.evidence_key) { try { await env.SLIPS.delete(b.evidence_key); } catch { /* best-effort cleanup */ } }
+  await env.DB.prepare("DELETE FROM pending_bills WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "delete", "pending_bill", id, {});
+  return json({ ok: true });
+}
+__name(deletePendingBill, "deletePendingBill");
+
 function json(data, status = 200) {
   return new Response(JSON.stringify(data), { status, headers: { "Content-Type": "application/json" } });
 }
@@ -2110,6 +2332,52 @@ function unb64url(str) {
   return new Uint8Array(atob(str).split("").map((c) => c.charCodeAt(0)));
 }
 __name(unb64url, "unb64url");
+async function refundPendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "paid") return json({ error: "คืนได้เฉพาะบิลที่จ่ายแล้ว" }, 400);
+  if (b.refund_tx_id) return json({ error: "บิลนี้คืนเงินไปแล้ว" }, 409);
+  const body = await request.json().catch(() => ({}));
+  const walletId = body.walletId || b.paid_wallet_id;
+  const amt = Number(body.amount || b.amount);
+  const date = body.date || new Date().toISOString().slice(0, 10);
+  if (!walletId || !(amt > 0) || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "ข้อมูลคืนเงินไม่ถูกต้อง" }, 400);
+  if (amt > Number(b.amount)) return json({ error: "คืนเกินยอดบิล" }, 400);
+  const wallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND is_active = 1").bind(walletId, user.workspace_id).first();
+  if (!wallet) return json({ error: "ไม่พบกระเป๋า" }, 404);
+  const txId = "tx_" + crypto.randomUUID();
+  // claim first so a double-click can't create two refunds
+  const claim = await env.DB.prepare("UPDATE pending_bills SET refund_tx_id = ?, refunded_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'paid' AND refund_tx_id IS NULL").bind(txId, id, user.workspace_id).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้คืนเงินไปแล้ว" }, 409);
+  try {
+    await env.DB.batch([
+      env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'income', ?, ?, ?, ?, 'manual')").bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, "คืนเงิน: " + b.name, amt, b.scope, date, "คืนจากบิล " + id, b.submitted_by_name || null),
+      env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId)
+    ]);
+  } catch (e) {
+    console.error("refundPendingBill batch failed:", e);
+    await env.DB.prepare("UPDATE pending_bills SET refund_tx_id = NULL, refunded_at = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+    return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
+  }
+  await logAudit(env, user, "refund", "pending_bill", id, { txId, amount: amt });
+  await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
+  return json({ ok: true, txId });
+}
+__name(refundPendingBill, "refundPendingBill");
+
+async function markGoodsReceived(id, env, user) {
+  const b = await env.DB.prepare("SELECT status, is_deposit, submitted_by_user_id, goods_received_at FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (!b.is_deposit) return json({ error: "ไม่ใช่บิลมัดจำ" }, 400);
+  if (b.status !== "paid") return json({ error: "บิลนี้ยังไม่จ่าย" }, 400);
+  if (b.goods_received_at) return json({ error: "บันทึกว่าได้รับของแล้ว" }, 409);
+  await env.DB.prepare("UPDATE pending_bills SET goods_received_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(id).run();
+  await logAudit(env, user, "goods_received", "pending_bill", id, {});
+  return json({ ok: true });
+}
+__name(markGoodsReceived, "markGoodsReceived");
 export {
   WorkspaceRoom,
   worker_default as default

@@ -18,6 +18,7 @@ import VouchersPrint from './pages/VouchersPrint'
 import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
 import CategoryRules from './pages/CategoryRules'
+import PendingBills from './pages/PendingBills'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -49,6 +50,7 @@ export default function App() {
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<HomeRedirect />} />
             <Route path="transactions" element={<Transactions />} />
+            <Route path="pending-bills" element={<PendingBills />} />
             <Route path="bulk-upload"  element={<BulkUpload />} />
             <Route path="wallets"      element={<RequireAdmin><Wallets /></RequireAdmin>} />
             <Route path="categories"   element={<Categories />} />

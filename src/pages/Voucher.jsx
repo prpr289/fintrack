@@ -18,7 +18,7 @@ export default function Voucher() {
     )
   }
 
-  const docTitle = data.ty === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'
+  const docTitle = data.ty === 'cert' ? 'ใบรับรองแทนใบเสร็จรับเงิน' : data.ty === 'income' ? 'ใบรับเงิน' : 'ใบสำคัญจ่าย'
 
   return (
     <>
