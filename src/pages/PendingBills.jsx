@@ -286,14 +286,15 @@ export default function PendingBills() {
   const [showSubmit, setShowSubmit] = useState(false)
   const [payBill, setPayBill] = useState(null)
   const [refundBill, setRefundBill] = useState(null)
-  // admin: คิวเฉพาะ pending · staff: บิลของฉันทุกสถานะ (เห็นจ่ายแล้ว/ปฏิเสธ+เหตุผล ตาม acceptance #6)
+  const [adminFilter, setAdminFilter] = useState('pending')
+  // admin: คิวเลือกได้ pending/paid ผ่าน adminFilter · staff: บิลของฉันทุกสถานะ (เห็นจ่ายแล้ว/ปฏิเสธ+เหตุผล ตาม acceptance #6)
   // viewer: ไม่มีสิทธิ์เข้าถึงบิลรอจ่าย เลย ข้ามการเรียก api ไปเลย (กัน 403 ที่ถูกกลืน)
   const load = () => {
     if (isViewer) { setLoading(false); return }
     setLoading(true)
-    api.pendingBills(isAdmin ? { status: 'pending' } : {}).then(d => setBills(d.bills || [])).catch(() => setBills([])).finally(() => setLoading(false))
+    api.pendingBills(isAdmin ? { status: adminFilter } : {}).then(d => setBills(d.bills || [])).catch(() => setBills([])).finally(() => setLoading(false))
   }
-  useEffect(() => { load() }, [])
+  useEffect(() => { load() }, [adminFilter])
   const reject = async (bill) => {
     const reason = window.prompt('เหตุผลที่ปฏิเสธ:')
     if (reason === null) return
@@ -318,12 +319,23 @@ export default function PendingBills() {
     <div className="max-w-3xl mx-auto p-4 space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-xl font-semibold text-slate-100">{isAdmin ? 'คิวบิลรอจ่าย' : 'บิลรอจ่ายของฉัน'}</h1>
+          <h1 className="text-xl font-semibold text-slate-100">{isAdmin ? (adminFilter === 'paid' ? 'บิลที่จ่ายแล้ว' : 'คิวบิลรอจ่าย') : 'บิลรอจ่ายของฉัน'}</h1>
           {isAdmin && <p className="text-sm text-slate-400 tabular-nums">รอจ่าย {bills.length} รายการ · รวม {thb(total)}</p>}
           {depositAwaitingCount > 0 && <p className="text-sm text-blue-400 tabular-nums">มัดจำรอของ {depositAwaitingCount}</p>}
         </div>
         {!isAdmin && <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>}
       </div>
+      {isAdmin && (
+        <div className="flex gap-2">
+          {[['pending', 'รอจ่าย'], ['paid', 'จ่ายแล้ว']].map(([v, label]) => (
+            <button key={v} onClick={() => setAdminFilter(v)} aria-pressed={adminFilter === v}
+              className="text-xs px-3 py-1.5 rounded-lg border transition-colors"
+              style={{ borderColor: adminFilter === v ? '#10b981' : '#2e3349', color: adminFilter === v ? '#34d399' : '#94a3b8', background: adminFilter === v ? '#10b98115' : 'transparent' }}>
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
       {loading ? <p className="text-slate-500 text-sm">กำลังโหลด...</p>
         : bills.length === 0 ? <div className="text-center text-slate-500 py-12"><Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>ยังไม่มีบิลรอจ่าย</p></div>
         : <div className="space-y-3">{bills.map(b => <BillCard key={b.id} bill={b} isAdmin={isAdmin} isDup={dupSet.has(b.id)} onPay={setPayBill} onReject={reject} onView={view} onReceived={received} onRefund={setRefundBill} />)}</div>}
