@@ -2133,8 +2133,9 @@ async function getPendingBill(id, env, user) {
 __name(getPendingBill, "getPendingBill");
 
 async function uploadBillEvidence(billId, request, env, user) {
-  const b = await env.DB.prepare("SELECT id, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
+  const b = await env.DB.prepare("SELECT id, status, submitted_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   if (user.role !== "admin" && b.submitted_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
   const contentType = request.headers.get("Content-Type") || "";
   if (!contentType.startsWith("image/") && contentType !== "application/pdf") return json({ error: "Only images and PDF allowed" }, 400);
@@ -2173,6 +2174,11 @@ async function payPendingBill(id, request, env, user) {
   const amt = Number(b.amount);
   const slipId = "s_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const slipType = b.evidence_type === "slip_transfer" ? "transfer" : (b.evidence_type === "receipt" ? "receipt" : "other");
+  // Atomic claim — conditional UPDATE is the concurrency guard against double-pay.
+  const claim = await env.DB.prepare(
+    "UPDATE pending_bills SET status = 'paid', created_tx_id = ?, paid_wallet_id = ?, paid_by_user_id = ?, paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'pending'"
+  ).bind(txId, walletId, user.id, id, user.workspace_id).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   await env.DB.batch([
     env.DB.prepare(
       "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
@@ -2180,8 +2186,7 @@ async function payPendingBill(id, request, env, user) {
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
     env.DB.prepare(
       "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null),
-    env.DB.prepare("UPDATE pending_bills SET status = 'paid', created_tx_id = ?, paid_wallet_id = ?, paid_by_user_id = ?, paid_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(txId, walletId, user.id, id)
+    ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
   ]);
   await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
   const tx = await fetchTxFull(env, txId);
@@ -2195,7 +2200,8 @@ async function rejectPendingBill(id, request, env, user) {
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
   if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   const { reason } = await request.json().catch(() => ({}));
-  await env.DB.prepare("UPDATE pending_bills SET status = 'rejected', reject_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(reason || null, id).run();
+  const upd = await env.DB.prepare("UPDATE pending_bills SET status = 'rejected', reject_reason = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ? AND status = 'pending'").bind(reason || null, id, user.workspace_id).run();
+  if (!upd.meta || upd.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   await logAudit(env, user, "reject", "pending_bill", id, { reason: reason || null });
   return json({ ok: true });
 }
