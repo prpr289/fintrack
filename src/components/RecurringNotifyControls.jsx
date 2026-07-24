@@ -62,7 +62,7 @@ export default function RecurringNotifyControls({ value, onChange, showToggle = 
               <Flame className="w-3.5 h-3.5 inline -mt-0.5 mr-1" /> เร่งด่วน
             </button>
           </div>
-          <p className="text-xs text-slate-500 mt-2 flex items-start gap-1.5"><Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> เร่งด่วน = เด้งบนสุด + ไฮไลต์แดงในกระดิ่ง</p>
+          <p className="text-xs text-slate-500 mt-2 flex items-start gap-1.5"><Info className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" /> เร่งด่วน = เด้งบนสุด + ไฮไลต์แดง + เตือนเร็วขึ้น (อย่างน้อย 14 วัน) + กระดิ่งนับเฉพาะตัวเร่งด่วน</p>
         </>
       )}
     </div>
