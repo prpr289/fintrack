@@ -323,7 +323,9 @@ export default function PendingBills() {
           {isAdmin && <p className="text-sm text-slate-400 tabular-nums">{adminFilter === 'paid' ? 'จ่ายแล้ว' : 'รอจ่าย'} {bills.length} รายการ · รวม {thb(total)}</p>}
           {depositAwaitingCount > 0 && <p className="text-sm text-blue-400 tabular-nums">มัดจำรอของ {depositAwaitingCount}</p>}
         </div>
-        {!isAdmin && <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>}
+        {/* admin ก็สร้างบิลได้ (spec "สร้างบิล: admin, staff" + worker requireRole(admin,staff)) —
+            เดิม UI ซ่อนปุ่มจาก admin ทำให้เจ้าของคีย์บิลแทนพนักงานเองไม่ได้เลย */}
+        <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />{isAdmin ? 'เพิ่มบิล' : 'แจ้งบิล'}</button>
       </div>
       {isAdmin && (
         <div className="flex gap-2">
