@@ -6,6 +6,48 @@ import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
 import { useNotifications } from './useNotifications'
 
+// Single source of truth for the sidebar, grouped into sections.
+// Visibility flags: `staff` = also visible to staff · `admin` = admin only ·
+// no flag = admin + viewer (staff can't see it).
+const NAV_GROUPS = [
+  { label: 'ภาพรวม & รายงาน', items: [
+    { to: '/',         icon: LayoutDashboard, label: 'ภาพรวม' },
+    { to: '/reports',  icon: BarChart3,       label: 'รายงานแยกกระเป๋า', admin: true },
+  ] },
+  { label: 'บันทึก & เอกสาร', items: [
+    { to: '/transactions',  icon: ArrowLeftRight, label: 'รายการธุรกรรม',  staff: true },
+    { to: '/pending-bills', icon: Receipt,        label: 'บิลรอจ่าย',      staff: true },
+    { to: '/bulk-upload',   icon: UploadCloud,    label: 'อัปสลิปหลายใบ',  staff: true },
+    { to: '/slips',         icon: Paperclip,      label: 'สลิปทั้งหมด',    staff: true },
+  ] },
+  { label: 'ตั้งค่าบัญชี', items: [
+    { to: '/wallets',    icon: Wallet,    label: 'กระเป๋าเงิน' },
+    { to: '/categories', icon: Tag,       label: 'หมวดหมู่', staff: true },
+    { to: '/budget',     icon: Target,    label: 'งบประมาณ' },
+    { to: '/recurring',  icon: RefreshCw, label: 'รายการประจำ' },
+  ] },
+  { label: 'ระบบอัตโนมัติ', items: [
+    { to: '/vendors',        icon: Store, label: 'Vendor (AI จำ)', admin: true },
+    { to: '/category-rules', icon: Wand2, label: 'กฎหมวดหมู่',      admin: true },
+  ] },
+  { label: 'ผู้ดูแลระบบ', items: [
+    { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน',        admin: true },
+    { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน', admin: true },
+  ] },
+  { label: 'บัญชีของฉัน', items: [
+    { to: '/profile', icon: User, label: 'โปรไฟล์', staff: true },
+  ] },
+]
+
+// Drop items this role can't see, then drop groups left empty — so staff never
+// sees a bare heading.
+function groupsFor(isStaff, isAdmin) {
+  const visible = (it) => isStaff ? !!it.staff : (!it.admin || isAdmin)
+  return NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(visible) }))
+    .filter(g => g.items.length > 0)
+}
+
 function NavItem({ to, icon: Icon, label, onClick }) {
   return (
     <NavLink
@@ -28,7 +70,7 @@ function NavItem({ to, icon: Icon, label, onClick }) {
 // inside Layout remounted the whole sidebar subtree on every state change
 // (e.g. the notification bell's markAllRead), resetting child state like the
 // bell's open panel. Props carry what it used to close over.
-function Sidebar({ mobile = false, user, isAdmin, isStaff, navItems, notif, close, doLogout }) {
+function Sidebar({ mobile = false, user, isAdmin, isStaff, navGroups, notif, close, doLogout }) {
   return (
     <aside
       className={`flex flex-col ${mobile ? 'w-56' : 'w-56 fixed h-full'}`}
@@ -59,8 +101,17 @@ function Sidebar({ mobile = false, user, isAdmin, isStaff, navItems, notif, clos
           </div>
         </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map(item => <NavItem key={item.to} {...item} onClick={mobile ? close : undefined} />)}
+      <nav className="flex-1 p-3 space-y-3.5 overflow-y-auto">
+        {navGroups.map(g => (
+          <div key={g.label}>
+            <div className="px-3 pb-1.5 text-[0.65rem] font-semibold tracking-wide" style={{ color: '#5c6a7e' }}>
+              {g.label}
+            </div>
+            <div className="space-y-1">
+              {g.items.map(item => <NavItem key={item.to} {...item} onClick={mobile ? close : undefined} />)}
+            </div>
+          </div>
+        ))}
       </nav>
       <div className="p-3" style={{ borderTop: '1px solid #1f2937' }}>
         <button onClick={doLogout}
@@ -83,36 +134,9 @@ export default function Layout() {
   const isAdmin = user?.role === 'admin'
   const isStaff = user?.role === 'staff'
 
-  const navItems = isStaff
-    ? [
-        { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
-        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
-        { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
-        { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
-        { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
-        { to: '/profile',      icon: User,           label: 'โปรไฟล์' },
-      ]
-    : [
-        { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
-        { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
-        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
-        { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
-        { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
-        { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },
-        { to: '/budget',       icon: Target,          label: 'งบประมาณ' },
-        { to: '/recurring',    icon: RefreshCw,       label: 'รายการประจำ' },
-        { to: '/slips',        icon: Paperclip,       label: 'สลิปทั้งหมด' },
-        ...(isAdmin ? [
-          { to: '/reports',   icon: BarChart3,     label: 'รายงานแยกกระเป๋า' },
-          { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
-          { to: '/category-rules', icon: Wand2,    label: 'กฎหมวดหมู่' },
-          { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
-          { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
-        ] : []),
-        { to: '/profile', icon: User, label: 'โปรไฟล์' },
-      ]
+  const navGroups = groupsFor(isStaff, isAdmin)
 
-  const sidebarProps = { user, isAdmin, isStaff, navItems, notif, close, doLogout }
+  const sidebarProps = { user, isAdmin, isStaff, navGroups, notif, close, doLogout }
 
   return (
     <div className="flex min-h-screen" style={{ background: '#0d0f17' }}>
