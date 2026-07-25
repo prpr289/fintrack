@@ -19,6 +19,7 @@ import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
 import CategoryRules from './pages/CategoryRules'
 import PendingBills from './pages/PendingBills'
+import WalletDetail from './pages/WalletDetail'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -53,6 +54,7 @@ export default function App() {
             <Route path="pending-bills" element={<PendingBills />} />
             <Route path="bulk-upload"  element={<BulkUpload />} />
             <Route path="wallets"      element={<RequireAdmin><Wallets /></RequireAdmin>} />
+            <Route path="wallets/:id"  element={<WalletDetail />} />
             <Route path="categories"   element={<Categories />} />
             <Route path="budget"       element={<RequireAdmin><Budget /></RequireAdmin>} />
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />

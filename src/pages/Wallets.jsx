@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { thb, today } from '../fmt'
 import { useAuth } from '../AuthContext'
@@ -37,6 +38,7 @@ function Label({ children }) {
 
 export default function Wallets() {
   const { user } = useAuth()
+  const nav = useNavigate()
   const [wallets, setWallets] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -118,6 +120,9 @@ export default function Wallets() {
         .wallets-page button:focus-visible, .wallets-page input:focus-visible, .wallets-page select:focus-visible {
           outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
         }
+        .wallets-page .wcard { cursor: pointer; transition: border-color .15s ease; }
+        .wallets-page .wcard:hover { border-color: rgba(16,185,129,0.4) !important; }
+        .wallets-page .wcard:focus-visible { outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; }
         @media (prefers-reduced-motion: reduce) {
           .wallets-page *, .wallets-page *::before, .wallets-page *::after {
             animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
@@ -162,7 +167,11 @@ export default function Wallets() {
       ) : (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {wallets.map(w => (
-          <div key={w.id} className="rounded-xl p-5 relative" style={{ ...CARD, opacity: isAdmin ? 1 : 1 }}>
+          <div key={w.id} role="button" tabIndex={0}
+            onClick={() => nav(`/wallets/${w.id}`)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); nav(`/wallets/${w.id}`) } }}
+            title="ดูรายการรับ-จ่ายของกระเป๋านี้"
+            className="wcard rounded-xl p-5 relative" style={{ ...CARD, opacity: isAdmin ? 1 : 1 }}>
             {/* Private badge for admin view */}
             {isAdmin && !w.staffVisible && (
               <div className="absolute top-3 left-3 flex items-center gap-1 text-xs text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded-full">
@@ -175,7 +184,7 @@ export default function Wallets() {
                 <span className="font-semibold text-slate-200">{w.name}</span>
               </div>
               {isAdmin && (
-                <div className="flex gap-1.5">
+                <div className="flex gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <button onClick={() => toggleVisibility(w)}
                     aria-label={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}
                     title={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}

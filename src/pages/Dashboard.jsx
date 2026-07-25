@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
@@ -199,6 +200,7 @@ function StatCard({ icon: Icon, iconBg, iconColor, label, value, valueColor, pre
 }
 
 export default function Dashboard() {
+  const nav = useNavigate()
   const [period, setPeriod] = useState('today')
   const [custom, setCustom] = useState({ from: '', to: '' })
   const [appliedCustom, setAppliedCustom] = useState({ from: '', to: '' })
@@ -388,7 +390,9 @@ export default function Dashboard() {
         <h3 className="text-sm font-semibold text-slate-300 mb-3">กระเป๋าเงิน (ยอดปัจจุบัน)</h3>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
           {wallets.map(w => (
-            <div key={w.id} className="rounded-xl p-4 flex items-center gap-3"
+            <button key={w.id} onClick={() => nav(`/wallets/${w.id}`)}
+              className="rounded-xl p-4 flex items-center gap-3 text-left w-full transition-colors hover:border-emerald-500/40"
+              title="ดูรายการรับ-จ่ายของกระเป๋านี้"
               style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
               <div className="w-1.5 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: w.color || '#9CA3AF' }} />
               <div className="flex-1 min-w-0">
@@ -398,7 +402,7 @@ export default function Dashboard() {
               <div className={`text-sm font-bold tabular-nums ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
                 {thb(w.currentBalance || 0)}
               </div>
-            </div>
+            </button>
           ))}
         </div>
       </div>
