@@ -85,6 +85,48 @@ function groupByDate(list) {
   return groups
 }
 
+function fullDayDate(value) {
+  if (!value) return '-'
+  return new Date(`${value}T00:00:00`).toLocaleDateString('th-TH', {
+    weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
+  })
+}
+
+function DayHeader({ group, isStaff, collapsed, onToggle, mobile = false }) {
+  const className = `flex items-center gap-2.5 sm:gap-3 ${mobile ? 'px-4' : 'px-6'} py-2.5`
+  const style = { background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }
+  const content = (
+    <>
+      {isStaff && <Calendar className="w-4 h-4 flex-none" style={{ color: 'rgba(203,213,225,0.78)' }} />}
+      <span style={{ fontFamily: FONT_SERIF, fontSize: mobile ? 13.5 : 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>
+        {isStaff ? fullDayDate(group.key) : date(group.key)}
+      </span>
+      <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)', whiteSpace: 'nowrap' }}>{group.items.length} รายการ</span>
+      <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+      {isStaff ? (
+        <ChevronDown className={`w-4 h-4 flex-none transition-transform ${collapsed ? '' : 'rotate-180'}`} style={{ color: 'rgba(203,213,225,0.7)' }} />
+      ) : (
+        <>
+          {!mobile && <span className="uppercase" style={{ fontSize: 10.5, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.45)' }}>สุทธิ</span>}
+          <span style={{ fontFamily: FONT_MONO, fontSize: mobile ? 12 : 13, fontWeight: 500, color: group.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)', whiteSpace: 'nowrap' }}>
+            {signedThb(group.net >= 0 ? 'income' : 'expense', Math.abs(group.net))}
+          </span>
+        </>
+      )}
+    </>
+  )
+
+  if (isStaff) {
+    return (
+      <button type="button" onClick={onToggle} aria-expanded={!collapsed} className={`${className} w-full text-left hover:bg-white/[0.025] transition-colors`} style={style}>
+        {content}
+      </button>
+    )
+  }
+
+  return <div className={className} style={style}>{content}</div>
+}
+
 function Modal({ title, onClose, children, wide = false }) {
   return (
     <div className="fixed inset-0 bg-black/60 flex items-end sm:items-center justify-center z-50">
@@ -950,8 +992,19 @@ export default function Transactions() {
   const [summary, setSummary] = useState(null) // { income, expense, net } across current filter
   const [period, setPeriod] = useState('thisMonth') // default to the current month
   const [customRange, setCustomRange] = useState({ from: '', to: '' })
+  const [collapsedDays, setCollapsedDays] = useState(() => new Set())
 
+  const isStaff = user?.role === 'staff'
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
+
+  const toggleDay = (key) => {
+    setCollapsedDays(previous => {
+      const next = new Set(previous)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
 
   const pickPeriod = (key) => { setPeriod(key); setPage(1) }
   const applyCustom = (r) => { setCustomRange(r); setPeriod('custom'); setPage(1) }
@@ -989,6 +1042,10 @@ export default function Transactions() {
   // Totals across the whole filtered set (not just the current page).
   // Re-runs when the filter/search changes or the row count changes (add/delete).
   useEffect(() => {
+    // Staff only needs the transaction records. Avoid fetching aggregate data that
+    // is intentionally hidden from this role.
+    if (isStaff) return undefined
+
     let cancelled = false
     const range = txRangeOf(period, customRange)
     const params = { limit: 5000 }
@@ -1006,7 +1063,7 @@ export default function Transactions() {
       setSummary({ income, expense, net: income - expense, incomeCount: inc.length, expenseCount: exp.length })
     }).catch(() => {})
     return () => { cancelled = true }
-  }, [filter, debouncedSearch, total, period, customRange])
+  }, [filter, debouncedSearch, total, period, customRange, isStaff])
 
   const mainCats = categories.filter(c => !c.parentId)
   const subCatsOf = (parentId) => categories.filter(c => c.parentId === parentId)
@@ -1201,7 +1258,7 @@ export default function Transactions() {
       </div>
 
       {/* Summary totals (current filter) */}
-      {summary && (
+      {!isStaff && summary && (
         <div className="flex flex-col lg:flex-row gap-3 sm:gap-4">
           <div className="lg:flex-[1.7] min-w-0">
             <NetHeroCard net={summary.net} income={summary.income} periodLabel={periodLabelOf(period, customRange)} />
@@ -1235,14 +1292,9 @@ export default function Transactions() {
             {/* ── Mobile: grouped luxe cards ── */}
             <div className="md:hidden">
               {groups.map(g => (
-                <div key={g.key}>
-                  <div className="flex items-center gap-2.5 px-4 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                    <span style={{ fontFamily: FONT_SERIF, fontSize: 13.5, color: '#d9e1ea', fontWeight: 600 }}>{date(g.key)}</span>
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{g.items.length} รายการ</span>
-                    <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
-                    <span style={{ fontFamily: FONT_MONO, fontSize: 12, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
-                  </div>
-                  {g.items.map(t => {
+                <div key={g.key} style={isStaff ? { margin: 10, border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, overflow: 'hidden' } : undefined}>
+                  <DayHeader group={g} isStaff={isStaff} collapsed={collapsedDays.has(g.key)} onToggle={() => toggleDay(g.key)} mobile />
+                  {(!isStaff || !collapsedDays.has(g.key)) && g.items.map(t => {
                     const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                     const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                     return (
@@ -1347,26 +1399,20 @@ export default function Transactions() {
             {/* ── Desktop: grouped grid ── */}
             <div className="hidden md:block">
               <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 860 }}>
-                <div className="grid items-center gap-4 px-6 py-3.5" style={{ gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                  {['รายการ', 'หมวดหมู่', 'กระเป๋า', 'จำนวน', ''].map((h, i) => (
-                    <div key={i} className="uppercase" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.55)', textAlign: i === 3 ? 'right' : 'left' }}>{h}</div>
+                <div className="grid items-center gap-4 px-6 py-3.5" style={{ gridTemplateColumns: isStaff ? 'minmax(0,1.7fr) minmax(0,1.1fr) 150px 150px 120px 160px' : 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                  {(isStaff ? ['รายการ', 'หมวดหมู่', 'กระเป๋า', 'พนักงาน', 'จำนวนเงิน', 'จัดการ'] : ['รายการ', 'หมวดหมู่', 'กระเป๋า', 'จำนวน', '']).map((h, i) => (
+                    <div key={i} className="uppercase" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.55)', textAlign: (isStaff ? i === 4 : i === 3) ? 'right' : 'left' }}>{h}</div>
                   ))}
                 </div>
                 {groups.map(g => (
-                  <div key={g.key}>
-                    <div className="flex items-center gap-3 px-6 py-2.5" style={{ background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                      <span style={{ fontFamily: FONT_SERIF, fontSize: 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>{date(g.key)}</span>
-                      <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{g.items.length} รายการ</span>
-                      <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
-                      <span className="uppercase" style={{ fontSize: 10.5, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.45)' }}>สุทธิ</span>
-                      <span style={{ fontFamily: FONT_MONO, fontSize: 13, fontWeight: 500, color: g.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)', whiteSpace: 'nowrap' }}>{signedThb(g.net >= 0 ? 'income' : 'expense', Math.abs(g.net))}</span>
-                    </div>
-                    {g.items.map(t => {
+                  <div key={g.key} style={isStaff ? { margin: 12, border: '1px solid rgba(255,255,255,0.07)', borderRadius: 16, overflow: 'hidden' } : undefined}>
+                    <DayHeader group={g} isStaff={isStaff} collapsed={collapsedDays.has(g.key)} onToggle={() => toggleDay(g.key)} />
+                    {(!isStaff || !collapsedDays.has(g.key)) && g.items.map(t => {
                       const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                       const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                       return (
-                        <div key={t.id} className="grid items-center gap-4 px-6 py-3.5 transition-colors hover:bg-white/[0.028]"
-                          style={{ gridTemplateColumns: 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
+                        <div key={t.id} className={`grid items-center gap-4 px-6 ${isStaff ? 'py-2' : 'py-3.5'} transition-colors hover:bg-white/[0.028]`}
+                          style={{ gridTemplateColumns: isStaff ? 'minmax(0,1.7fr) minmax(0,1.1fr) 150px 150px 120px 160px' : 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
                           <div className="flex flex-col gap-0.5 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="truncate" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</span>
@@ -1375,7 +1421,7 @@ export default function Transactions() {
                               {isAutoTx(t) && <AutoBadge />}
                             </div>
                             {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
-                            {t.submittedBy && (
+                            {!isStaff && t.submittedBy && (
                               <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.7)' }}>
                                 <span className="flex items-center justify-center flex-none" style={{ width: 16, height: 16, borderRadius: '50%', fontSize: 8.5, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
                                 {t.submittedBy}
@@ -1404,6 +1450,16 @@ export default function Transactions() {
                               </span>
                             ) : <span style={{ color: 'rgba(148,163,184,0.75)' }}>-</span>}
                           </div>
+                          {isStaff && (
+                            <div className="min-w-0">
+                              {t.submittedBy ? (
+                                <span className="inline-flex items-center gap-1.5 max-w-full min-w-0" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.76)' }}>
+                                  <span className="flex items-center justify-center flex-none" style={{ width: 20, height: 20, borderRadius: '50%', fontSize: 9, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
+                                  <span className="truncate">{t.submittedBy}</span>
+                                </span>
+                              ) : <span style={{ color: 'rgba(148,163,184,0.6)', fontSize: 12 }}>-</span>}
+                            </div>
+                          )}
                           <div className="flex items-center justify-end gap-1.5 whitespace-nowrap" style={{ fontFamily: FONT_MONO, fontWeight: 500, fontSize: 14, color: t.type === 'income' ? '#34d399' : '#fb7185' }}>
                             {t.type === 'income' ? <ArrowUp className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} /> : <ArrowDown className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} />}
                             {thb(t.amount)}
