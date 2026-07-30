@@ -573,17 +573,40 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
             {isDup && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#b4530922', color: '#f59e0b' }}>อาจซ้ำ</span>}
             {depositAwaiting && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#1d4ed822', color: '#60a5fa' }}>รอของ</span>}
             {bill.refundTxId && <span className="text-xs px-2 py-0.5 rounded-full" style={{ background: '#15803d22', color: '#34d399' }}>คืนแล้ว</span>}
+            {bill.kind === 'goods_receipt' && (
+              <span className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: '#10b98122', color: '#34d399' }}>
+                <PackageCheck className="w-3 h-3" />ใบรับของ{bill.hasSignature ? ' · ผู้ขายเซ็น' : ''}
+              </span>
+            )}
           </div>
           <div className="text-xs text-slate-400 mt-1 flex gap-2 flex-wrap">
             <span>โดย {bill.submittedByName || '—'}</span>
             {bill.categoryName && <span>· {bill.categoryName}</span>}
             {bill.payeeAccountNo && <span>· โอนไป {bill.payeeBank || ''} ••{String(bill.payeeAccountNo).slice(-4)}</span>}
           </div>
+          {bill.kind === 'goods_receipt' && Array.isArray(bill.lineItems) && bill.lineItems.length > 0 && (
+            <ul className="text-xs text-slate-500 mt-1.5 space-y-0.5">
+              {bill.lineItems.map((it, idx) => {
+                const amt = it.amount != null ? Number(it.amount) : Number(it.qty) * Number(it.unitPrice)
+                return (
+                  <li key={idx} className="flex justify-between gap-2">
+                    <span className="truncate">{it.name} · {it.qty}{it.unit || ''}×{thb(it.unitPrice)}</span>
+                    <span className="tabular-nums shrink-0">= {thb(amt)}</span>
+                  </li>
+                )
+              })}
+            </ul>
+          )}
           {bill.status === 'rejected' && bill.rejectReason && <p className="text-xs text-red-400 mt-1">เหตุผล: {bill.rejectReason}</p>}
         </div>
         <div className="text-lg font-bold text-slate-100 tabular-nums">{thb(bill.amount)}</div>
       </div>
       <div className="flex gap-2 mt-3">
+        {bill.kind === 'goods_receipt' && bill.publicToken && (
+          <button onClick={() => window.open(`/receipt/${bill.publicToken}`, '_blank')} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">
+            <PackageCheck className="w-3.5 h-3.5" />ดูใบรับของ
+          </button>
+        )}
         {bill.hasEvidence && <button onClick={() => onView(bill)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">ดูหลักฐาน</button>}
         {showCert && (
           <button onClick={openCert} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">
