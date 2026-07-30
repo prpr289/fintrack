@@ -140,41 +140,159 @@ function SubmitBillModal({ me, onClose, onDone }) {
   )
 }
 
+function CopyBtn({ text }) {
+  const [done, setDone] = useState(false)
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(String(text)); setDone(true); setTimeout(() => setDone(false), 1500) } catch {}
+  }
+  return (
+    <button type="button" onClick={copy}
+      className="text-xs font-medium rounded-md px-2.5 py-1 border transition-colors shrink-0"
+      style={{ borderColor: '#10b98155', color: '#34d399', background: done ? '#10b98122' : 'transparent' }}>
+      {done ? 'คัดลอกแล้ว' : 'คัดลอก'}
+    </button>
+  )
+}
+
+function StepHeader({ n, children, required }) {
+  return (
+    <div className="flex items-center gap-2 text-sm font-semibold text-slate-100 mb-2.5">
+      <span className="w-5 h-5 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0" style={{ background: '#10b98122', color: '#34d399' }}>{n}</span>
+      <span>{children}</span>
+      {required && <span className="ml-auto text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#3a2e1233', color: '#f59e0b' }}>บังคับ</span>}
+    </div>
+  )
+}
+
 function PayModal({ bill, onClose, onDone }) {
   const [wallets, setWallets] = useState([])
   const [walletId, setWalletId] = useState('')
   const [date, setDate] = useState(new Date(new Date().getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10))
+  const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   useEffect(() => { api.wallets().then(d => { const ws = d.wallets || d || []; setWallets(ws); if (ws[0]) setWalletId(ws[0].id) }).catch(() => {}) }, [])
+  const weak = isWeakEvidence(bill.evidenceType)
+  const viewEvidence = async () => {
+    try { const url = await api.fetchBillEvidenceBlob(bill.id); window.open(url, '_blank') } catch (e) { alert(e.message) }
+  }
   const pay = async (e) => {
-    e.preventDefault(); setSaving(true); setErr('')
-    try { await api.payPendingBill(bill.id, { walletId, date }); onDone(); onClose() }
-    catch (e) { setErr(e.message) } finally { setSaving(false) }
+    e.preventDefault()
+    if (!file) { setErr('ต้องแนบสลิปโอนก่อน'); return }
+    setSaving(true); setErr('')
+    try {
+      const res = await api.payPendingBill(bill.id, { walletId, date })
+      const txId = res?.txId || res?.transaction?.id
+      if (txId) {
+        try { await api.uploadSlip(txId, file, 'transfer') }
+        catch { alert('จ่ายสำเร็จแล้ว แต่แนบสลิปโอนไม่สำเร็จ — แนบซ้ำได้ที่รายการในหน้าธุรกรรม') }
+      }
+      onDone(); onClose()
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
   }
   return (
     <Overlay onClose={onClose}>
       <div className="flex items-center justify-between p-4 border-b border-slate-700">
-        <h3 className="font-semibold text-slate-100">ยืนยันจ่ายแล้ว · {thb(bill.amount)}</h3>
+        <h3 className="font-semibold text-slate-100">จ่ายเงิน · {bill.name}</h3>
         <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
       </div>
-      <form onSubmit={pay} className="p-4 space-y-3">
-        <p className="text-xs text-slate-400">บันทึกเป็นรายจ่าย {thb(bill.amount)} เข้าเล่มบัญชี — จะตัดยอดกระเป๋าที่เลือก</p>
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายออกจากกระเป๋าเงิน</label>
-          <select className={INPUT} style={INPUT_STYLE} value={walletId} onChange={e => setWalletId(e.target.value)} required>
-            {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
-          </select>
+      <form onSubmit={pay} className="p-4 space-y-3.5 overflow-y-auto">
+        <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: '#0d1120', border: '1px solid #1f2937' }}>
+          <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm shrink-0" style={{ background: '#10b98115', color: '#34d399' }}>
+            {(bill.submittedByName || bill.payeeName || '?').slice(0, 1)}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap text-[14.5px] font-semibold text-slate-100">
+              <span className="truncate">{bill.name}</span>
+              <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full inline-flex items-center gap-1 shrink-0"
+                style={{ background: weak ? '#3a2e1233' : '#10b98115', color: weak ? '#f59e0b' : '#34d399' }}>
+                หลักฐาน{weak ? 'อ่อน' : 'แข็ง'}
+              </span>
+            </div>
+            <div className="text-xs text-slate-400 mt-0.5">โดย {bill.submittedByName || '—'}{bill.categoryName ? ` · หมวด ${bill.categoryName}` : ''}</div>
+          </div>
+          <div className="text-lg font-bold text-slate-100 tabular-nums shrink-0">{thb(bill.amount)}</div>
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">วันที่จ่าย</label>
-          <input className={INPUT} style={INPUT_STYLE} type="date" value={date} onChange={e => setDate(e.target.value)} required />
+        {bill.hasEvidence && (
+          <button type="button" onClick={viewEvidence} className="flex items-center gap-1.5 text-xs -mt-1.5" style={{ color: '#34d399' }}>
+            <FileText className="w-3.5 h-3.5" />ดูบิล/หลักฐานจากพนักงาน
+          </button>
+        )}
+
+        <div className="rounded-xl p-3" style={{ border: '1px solid #2e3349' }}>
+          <StepHeader n={1}>โอนไปบัญชีนี้</StepHeader>
+          {bill.payeeAccountNo ? (
+            <div className="rounded-lg p-3" style={{ background: '#10b98115', border: '1px solid #10b98133' }}>
+              <div className="font-semibold text-sm text-slate-100">{bill.payeeBank || '—'}</div>
+              <div className="text-xs text-slate-400 mt-0.5">{bill.payeeName || '—'}</div>
+              <div className="flex items-center justify-between gap-2 mt-2.5">
+                <div>
+                  <div className="text-xs text-slate-400">เลขบัญชี</div>
+                  <div className="font-semibold text-sm text-slate-100 tabular-nums tracking-wide">{bill.payeeAccountNo}</div>
+                </div>
+                <CopyBtn text={bill.payeeAccountNo} />
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-2.5">
+                <div>
+                  <div className="text-xs text-slate-400">ยอดที่ต้องโอน</div>
+                  <div className="font-semibold text-sm text-slate-100 tabular-nums">{thb(bill.amount)}</div>
+                </div>
+                <CopyBtn text={bill.amount} />
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-amber-400">ยังไม่ได้ตั้งบัญชีปลายทาง (ตั้งได้ที่หน้าผู้ใช้/Vendor)</p>
+          )}
         </div>
+
+        <div className="rounded-xl p-3" style={{ border: '1px solid #2e3349' }}>
+          <StepHeader n={2} required>แนบสลิปโอน</StepHeader>
+          {file ? (
+            <div className="rounded-lg p-2.5 flex items-center gap-3" style={{ background: '#10b98115', border: '1.6px dashed #10b981' }}>
+              <div className="w-9 h-9 rounded-md flex items-center justify-center font-bold shrink-0" style={{ background: 'linear-gradient(135deg,#2a3350,#3a4568)', color: '#34d399' }}>✓</div>
+              <div className="min-w-0">
+                <div className="text-sm text-slate-100 font-medium truncate">{file.name}</div>
+                <div className="text-xs text-slate-400 mt-0.5">แนบแล้ว · หลักฐานการโอนของคุณ</div>
+              </div>
+            </div>
+          ) : (
+            <label className="rounded-lg p-3 flex flex-col items-center justify-center gap-1 cursor-pointer text-center"
+              style={{ border: '1.6px dashed #475569' }}>
+              <span className="text-xs text-slate-300 font-medium">แตะเพื่อเลือกไฟล์สลิปโอน</span>
+              <span className="text-[11px] text-slate-500">รูปภาพหรือ PDF</span>
+              <input type="file" accept="image/*,application/pdf" className="hidden" onChange={e => setFile(e.target.files?.[0] || null)} />
+            </label>
+          )}
+          <p className="text-[11.5px] text-slate-400 mt-1.5">เก็บไว้เป็นหลักฐานว่าคุณโอนให้พนักงาน/ร้านค้าจริง — คนละใบกับบิลที่พนักงานส่งมา</p>
+        </div>
+
+        <div className="rounded-xl p-3" style={{ border: '1px solid #2e3349' }}>
+          <StepHeader n={3}>บันทึกเข้าเล่ม</StepHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายออกจากกระเป๋า</label>
+              <select className={INPUT} style={INPUT_STYLE} value={walletId} onChange={e => setWalletId(e.target.value)} required>
+                {wallets.map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-400 mb-1.5">วันที่จ่าย</label>
+              <input className={INPUT} style={INPUT_STYLE} type="date" value={date} onChange={e => setDate(e.target.value)} required />
+            </div>
+          </div>
+        </div>
+
         {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
-        <button type="submit" disabled={saving}
-          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
-          {saving ? 'กำลังบันทึก...' : 'บันทึกเข้าเล่ม'}
-        </button>
+        <div className="pt-1 space-y-2.5" style={{ borderTop: '1px solid #1f2937' }}>
+          <div className="flex gap-2.5 pt-2.5">
+            <button type="button" onClick={onClose} className="flex-1 text-center font-semibold text-sm rounded-lg py-2.5 border border-slate-600 text-slate-300">ยกเลิก</button>
+            <button type="submit" disabled={saving || !file}
+              className="flex-1 text-center font-semibold text-sm rounded-lg py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 disabled:cursor-not-allowed text-white transition-colors">
+              {saving ? 'กำลังบันทึก...' : 'ยืนยันจ่ายแล้ว'}
+            </button>
+          </div>
+          <p className="text-[11.5px] text-slate-400 text-center">รายการนี้จะเก็บ <span className="font-semibold" style={{ color: '#34d399' }}>2 หลักฐาน</span>: บิลพนักงาน + สลิปโอนของคุณ</p>
+        </div>
       </form>
     </Overlay>
   )
