@@ -15,6 +15,7 @@ import SlipsGallery from './pages/SlipsGallery'
 import Vendors from './pages/Vendors'
 import Voucher from './pages/Voucher'
 import VouchersPrint from './pages/VouchersPrint'
+import Receipt from './pages/Receipt'
 import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
 import CategoryRules from './pages/CategoryRules'
@@ -47,6 +48,7 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/voucher" element={<Voucher />} />
           <Route path="/vouchers/print" element={<VouchersPrint />} />
+          <Route path="/receipt/:token" element={<Receipt />} />
           <Route path="/" element={<RequireAuth><Layout /></RequireAuth>}>
             <Route index element={<HomeRedirect />} />
             <Route path="transactions" element={<Transactions />} />
