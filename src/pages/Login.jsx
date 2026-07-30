@@ -1,10 +1,14 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../AuthContext'
 
 export default function Login() {
   const { login } = useAuth()
   const nav = useNavigate()
+  const location = useLocation()
+  const from = location.state?.from
+    ? location.state.from.pathname + (location.state.from.search || '')
+    : '/'
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [error, setError] = useState('')
@@ -16,7 +20,7 @@ export default function Login() {
     setLoading(true)
     try {
       await login(email, password)
-      nav('/')
+      nav(from, { replace: true })
     } catch (err) {
       setError(err.message)
     } finally {
