@@ -2405,6 +2405,7 @@ __name(markGoodsReceived, "markGoodsReceived");
 async function uploadVendorSignature(billId, request, env, user) {
   const b = await env.DB.prepare("SELECT id, status, submitted_by_user_id, received_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id && b.received_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
   if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   const contentType = request.headers.get("Content-Type") || "";
   if (!contentType.startsWith("image/")) return json({ error: "signature ต้องเป็นรูปภาพ" }, 400);
