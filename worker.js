@@ -1,5 +1,5 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
-import { validateBillInput, checkNoBillCap } from "./pending-bills-logic.mjs";
+import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -35,6 +35,10 @@ var worker_default = {
       if (path === "/auth/register" && method === "POST") return cors(await handleRegister(request, env));
       if (path === "/auth/login" && method === "POST") return cors(await handleLogin(request, env));
       if (path === "/health") return cors(json({ ok: true, time: (/* @__PURE__ */ new Date()).toISOString(), version: "v2" }));
+      const rcptMatch = path.match(/^\/receipt\/([a-f0-9]{16,})$/);
+      if (rcptMatch && method === "GET") return cors(await getPublicReceipt(rcptMatch[1], env));
+      const rcptSigMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/signature$/);
+      if (rcptSigMatch && method === "GET") return cors(await getPublicReceiptSignature(rcptSigMatch[1], env));
       if (path === "/ws") return handleWebSocket(request, env);
       const auth = await requireAuth(request, env);
       if (!auth.ok) return cors(json({ error: auth.error }, auth.status || 401));
@@ -119,6 +123,8 @@ var worker_default = {
       const pbEvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/evidence$/);
       if (pbEvMatch && method === "POST") return cors(await uploadBillEvidence(pbEvMatch[1], request, env, user));
       if (pbEvMatch && method === "GET") return cors(await getBillEvidence(pbEvMatch[1], env, user));
+      const pbSigMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/signature$/);
+      if (pbSigMatch && method === "POST") return cors(await uploadVendorSignature(pbSigMatch[1], request, env, user));
       const pbPayMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/pay$/);
       if (pbPayMatch && method === "POST") return cors(await payPendingBill(pbPayMatch[1], request, env, user));
       const pbRefundMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/refund$/);
@@ -2098,6 +2104,11 @@ function formatPendingBill(b) {
     refundedAt: b.refunded_at || null,
     isDeposit: !!b.is_deposit,
     goodsReceivedAt: b.goods_received_at || null,
+    kind: b.kind || "simple",
+    lineItems: b.line_items ? (() => { try { return JSON.parse(b.line_items) } catch { return null } })() : null,
+    hasSignature: !!b.vendor_signature_key,
+    receivedByName: b.received_by_name || null,
+    publicToken: b.public_token || null,
     createdAt: b.created_at,
     updatedAt: b.updated_at
   };
@@ -2121,17 +2132,29 @@ __name(snapshotPayee, "snapshotPayee");
 async function createPendingBill(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
   const body = await request.json();
-  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType, isDeposit } = body;
-  const v = validateBillInput({ name, amount, scope, payeeType, evidenceType });
+  const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType, isDeposit, kind, lineItems } = body;
+  const isGoods = kind === "goods_receipt";
+  let finalAmount = Number(amount);
+  let lineItemsJson = null;
+  if (isGoods) {
+    const lv = validateLineItems(lineItems);
+    if (!lv.ok) return json({ error: lv.error }, 400);
+    finalAmount = sumLineItems(lineItems);
+    lineItemsJson = JSON.stringify(lineItems);
+  }
+  // amount is server-computed for goods receipts (never trust client-sent amount) — validateBillInput
+  // still checks name/scope/payeeType/evidenceType as today, and checks the trustworthy finalAmount.
+  const v = validateBillInput({ name, amount: finalAmount, scope, payeeType, evidenceType });
   if (!v.ok) return json({ error: v.error }, 400);
-  const cap = checkNoBillCap(evidenceType, amount);
+  const cap = checkNoBillCap(evidenceType, finalAmount);
   if (!cap.ok) return json({ error: cap.error }, 400);
   const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
   const id = "pb_" + crypto.randomUUID();
+  const publicToken = isGoods ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : null;
   await env.DB.prepare(
-    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, user.name || null, name, Number(amount), categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0).run();
-  await logAudit(env, user, "create", "pending_bill", id, { name, amount: Number(amount) });
+    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit, kind, line_items, received_by_user_id, received_by_name, public_token) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, user.id, user.name || null, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : "simple", lineItemsJson, isGoods ? user.id : null, isGoods ? (user.name || null) : null, publicToken).run();
+  await logAudit(env, user, "create", "pending_bill", id, { name, amount: finalAmount });
   const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
   return json({ bill: formatPendingBill(b) }, 201);
 }
@@ -2378,6 +2401,55 @@ async function markGoodsReceived(id, env, user) {
   return json({ ok: true });
 }
 __name(markGoodsReceived, "markGoodsReceived");
+
+async function uploadVendorSignature(billId, request, env, user) {
+  const b = await env.DB.prepare("SELECT id, status, submitted_by_user_id, received_by_user_id FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(billId, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  if (user.role !== "admin" && b.submitted_by_user_id !== user.id && b.received_by_user_id !== user.id) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/")) return json({ error: "signature ต้องเป็นรูปภาพ" }, 400);
+  const sigId = "sig_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const fileKey = `${user.workspace_id}/signatures/${billId}/${sigId}`;
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > 2 * 1024 * 1024) return json({ error: "ไฟล์ใหญ่เกินไป" }, 400);
+  await env.SLIPS.put(fileKey, buf, { httpMetadata: { contentType } });
+  await env.DB.prepare("UPDATE pending_bills SET vendor_signature_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(fileKey, billId).run();
+  return json({ ok: true }, 201);
+}
+__name(uploadVendorSignature, "uploadVendorSignature");
+
+async function getPublicReceipt(token, env) {
+  const b = await env.DB.prepare(
+    "SELECT pb.*, w.name AS shop_name FROM pending_bills pb LEFT JOIN workspaces w ON pb.workspace_id = w.id WHERE pb.public_token = ?"
+  ).bind(token).first();
+  if (!b) return json({ error: "ไม่พบเอกสาร" }, 404);
+  const acc = b.payee_account_no ? ("••" + String(b.payee_account_no).slice(-4)) : null;
+  let items = null; try { items = b.line_items ? JSON.parse(b.line_items) : null } catch { /* ignore malformed line_items */ }
+  return json({
+    receiptNo: "GR-" + (b.created_at || "").slice(2, 10).replace(/-/g, "") + "-" + b.id.slice(-4),
+    shopName: b.shop_name || "ร้านค้า",
+    vendorName: b.payee_name || null,
+    date: b.created_at,
+    lineItems: items,
+    amount: Number(b.amount),
+    hasSignature: !!b.vendor_signature_key,
+    status: b.status,
+    paidAt: b.paid_at || null,
+    payeeAccountMasked: acc,
+    receivedByName: b.received_by_name || null
+  });
+}
+__name(getPublicReceipt, "getPublicReceipt");
+
+async function getPublicReceiptSignature(token, env) {
+  const b = await env.DB.prepare("SELECT vendor_signature_key FROM pending_bills WHERE public_token = ?").bind(token).first();
+  if (!b || !b.vendor_signature_key) return json({ error: "not found" }, 404);
+  const obj = await env.SLIPS.get(b.vendor_signature_key);
+  if (!obj) return json({ error: "not found" }, 404);
+  return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType || "image/png" } });
+}
+__name(getPublicReceiptSignature, "getPublicReceiptSignature");
 export {
   WorkspaceRoom,
   worker_default as default

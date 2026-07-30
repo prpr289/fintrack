@@ -151,4 +151,13 @@ export const api = {
     if (!r.ok) throw new Error('โหลดรูปไม่สำเร็จ')
     return URL.createObjectURL(await r.blob())
   },
+  uploadVendorSignature: (billId, blob) => {
+    const t = token()
+    const headers = { 'Content-Type': 'image/png' }
+    if (t) headers['Authorization'] = `Bearer ${t}`
+    return fetch(`${BASE}/pending-bills/${billId}/signature`, { method: 'POST', headers, body: blob })
+      .then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'อัปลายเซ็นไม่สำเร็จ'); return d })
+  },
+  publicReceipt: (tokenStr) => fetch(`${BASE}/receipt/${tokenStr}`).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ไม่พบเอกสาร'); return d }),
+  publicReceiptSignatureUrl: (tokenStr) => `${BASE}/receipt/${tokenStr}/signature`,
 }
