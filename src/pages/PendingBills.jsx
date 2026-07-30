@@ -184,6 +184,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
     e.preventDefault(); setErr('')
     if (!vendorId) { setErr('เลือกผู้ขายก่อน'); return }
     if (validItems.length === 0) { setErr('ต้องมีอย่างน้อย 1 รายการที่กรอกครบ (ชื่อ · จำนวน · ราคา/หน่วย)'); return }
+    if (!photo) { setErr('ต้องแนบรูปของที่รับ'); return }
     if (!sigBlob) { setErr('ต้องให้ผู้ขายเซ็นรับทราบยอดก่อน'); return }
     setSaving(true)
     try {
@@ -197,8 +198,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
         setCreated(bill)
       }
       if (photo) {
-        try { await api.uploadBillEvidence(bill.id, photo) }
-        catch (upErr) { console.error('uploadBillEvidence:', upErr) } // รูปของไม่บังคับ — ไม่บล็อกลายเซ็น
+        await api.uploadBillEvidence(bill.id, photo)
       }
       await api.uploadVendorSignature(bill.id, sigBlob)
       const url = `${window.location.origin}/receipt/${bill.publicToken}`
@@ -302,7 +302,10 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
         </div>
 
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">รูปของที่รับ</label>
+          <div className="flex items-center justify-between mb-1.5">
+            <label className="block text-xs font-medium text-slate-400">รูปของที่รับ</label>
+            <span className="text-[10.5px] font-semibold px-2 py-0.5 rounded-full" style={{ background: '#3a2e1233', color: '#f59e0b' }}>บังคับ</span>
+          </div>
           {photo ? (
             <div className="rounded-lg p-2.5 flex items-center gap-3" style={{ background: '#10b98115', border: '1px solid #10b98133' }}>
               <div className="w-9 h-9 rounded-md flex items-center justify-center font-bold shrink-0" style={{ background: 'linear-gradient(135deg,#2a3350,#3a4568)', color: '#34d399' }}>✓</div>
@@ -315,7 +318,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
           ) : (
             <label className="rounded-lg p-3 flex items-center justify-center gap-2 cursor-pointer" style={{ border: '1.5px dashed #475569' }}>
               <Camera className="w-4 h-4 text-slate-400" />
-              <span className="text-xs text-slate-400">ถ่ายรูปของที่รับ (ไม่บังคับ)</span>
+              <span className="text-xs text-slate-400">แนบรูปของที่รับ (บังคับ)</span>
               <input type="file" accept="image/*" capture="environment" className="hidden" onChange={e => setPhoto(e.target.files?.[0] || null)} />
             </label>
           )}
@@ -587,7 +590,7 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
           {bill.kind === 'goods_receipt' && Array.isArray(bill.lineItems) && bill.lineItems.length > 0 && (
             <ul className="text-xs text-slate-500 mt-1.5 space-y-0.5">
               {bill.lineItems.map((it, idx) => {
-                const amt = it.amount != null ? Number(it.amount) : Number(it.qty) * Number(it.unitPrice)
+                const amt = Number(it.qty) * Number(it.unitPrice)
                 return (
                   <li key={idx} className="flex justify-between gap-2">
                     <span className="truncate">{it.name} · {it.qty}{it.unit || ''}×{thb(it.unitPrice)}</span>

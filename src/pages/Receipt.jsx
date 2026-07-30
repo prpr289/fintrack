@@ -119,7 +119,7 @@ export default function Receipt() {
                 {items.length === 0 ? (
                   <tr><td style={td({ textAlign: 'center', color: '#9ca3af' })} colSpan={4}>— ไม่มีรายการ —</td></tr>
                 ) : items.map((it, idx) => {
-                  const amt = it.amount != null ? Number(it.amount) : Number(it.qty) * Number(it.unitPrice)
+                  const amt = Number(it.qty) * Number(it.unitPrice)
                   return (
                     <tr key={idx}>
                       <td style={td()}>{it.name}</td>
