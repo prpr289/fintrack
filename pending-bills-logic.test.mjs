@@ -1,7 +1,7 @@
 // Run: node pending-bills-logic.test.mjs
 import assert from 'node:assert'
 import {
-  NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds,
+  NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds, sumLineItems, validateLineItems,
 } from './pending-bills-logic.mjs'
 
 // --- validateBillInput ---
@@ -50,5 +50,17 @@ assert.strictEqual(dups.has('a'), true)
 assert.strictEqual(dups.has('b'), true)
 assert.strictEqual(dups.has('c'), false)
 assert.strictEqual(dups.has('d'), false)
+
+// --- sumLineItems ---
+assert.strictEqual(sumLineItems([{qty:3.6,unitPrice:300},{qty:1,unitPrice:120}]), 1200)
+assert.strictEqual(sumLineItems([]), 0)
+assert.strictEqual(sumLineItems([{qty:2,unitPrice:12.5}]), 25)
+
+// --- validateLineItems ---
+assert.strictEqual(validateLineItems([{name:'ปลาทู',qty:3.6,unitPrice:300}]).ok, true)
+assert.strictEqual(validateLineItems([]).ok, false)                                   // ต้องมีอย่างน้อย 1
+assert.strictEqual(validateLineItems([{name:'',qty:1,unitPrice:10}]).ok, false)        // ชื่อว่าง
+assert.strictEqual(validateLineItems([{name:'x',qty:0,unitPrice:10}]).ok, false)       // จำนวน 0
+assert.strictEqual(validateLineItems([{name:'x',qty:1,unitPrice:-5}]).ok, false)       // ราคาติดลบ
 
 console.log('pending-bills-logic.test.mjs OK')

@@ -59,3 +59,17 @@ export function duplicateIds(bills) {
   }
   return out
 }
+
+export function sumLineItems(items) {
+  return Math.round((items || []).reduce((s, it) => s + Number(it.qty) * Number(it.unitPrice), 0) * 100) / 100
+}
+
+export function validateLineItems(items) {
+  if (!Array.isArray(items) || items.length === 0) return { ok: false, error: 'ต้องมีอย่างน้อย 1 รายการ' }
+  for (const it of items) {
+    if (!it || !String(it.name || '').trim()) return { ok: false, error: 'ชื่อรายการห้ามว่าง' }
+    if (!(Number(it.qty) > 0)) return { ok: false, error: 'จำนวนต้องมากกว่า 0' }
+    if (!(Number(it.unitPrice) >= 0)) return { ok: false, error: 'ราคา/หน่วยไม่ถูกต้อง' }
+  }
+  return { ok: true }
+}
