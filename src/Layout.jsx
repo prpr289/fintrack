@@ -11,24 +11,68 @@ function NavItem({ to, icon: Icon, label, onClick }) {
     <NavLink
       to={to} end={to === '/'} onClick={onClick}
       className={({ isActive }) =>
-        `flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
+        `relative flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-colors ${
           isActive
             ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
             : 'text-slate-400 hover:bg-slate-700/50 hover:text-slate-200'
         }`
       }
     >
-      <Icon className="w-4 h-4 flex-shrink-0" />
-      <span>{label}</span>
+      {({ isActive }) => (
+        <>
+          {isActive && <span className="absolute -left-2 top-2 bottom-2 w-0.5 rounded-r bg-emerald-400" />}
+          <Icon className="w-4 h-4 flex-shrink-0" />
+          <span>{label}</span>
+        </>
+      )}
     </NavLink>
   )
+}
+
+// เมนูชุดเดียวแบ่งเป็นกลุ่ม แทนลิสต์ staff/admin สองชุด
+// admin: true = แอดมินเท่านั้น · staff: false = ซ่อนจากสตาฟ · กลุ่มที่กรองแล้วว่างจะไม่ขึ้นหัวข้อ
+// โปรไฟล์/ออกจากระบบ อยู่ท้าย sidebar ไม่นับเป็นกลุ่ม
+const NAV_GROUPS = [
+  { items: [
+    { to: '/',              icon: LayoutDashboard, label: 'ภาพรวม', staff: false },
+  ] },
+  { label: 'งานประจำวัน', items: [
+    { to: '/transactions',  icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
+    { to: '/pending-bills', icon: Receipt,         label: 'บิลรอจ่าย' },
+    { to: '/bulk-upload',   icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
+    { to: '/slips',         icon: Paperclip,       label: 'สลิปทั้งหมด' },
+  ] },
+  { label: 'วางแผนเงิน', items: [
+    { to: '/wallets',       icon: Wallet,          label: 'กระเป๋าเงิน',  staff: false },
+    { to: '/budget',        icon: Target,          label: 'งบประมาณ',     staff: false },
+    { to: '/recurring',     icon: RefreshCw,       label: 'รายการประจำ',   staff: false },
+  ] },
+  { label: 'รายงาน', items: [
+    { to: '/reports',       icon: BarChart3,       label: 'รายงานแยกกระเป๋า', admin: true },
+  ] },
+  { label: 'ข้อมูลหลัก', items: [
+    { to: '/categories',    icon: Tag,             label: 'หมวดหมู่' },
+    { to: '/category-rules', icon: Wand2,          label: 'กฎหมวดหมู่',     admin: true },
+    { to: '/vendors',       icon: Store,           label: 'Vendor (AI จำ)', admin: true },
+  ] },
+  { label: 'ผู้ดูแลระบบ', items: [
+    { to: '/users',         icon: Users,           label: 'ผู้ใช้งาน',        admin: true },
+    { to: '/audit-log',     icon: ClipboardList,   label: 'ประวัติการใช้งาน', admin: true },
+  ] },
+]
+
+function visibleGroups(isAdmin, isStaff) {
+  const canSee = it => (isAdmin || !it.admin) && !(isStaff && it.staff === false)
+  return NAV_GROUPS
+    .map(g => ({ ...g, items: g.items.filter(canSee) }))
+    .filter(g => g.items.length)
 }
 
 // Module-level so its identity is stable across Layout re-renders. Defining it
 // inside Layout remounted the whole sidebar subtree on every state change
 // (e.g. the notification bell's markAllRead), resetting child state like the
 // bell's open panel. Props carry what it used to close over.
-function Sidebar({ mobile = false, user, isAdmin, isStaff, navItems, notif, close, doLogout }) {
+function Sidebar({ mobile = false, user, isAdmin, isStaff, navGroups, notif, close, doLogout }) {
   return (
     <aside
       className={`flex flex-col ${mobile ? 'w-56' : 'w-56 fixed h-full'}`}
@@ -59,10 +103,21 @@ function Sidebar({ mobile = false, user, isAdmin, isStaff, navItems, notif, clos
           </div>
         </div>
       </div>
-      <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-        {navItems.map(item => <NavItem key={item.to} {...item} onClick={mobile ? close : undefined} />)}
+      <nav className="flex-1 p-3 overflow-y-auto">
+        {navGroups.map((g, i) => (
+          <div key={g.label || i} className="space-y-1 mt-4 first:mt-0">
+            {g.label && (
+              <div className="flex items-center gap-2 px-3 pb-0.5">
+                <span className="text-[0.62rem] font-bold tracking-wider text-slate-500">{g.label}</span>
+                <span className="flex-1 h-px bg-slate-700/60" />
+              </div>
+            )}
+            {g.items.map(item => <NavItem key={item.to} {...item} onClick={mobile ? close : undefined} />)}
+          </div>
+        ))}
       </nav>
-      <div className="p-3" style={{ borderTop: '1px solid #1f2937' }}>
+      <div className="p-3 space-y-1" style={{ borderTop: '1px solid #1f2937' }}>
+        <NavItem to="/profile" icon={User} label="โปรไฟล์" onClick={mobile ? close : undefined} />
         <button onClick={doLogout}
           className="flex items-center gap-3 px-3 py-2.5 w-full rounded-xl text-sm text-red-400 hover:bg-red-500/10 transition-colors">
           <LogOut className="w-4 h-4" /> ออกจากระบบ
@@ -83,36 +138,9 @@ export default function Layout() {
   const isAdmin = user?.role === 'admin'
   const isStaff = user?.role === 'staff'
 
-  const navItems = isStaff
-    ? [
-        { to: '/transactions', icon: ArrowLeftRight, label: 'รายการธุรกรรม' },
-        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
-        { to: '/bulk-upload',  icon: UploadCloud,    label: 'อัปสลิปหลายใบ' },
-        { to: '/categories',   icon: Tag,            label: 'หมวดหมู่' },
-        { to: '/slips',        icon: Paperclip,      label: 'สลิปทั้งหมด' },
-        { to: '/profile',      icon: User,           label: 'โปรไฟล์' },
-      ]
-    : [
-        { to: '/',             icon: LayoutDashboard, label: 'ภาพรวม' },
-        { to: '/transactions', icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
-        { to: '/pending-bills', icon: Receipt, label: 'บิลรอจ่าย' },
-        { to: '/bulk-upload',  icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
-        { to: '/wallets',      icon: Wallet,          label: 'กระเป๋าเงิน' },
-        { to: '/categories',   icon: Tag,             label: 'หมวดหมู่' },
-        { to: '/budget',       icon: Target,          label: 'งบประมาณ' },
-        { to: '/recurring',    icon: RefreshCw,       label: 'รายการประจำ' },
-        { to: '/slips',        icon: Paperclip,       label: 'สลิปทั้งหมด' },
-        ...(isAdmin ? [
-          { to: '/reports',   icon: BarChart3,     label: 'รายงานแยกกระเป๋า' },
-          { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
-          { to: '/category-rules', icon: Wand2,    label: 'กฎหมวดหมู่' },
-          { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
-          { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
-        ] : []),
-        { to: '/profile', icon: User, label: 'โปรไฟล์' },
-      ]
+  const navGroups = visibleGroups(isAdmin, isStaff)
 
-  const sidebarProps = { user, isAdmin, isStaff, navItems, notif, close, doLogout }
+  const sidebarProps = { user, isAdmin, isStaff, navGroups, notif, close, doLogout }
 
   return (
     <div className="flex min-h-screen" style={{ background: '#0d0f17' }}>
