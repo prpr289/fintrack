@@ -20,6 +20,7 @@ import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
 import CategoryRules from './pages/CategoryRules'
 import PendingBills from './pages/PendingBills'
+import Integrations from './pages/Integrations'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
@@ -63,6 +64,7 @@ export default function App() {
             <Route path="vendors"      element={<RequireAdmin><Vendors /></RequireAdmin>} />
             <Route path="category-rules" element={<RequireAdmin><CategoryRules /></RequireAdmin>} />
             <Route path="users"        element={<RequireAdmin><Users /></RequireAdmin>} />
+            <Route path="integrations" element={<RequireAdmin><Integrations /></RequireAdmin>} />
             <Route path="audit-log"    element={<RequireAdmin><AuditLog /></RequireAdmin>} />
             <Route path="profile"      element={<Profile />} />
           </Route>

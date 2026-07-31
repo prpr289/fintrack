@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
@@ -107,6 +107,7 @@ export default function Layout() {
           { to: '/vendors',   icon: Store,         label: 'Vendor (AI จำ)' },
           { to: '/category-rules', icon: Wand2,    label: 'กฎหมวดหมู่' },
           { to: '/users',     icon: Users,         label: 'ผู้ใช้งาน' },
+          { to: '/integrations', icon: PlugZap,    label: 'เชื่อมระบบ HR OS' },
           { to: '/audit-log', icon: ClipboardList, label: 'ประวัติการใช้งาน' },
         ] : []),
         { to: '/profile', icon: User, label: 'โปรไฟล์' },
