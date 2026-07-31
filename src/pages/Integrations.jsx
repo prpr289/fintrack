@@ -1,12 +1,16 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
-import { PlugZap, Loader2, Info, CheckCircle2, PauseCircle, AlertTriangle } from 'lucide-react'
+import { PlugZap, Loader2, Info, CheckCircle2, PauseCircle, AlertTriangle, CalendarDays } from 'lucide-react'
+import { thb, date as fmtDate, sqlTime } from '../fmt'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 
+// created_at จาก D1 เป็น UTC ไม่มี marker — sqlTime() ตรึงเป็น UTC ก่อน ไม่งั้นเพี้ยน 7 ชม.
+// (ค่ำ ๆ จะเด้งข้ามวัน ซึ่งพังจุดประสงค์ของจอนี้พอดี)
 const fmtDateTime = (s) => {
-  if (!s) return 'ยังไม่เคยดึง'
-  return new Date(s).toLocaleString('th-TH', {
+  const d = sqlTime(s)
+  if (!d) return 'ยังไม่เคยดึง'
+  return d.toLocaleString('th-TH', {
     year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
   })
 }
@@ -121,6 +125,50 @@ export default function Integrations() {
               <div className="text-xs text-slate-500">ดึงล่าสุด</div>
               <div className="text-sm font-semibold text-slate-200">{fmtDateTime(st.lastSyncAt)}</div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* รายการที่ดึงมา — แยก "วันของรายการ" (HR OS ส่งมา) ออกจาก "บันทึกเข้าระบบ" (เวลาที่ยิงเข้ามา) */}
+      {!loading && st?.recent?.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={CARD}>
+          <div className="px-4 py-3 flex items-center gap-2" style={{ borderBottom: '1px solid #1f2937' }}>
+            <CalendarDays className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+            <span className="text-sm font-semibold text-slate-200">รายการที่ดึงมา</span>
+            <span className="text-xs text-slate-500">ล่าสุด {st.recent.length} รายการ</span>
+          </div>
+
+          <div className="px-4 py-2.5 text-[0.7rem] text-slate-500 leading-relaxed" style={{ borderBottom: '1px solid #1f2937' }}>
+            <b className="text-slate-400">วันของรายการ</b> = วันที่ HR OS ส่งมาในฟิลด์ <code>date</code> (Fintrack ไม่เดาเอง — ไม่ส่งมาคือไม่รับ) ·
+            <b className="text-slate-400"> บันทึกเข้าระบบ</b> = เวลาที่ยิงเข้ามาจริง · ถ้า 2 ช่องนี้คนละวัน แปลว่า HR OS ดึงย้อนหลัง
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-slate-500">
+                  <th className="px-4 py-2 font-medium">รายการ</th>
+                  <th className="px-4 py-2 font-medium text-right whitespace-nowrap">ยอด</th>
+                  <th className="px-4 py-2 font-medium whitespace-nowrap">วันของรายการ</th>
+                  <th className="px-4 py-2 font-medium whitespace-nowrap">บันทึกเข้าระบบ</th>
+                </tr>
+              </thead>
+              <tbody>
+                {st.recent.map((r) => (
+                  <tr key={r.id} style={{ borderTop: '1px solid #1a2035' }}>
+                    <td className="px-4 py-2.5 text-slate-300">
+                      {r.name}
+                      {r.note && <div className="text-[0.7rem] text-slate-600 truncate max-w-[16rem]">{r.note}</div>}
+                    </td>
+                    <td className={`px-4 py-2.5 text-right whitespace-nowrap font-semibold ${r.type === 'income' ? 'text-emerald-400' : 'text-slate-300'}`}>
+                      {thb(r.amount)}
+                    </td>
+                    <td className="px-4 py-2.5 text-slate-300 whitespace-nowrap">{fmtDate(r.date)}</td>
+                    <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap text-xs">{fmtDateTime(r.createdAt)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
         </div>
       )}

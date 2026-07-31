@@ -16,3 +16,12 @@ export function ymd(d) {
 export function today() {
   return ymd(new Date())
 }
+
+// D1/SQLite CURRENT_TIMESTAMP comes back as "2026-07-31 06:01:32" — UTC, but with no
+// marker, so `new Date(s)` reads it as LOCAL and shows it 7 hours early in Thailand
+// (a late-evening row lands on the wrong DAY). Pin it to UTC before formatting.
+export function sqlTime(s) {
+  if (!s) return null
+  const d = new Date(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}/.test(s) ? s.replace(' ', 'T') + 'Z' : s)
+  return isNaN(d) ? null : d
+}
