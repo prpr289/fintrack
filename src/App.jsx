@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './AuthContext'
 import Layout from './Layout'
 import Login from './pages/Login'
@@ -24,8 +24,9 @@ import Integrations from './pages/Integrations'
 
 function RequireAuth({ children }) {
   const { user, loading } = useAuth()
+  const location = useLocation()
   if (loading) return <div className="min-h-screen flex items-center justify-center text-gray-400">กำลังโหลด...</div>
-  if (!user) return <Navigate to="/login" replace />
+  if (!user) return <Navigate to="/login" state={{ from: location }} replace />
   return children
 }
 

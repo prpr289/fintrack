@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
@@ -349,7 +350,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
   )
 }
 
-function CopyBtn({ text }) {
+function CopyBtn({ text, label }) {
   const [done, setDone] = useState(false)
   const copy = async () => {
     try { await navigator.clipboard.writeText(String(text)); setDone(true); setTimeout(() => setDone(false), 1500) } catch {}
@@ -358,7 +359,7 @@ function CopyBtn({ text }) {
     <button type="button" onClick={copy}
       className="text-xs font-medium rounded-md px-2.5 py-1 border transition-colors shrink-0"
       style={{ borderColor: '#10b98155', color: '#34d399', background: done ? '#10b98122' : 'transparent' }}>
-      {done ? 'คัดลอกแล้ว' : 'คัดลอก'}
+      {done ? 'คัดลอกแล้ว' : (label || 'คัดลอก')}
     </button>
   )
 }
@@ -616,6 +617,9 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
             <FileText className="w-3.5 h-3.5" />ใบรับรอง
           </button>
         )}
+        {bill.status === 'pending' && (
+          <CopyBtn text={`${window.location.origin}/pending-bills?pay=${bill.id}`} label="คัดลอกลิงก์จ่าย" />
+        )}
         {isAdmin && bill.status === 'pending' && <>
           <button onClick={() => onPay(bill)} className="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white">จ่ายแล้ว</button>
           <button onClick={() => onReject(bill)} className="text-xs px-3 py-1.5 rounded-lg text-red-400">ปฏิเสธ</button>
@@ -638,6 +642,22 @@ export default function PendingBills() {
   const [payBill, setPayBill] = useState(null)
   const [refundBill, setRefundBill] = useState(null)
   const [adminFilter, setAdminFilter] = useState('pending')
+  const [sp, setSp] = useSearchParams()
+  const payId = sp.get('pay')
+  const [deepHandled, setDeepHandled] = useState(false)
+  // deep-link ?pay=<billId>: เปิด PayModal อัตโนมัติ (เฉพาะ admin) — จาก "คัดลอกลิงก์จ่าย" ที่พนักงาน/แอดมินส่งให้เจ้าของ
+  useEffect(() => {
+    if (!payId || deepHandled || !user) return
+    if (!isAdmin) { setDeepHandled(true); return } // เฉพาะ admin จ่ายได้ — ไม่เปิดให้ role อื่น
+    setDeepHandled(true)
+    ;(async () => {
+      let bill = bills.find(b => b.id === payId)
+      if (!bill) { try { bill = (await api.getPendingBill(payId)).bill } catch { bill = null } }
+      if (bill && bill.status === 'pending') setPayBill(bill)
+      // ล้าง ?pay ออกจาก URL กันเปิดซ้ำตอน refresh
+      const next = new URLSearchParams(sp); next.delete('pay'); setSp(next, { replace: true })
+    })()
+  }, [payId, deepHandled, user, isAdmin, bills])
   // admin: คิวเลือกได้ pending/paid ผ่าน adminFilter · staff: บิลของฉันทุกสถานะ (เห็นจ่ายแล้ว/ปฏิเสธ+เหตุผล ตาม acceptance #6)
   // viewer: ไม่มีสิทธิ์เข้าถึงบิลรอจ่าย เลย ข้ามการเรียก api ไปเลย (กัน 403 ที่ถูกกลืน)
   const load = () => {
@@ -674,12 +694,10 @@ export default function PendingBills() {
           {isAdmin && <p className="text-sm text-slate-400 tabular-nums">{adminFilter === 'paid' ? 'จ่ายแล้ว' : 'รอจ่าย'} {bills.length} รายการ · รวม {thb(total)}</p>}
           {depositAwaitingCount > 0 && <p className="text-sm text-blue-400 tabular-nums">มัดจำรอของ {depositAwaitingCount}</p>}
         </div>
-        {!isAdmin && (
-          <div className="flex gap-2">
-            <button onClick={() => setShowReceipt(true)} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold border border-slate-600 text-slate-200 hover:border-emerald-500 transition-colors"><Truck className="w-4 h-4" />รับของ</button>
-            <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>
-          </div>
-        )}
+        <div className="flex gap-2">
+          <button onClick={() => setShowReceipt(true)} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold border border-slate-600 text-slate-200 hover:border-emerald-500 transition-colors"><Truck className="w-4 h-4" />รับของ</button>
+          <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>
+        </div>
       </div>
       {isAdmin && (
         <div className="flex gap-2">
