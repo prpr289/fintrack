@@ -1564,22 +1564,29 @@ async function listVendorProfiles(request, env, user) {
     rows = await env.DB.prepare(
       "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name LIKE ? ORDER BY occurrence_count DESC LIMIT 10"
     ).bind(user.workspace_id, `%${name}%`).all();
-  } else if (q) {
-    const like = `%${q}%`;
-    const digits = q.replace(/\D/g, '');
-    const dlike = digits ? `%${digits}%` : ' ';
-    rows = await env.DB.prepare(
-      `SELECT * FROM vendor_profiles WHERE workspace_id = ? AND (
-         vendor_name LIKE ? OR tax_id LIKE ? OR bank_account_no LIKE ? OR phone LIKE ?
-         OR REPLACE(REPLACE(IFNULL(bank_account_no,''),'-',''),' ','') LIKE ?
-         OR REPLACE(REPLACE(IFNULL(tax_id,''),'-',''),' ','') LIKE ?
-         OR REPLACE(REPLACE(IFNULL(phone,''),'-',''),' ','') LIKE ?
-       ) ORDER BY occurrence_count DESC, last_seen DESC LIMIT 100`
-    ).bind(user.workspace_id, like, like, like, like, dlike, dlike, dlike).all();
   } else {
-    rows = await env.DB.prepare(
-      "SELECT * FROM vendor_profiles WHERE workspace_id = ? ORDER BY occurrence_count DESC, last_seen DESC LIMIT 200"
-    ).bind(user.workspace_id).all();
+    // ร้านที่เลิกใช้แล้วซ่อนจากไดเรกทอรี/picker แต่ไม่ลบ — ข้อมูลภาษียังต้องอ้างอิงได้
+    // แถวก่อน migration เป็น NULL จึงต้อง IFNULL ให้ถือว่ายังใช้อยู่
+    // (path ?name= ของ LINE bot ไม่แตะ ตาม INTEGRATION_POLICY)
+    const active = params.get('includeInactive') === '1' ? '' : ' AND IFNULL(is_active,1) = 1';
+    if (q) {
+      const like = `%${q}%`;
+      const digits = q.replace(/\D/g, '');
+      const dlike = digits ? `%${digits}%` : '~~none~~';
+      rows = await env.DB.prepare(
+        `SELECT * FROM vendor_profiles WHERE workspace_id = ?${active} AND (
+           vendor_name LIKE ? OR display_name LIKE ? OR tax_id LIKE ? OR bank_account_no LIKE ? OR phone LIKE ?
+           OR keywords LIKE ? OR business_type LIKE ? OR business_sub_type LIKE ?
+           OR REPLACE(REPLACE(IFNULL(bank_account_no,''),'-',''),' ','') LIKE ?
+           OR REPLACE(REPLACE(IFNULL(tax_id,''),'-',''),' ','') LIKE ?
+           OR REPLACE(REPLACE(IFNULL(phone,''),'-',''),' ','') LIKE ?
+         ) ORDER BY occurrence_count DESC, last_seen DESC LIMIT 100`
+      ).bind(user.workspace_id, like, like, like, like, like, like, like, like, dlike, dlike, dlike).all();
+    } else {
+      rows = await env.DB.prepare(
+        `SELECT * FROM vendor_profiles WHERE workspace_id = ?${active} ORDER BY occurrence_count DESC, last_seen DESC LIMIT 200`
+      ).bind(user.workspace_id).all();
+    }
   }
   return json({ vendors: (rows.results || []).map(formatVendor) });
 }
@@ -1605,6 +1612,10 @@ async function buildVendorFields(body, env, user) {
   if (body.contactPerson !== void 0) put("contact_person", body.contactPerson || null);
   if (body.bankAccountName !== void 0) put("bank_account_name", body.bankAccountName || null);
   if (body.taxBranch !== void 0) put("tax_branch", body.taxBranch || null);
+  if (body.businessType !== void 0) put("business_type", body.businessType || null);
+  if (body.businessSubType !== void 0) put("business_sub_type", body.businessSubType || null);
+  if (body.keywords !== void 0) put("keywords", body.keywords || null);
+  if (body.isActive !== void 0) put("is_active", body.isActive === false ? 0 : 1);
 
   if (body.categoryId !== void 0) {
     const c = await lookup("categories", body.categoryId);
@@ -1685,8 +1696,24 @@ async function getVendorProfile(id, env, user) {
      FROM pending_bills WHERE workspace_id = ? AND payee_type = 'vendor' AND payee_ref_id = ?
      ORDER BY created_at DESC LIMIT 50`
   ).bind(user.workspace_id, id).all();
+  // นับจากบิลทุกใบ ไม่ใช่แค่ 50 ใบที่โชว์ — ยอดสะสมที่ตัดตอนคือยอดที่ผิด
+  const s = await env.DB.prepare(
+    `SELECT COUNT(*) AS n,
+            SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END) AS paid_total,
+            SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END) AS pending_total,
+            SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) AS pending_n,
+            MAX(paid_at) AS last_paid_at
+     FROM pending_bills WHERE workspace_id = ? AND payee_type = 'vendor' AND payee_ref_id = ?`
+  ).bind(user.workspace_id, id).first();
   return json({
     vendor: formatVendor(v),
+    stats: {
+      billCount: s?.n || 0,
+      paidTotal: s?.paid_total || 0,
+      pendingTotal: s?.pending_total || 0,
+      pendingCount: s?.pending_n || 0,
+      lastPaidAt: s?.last_paid_at || null,
+    },
     bills: (bills.results || []).map(b => ({
       id: b.id, name: b.name, amount: b.amount, status: b.status,
       evidenceType: b.evidence_type, kind: b.kind,
@@ -1710,6 +1737,10 @@ function formatVendor(v) {
     taxpayerType: v.taxpayer_type || null, taxBranch: v.tax_branch || null,
     docType: v.doc_type || null,
     whtType: v.wht_type || null, whtRate: v.wht_rate ?? null,
+    businessType: v.business_type || null, businessSubType: v.business_sub_type || null,
+    keywords: v.keywords || null,
+    // แถวที่มีอยู่ก่อน migration อ่านได้ null → ถือว่ายังใช้งานอยู่
+    isActive: v.is_active !== 0,
   };
 }
 __name(formatVendor, "formatVendor");

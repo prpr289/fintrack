@@ -5,6 +5,7 @@ import { matchMerchant, searchMerchants } from './merchant-search.mjs'
 const makro = { vendorName: 'แม็คโคร หาดใหญ่', taxId: '0-1075-36000-84-1', bankName: 'KBank', bankAccountNo: '012-8-84371-6', phone: '074-361-100' }
 const eed = { vendorName: 'ร้านอี๊ด อาหารทะเล', bankAccountNo: '8040221745', phone: '0893301174' }
 const bare = { vendorName: 'ตลาดสด ป้าจรี' }
+const packs = { vendorName: 'บริษัท ภิรมย์ เอ็มดี', businessType: 'บรรจุภัณฑ์', businessSubType: 'กล่อง & ถุง', keywords: 'กล่องข้าว, ถุงหูหิ้ว, ฟอยล์', displayName: 'บจก. ภิรมย์ เอ็มดี' }
 
 // --- ว่าง = ผ่านหมด (ไม่กรอง) ---
 assert.strictEqual(matchMerchant(makro, ''), true)
@@ -43,6 +44,14 @@ assert.strictEqual(matchMerchant(eed, '4371'), false)
 // --- field ว่าง ไม่พัง ---
 assert.strictEqual(matchMerchant(bare, 'ป้าจรี'), true)
 assert.strictEqual(matchMerchant(bare, 'แม็คโคร'), false)
+
+// --- หมวดธุรกิจ / คำค้นสินค้า / ชื่อตามทะเบียน ---
+assert.strictEqual(matchMerchant(packs, 'บรรจุภัณฑ์'), true, 'ค้นด้วยหมวดธุรกิจหลัก')
+assert.strictEqual(matchMerchant(packs, 'กล่อง'), true, 'ค้นด้วยหมวดย่อย')
+assert.strictEqual(matchMerchant(packs, 'ฟอยล์'), true, 'ค้นด้วยสินค้าที่ซื้อประจำ')
+assert.strictEqual(matchMerchant(packs, 'บจก.'), true, 'ค้นด้วยชื่อตามทะเบียน')
+assert.strictEqual(matchMerchant(packs, 'อาหารทะเล'), false, 'หมวดของร้านอื่น ห้าม match')
+assert.strictEqual(matchMerchant(makro, 'ฟอยล์'), false, 'คำค้นของร้านอื่น ห้าม match')
 
 // --- searchMerchants: กรอง + จำกัดจำนวน ---
 const list = [makro, eed, bare]

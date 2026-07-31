@@ -10,7 +10,8 @@ function digitsOf(...vals) {
 export function matchMerchant(v, term) {
   const t = String(term || '').trim().toLowerCase()
   if (!t) return true
-  const hay = [v.vendorName, v.taxId, v.bankName, v.bankAccountNo, v.phone]
+  const hay = [v.vendorName, v.displayName, v.taxId, v.bankName, v.bankAccountNo, v.phone,
+    v.keywords, v.businessType, v.businessSubType]
     .filter(Boolean).join(' ').toLowerCase()
   if (hay.includes(t)) return true
   const digits = t.replace(/\D/g, '')

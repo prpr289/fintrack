@@ -79,6 +79,8 @@ export default function MerchantDetail() {
   const bills = data.bills || []
   const doc = docTypeMeta(m.docType)
   const wht = whtTypeMeta(m.whtType)
+  // worker นับจากบิลทุกใบ (ไม่ใช่แค่ 50 ใบที่โชว์) — เผื่อ worker เก่ายังไม่ส่ง stats มา
+  const st = data.stats || { billCount: bills.length, paidTotal: 0, pendingTotal: 0, pendingCount: 0, lastPaidAt: null }
 
   return (
     <div className="merchant-page p-4 sm:p-5 space-y-4">
@@ -109,10 +111,14 @@ export default function MerchantDetail() {
           </div>
           {m.displayName && <p className="text-xs text-slate-500 mt-0.5">{m.displayName}</p>}
           <p className="text-sm text-slate-500 mt-0.5">
-            {m.typicalCategoryName || 'ยังไม่ระบุหมวด'}
-            {m.typicalSubCategoryName && <span className="text-slate-600"> › {m.typicalSubCategoryName}</span>}
+            {m.businessType
+              ? <>{m.businessType}{m.businessSubType && <span className="text-slate-600"> › {m.businessSubType}</span>}</>
+              : <span className="text-slate-600">ยังไม่ระบุหมวดธุรกิจ</span>}
             <span className="text-slate-600"> · เจอ {m.occurrenceCount || 0} ครั้ง · ล่าสุด {fmtDate(m.lastSeen)}</span>
           </p>
+          {m.isActive === false && (
+            <p className="text-xs text-amber-400 mt-1">ร้านนี้ถูกทำเครื่องหมายว่าเลิกใช้แล้ว — ไม่ขึ้นในช่องเลือกร้านตอนแจ้งบิล</p>
+          )}
         </div>
         <div className="flex gap-2 flex-shrink-0">
           <button onClick={() => setEditing(true)} aria-label="แก้ไขร้านค้า" title="แก้ไขร้านค้า"
@@ -196,14 +202,23 @@ export default function MerchantDetail() {
                 {m.typicalSubCategoryName && <span className="text-slate-500"> › {m.typicalSubCategoryName}</span>}</>}
             </Row>
             <Row label="กระเป๋าเงิน">{m.typicalWalletName}</Row>
+            <Row label="ซื้อประจำ">{m.keywords}</Row>
           </dl>
-          <p className="text-xs text-slate-600 mt-3">เลือกร้านนี้ตอนแจ้งบิล แล้วสองช่องนี้จะเติมให้อัตโนมัติ</p>
+          <p className="text-xs text-slate-600 mt-3">เลือกร้านนี้ตอนแจ้งบิล แล้วหมวดกับกระเป๋าจะเติมให้อัตโนมัติ</p>
         </Panel>
 
-        <Panel title="สรุป">
-          <dl>
-            <Row label="บิลทั้งหมด"><span className="tabular-nums">{bills.length}</span> ใบ</Row>
-            <Row label="รอจ่าย"><span className="tabular-nums">{bills.filter(b => b.status === 'pending').length}</span> ใบ</Row>
+        <Panel title="ยอดซื้อสะสม">
+          <div className="flex items-baseline gap-2">
+            <span className="text-2xl font-bold text-slate-100 tabular-nums">{thb(st.paidTotal)}</span>
+            <span className="text-xs text-slate-500">จ่ายไปแล้ว</span>
+          </div>
+          <dl className="mt-2">
+            <Row label="บิลทั้งหมด"><span className="tabular-nums">{st.billCount}</span> ใบ</Row>
+            <Row label="รอจ่าย">
+              <span className="tabular-nums">{st.pendingCount}</span> ใบ
+              {st.pendingTotal > 0 && <span className="text-amber-400 tabular-nums"> · {thb(st.pendingTotal)}</span>}
+            </Row>
+            <Row label="จ่ายล่าสุด">{st.lastPaidAt ? fmtDate(st.lastPaidAt) : null}</Row>
           </dl>
           <Link to="/pending-bills"
             className="mt-3 w-full inline-flex items-center justify-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg py-2 text-sm font-semibold transition-colors">

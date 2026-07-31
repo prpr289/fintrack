@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { api } from '../api'
 import { X } from 'lucide-react'
-import { DOC_TYPES, TAXPAYER_TYPES, WHT_TYPES, docTypeMeta } from '../merchantMeta'
+import { DOC_TYPES, TAXPAYER_TYPES, WHT_TYPES, BUSINESS_TYPES, subTypesOf, docTypeMeta } from '../merchantMeta'
 import { normalizePromptPayId } from '../../promptpay.mjs'
 
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -74,6 +74,10 @@ export default function MerchantModal({ merchant, cats, wallets, onClose, onDone
     taxBranch: merchant?.taxBranch || '',
     docType: merchant?.docType || '',
     whtType: merchant?.whtType || '',
+    businessType: merchant?.businessType || '',
+    businessSubType: merchant?.businessSubType || '',
+    keywords: merchant?.keywords || '',
+    isActive: merchant ? merchant.isActive !== false : true,
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
@@ -97,6 +101,9 @@ export default function MerchantModal({ merchant, cats, wallets, onClose, onDone
       bankAccountName: form.bankAccountName, promptpayId: form.promptpayId,
       taxpayerType: form.taxpayerType, taxBranch: form.taxBranch,
       docType: form.docType, whtType: form.whtType,
+      businessType: form.businessType,
+      businessSubType: form.businessType ? form.businessSubType : '',
+      keywords: form.keywords, isActive: form.isActive,
     }
     try {
       const res = isNew ? await api.createMerchant(body) : await api.updateVendor(merchant.id, body)
@@ -136,6 +143,33 @@ export default function MerchantModal({ merchant, cats, wallets, onClose, onDone
                 <Label>ผู้ติดต่อ</Label>
                 <input value={form.contactPerson} onChange={e => set('contactPerson', e.target.value)} className={INPUT} style={INPUT_STYLE} />
               </div>
+            </div>
+          </Section>
+
+          <Section title="ร้านนี้ขายอะไร" sub="หมวดธุรกิจของร้าน — คนละช่องกับหมวดค่าใช้จ่ายที่ใช้ลงบัญชี">
+            <div>
+              <Label>หมวดธุรกิจหลัก</Label>
+              <select value={form.businessType}
+                onChange={e => setForm(f => ({ ...f, businessType: e.target.value, businessSubType: '' }))}
+                className={INPUT} style={INPUT_STYLE}>
+                <option value="">— ไม่ระบุ —</option>
+                {BUSINESS_TYPES.map(b => <option key={b.value} value={b.value}>{b.value}</option>)}
+              </select>
+            </div>
+            {subTypesOf(form.businessType).length > 0 && (
+              <div>
+                <Label>หมวดย่อย</Label>
+                <select value={form.businessSubType} onChange={e => set('businessSubType', e.target.value)} className={INPUT} style={INPUT_STYLE}>
+                  <option value="">— ไม่ระบุ —</option>
+                  {subTypesOf(form.businessType).map(s => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </div>
+            )}
+            <div>
+              <Label hint="ใช้ช่วยค้นหา">สินค้า/บริการที่ซื้อประจำ</Label>
+              <input value={form.keywords} onChange={e => set('keywords', e.target.value)}
+                placeholder="น้ำมันพืช, ข้าวสาร, ถุงมือ" className={INPUT} style={INPUT_STYLE} />
+              <p className="text-xs text-slate-600 mt-1">คั่นด้วยจุลภาค — พิมพ์ค้นคำไหนก็เจอร้านนี้</p>
             </div>
           </Section>
 
@@ -219,6 +253,19 @@ export default function MerchantModal({ merchant, cats, wallets, onClose, onDone
               </select>
             </div>
           </Section>
+
+          {!isNew && (
+            <Section title="สถานะ">
+              <label className="flex items-start gap-2.5 text-sm text-slate-300 cursor-pointer">
+                <input type="checkbox" checked={!form.isActive} onChange={e => set('isActive', !e.target.checked)}
+                  className="mt-0.5 accent-emerald-500" />
+                <span>
+                  เลิกใช้ร้านนี้แล้ว
+                  <span className="block text-xs text-slate-600 mt-0.5">ซ่อนจากรายการและช่องเลือกร้าน แต่ไม่ลบ — บิลเก่าและข้อมูลภาษียังอ้างอิงได้</span>
+                </span>
+              </label>
+            </Section>
+          )}
 
           {err && <p className="text-red-400 text-sm mt-3" role="alert">{err}</p>}
           <button type="submit" disabled={saving || ppOk === false}

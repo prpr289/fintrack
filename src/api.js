@@ -71,7 +71,13 @@ export const api = {
   learnVendor: (body) => req('POST', '/vendor-profiles', body),
 
   // เมนูร้านค้า — เรียกตารางเดียวกับ vendorProfiles แต่ค้นหาครอบ ชื่อ/เลขภาษี/เลขบัญชี/เบอร์
-  merchants: (q) => req('GET', '/vendor-profiles' + (q ? `?q=${encodeURIComponent(q)}` : '')),
+  merchants: (q, opts) => {
+    const p = new URLSearchParams()
+    if (q) p.set('q', q)
+    if (opts?.includeInactive) p.set('includeInactive', '1')
+    const s = p.toString()
+    return req('GET', '/vendor-profiles' + (s ? `?${s}` : ''))
+  },
   merchant: (id) => req('GET', `/vendor-profiles/${id}`),
   createMerchant: (body) => req('POST', '/vendor-profiles/create', body),
 
