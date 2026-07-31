@@ -1,5 +1,6 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
 import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
+import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -86,6 +87,8 @@ var worker_default = {
       const printMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/print$/);
       if (printMatch && method === "POST") return cors(await printTransaction(printMatch[1], env, user));
       if (path === "/audit-log" && method === "GET") return cors(await listAuditLog(request, env, user));
+      if (path === "/integrations/hros" && method === "GET") return cors(await getHrosIntegration(env, user));
+      if (path === "/integrations/hros" && method === "PATCH") return cors(await setHrosIntegration(request, env, user));
       if (path === "/budgets" && method === "GET") return cors(await listBudgets(env, user));
       if (path === "/budgets" && method === "POST") return cors(await createBudget(request, env, user));
       if (path === "/reports/wallets" && method === "GET") return cors(await reportWallets(request, env, user));
@@ -201,7 +204,11 @@ async function requireAuth(request, env) {
   // SEPARATE from SERVICE_TOKEN/SERVICE_USER_ID so HR OS config can never affect
   // the LINE bot (and vice versa). INERT until both HROS_* secrets are set.
   if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && token === env.HROS_SERVICE_TOKEN) {
-    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.HROS_SERVICE_USER_ID).first();
+    const svc = await env.DB.prepare("SELECT id, workspace_id, role, name, settings FROM users WHERE id = ? AND is_active = 1").bind(env.HROS_SERVICE_USER_ID).first();
+    // Admin kill-switch from the "เชื่อมระบบ HR OS" menu. Absent flag = ON, so this
+    // stays a no-op until someone flips it. Gates THIS branch only — the LINE bot's
+    // SERVICE_TOKEN path above never reads it.
+    if (svc && !hrosSyncEnabled(svc.settings)) return { ok: false, error: "การดึงข้อมูลจาก HR OS ถูกปิดอยู่", status: 403 };
     if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "HR OS" } };
   }
   const payload = await verifyJWT(token, env);
@@ -917,6 +924,44 @@ async function logAudit(env, user, action, entityType, entityId, details) {
   }
 }
 __name(logAudit, "logAudit");
+// --- HR OS expense sync: status + on/off switch (menu "เชื่อมระบบ HR OS") -------
+// Additive: no new table, no change to the LINE bot path. rollback = ลบ 2 route นี้ทิ้ง
+// (ค่า flag ที่ค้างอยู่ใน users.settings จะไม่มีผลอีก เพราะ requireAuth เป็นคน default ON)
+async function getHrosIntegration(env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const configured = !!(env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID);
+  const svc = configured
+    ? await env.DB.prepare("SELECT id, name, workspace_id, is_active, settings FROM users WHERE id = ?").bind(env.HROS_SERVICE_USER_ID).first()
+    : null;
+  const linked = !!svc && svc.workspace_id === user.workspace_id && svc.is_active === 1;
+  const last = await env.DB.prepare(
+    "SELECT date, created_at FROM transactions WHERE workspace_id = ? AND source = 'auto' ORDER BY created_at DESC LIMIT 1"
+  ).bind(user.workspace_id).first();
+  const count = await env.DB.prepare(
+    "SELECT COUNT(*) AS n FROM transactions WHERE workspace_id = ? AND source = 'auto'"
+  ).bind(user.workspace_id).first();
+  return json({
+    configured,
+    linked,
+    enabled: linked && hrosSyncEnabled(svc.settings),
+    serviceUserName: linked ? svc.name || "HR OS" : null,
+    lastSyncAt: last?.created_at || null,
+    autoCount: count?.n || 0
+  });
+}
+__name(getHrosIntegration, "getHrosIntegration");
+async function setHrosIntegration(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const { enabled } = await request.json();
+  if (typeof enabled !== "boolean") return json({ error: "enabled (boolean) required" }, 400);
+  if (!env.HROS_SERVICE_USER_ID) return json({ error: "ยังไม่ได้ตั้งค่า HR OS (HROS_SERVICE_USER_ID)" }, 400);
+  const svc = await env.DB.prepare("SELECT id, workspace_id, settings FROM users WHERE id = ?").bind(env.HROS_SERVICE_USER_ID).first();
+  if (!svc || svc.workspace_id !== user.workspace_id) return json({ error: "ไม่พบผู้ใช้บริการของ HR OS ใน workspace นี้" }, 404);
+  await env.DB.prepare("UPDATE users SET settings = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(withHrosSync(svc.settings, enabled), svc.id).run();
+  await logAudit(env, user, enabled ? "hros_on" : "hros_off", "integration", "hros", { enabled });
+  return json({ enabled });
+}
+__name(setHrosIntegration, "setHrosIntegration");
 async function toggleReconcile(id, env, user) {
   const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);

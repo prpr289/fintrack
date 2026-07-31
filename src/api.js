@@ -62,6 +62,9 @@ export const api = {
 
   auditLog: (params) => req('GET', '/audit-log?' + new URLSearchParams(params || {})),
 
+  hrosStatus: () => req('GET', '/integrations/hros'),
+  setHrosEnabled: (enabled) => req('PATCH', '/integrations/hros', { enabled }),
+
   reportWallets: (params) => req('GET', '/reports/wallets?' + new URLSearchParams(params || {})),
 
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
