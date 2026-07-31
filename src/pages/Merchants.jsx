@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import MerchantModal from '../components/MerchantModal'
+import DocBadge from '../components/DocBadge'
 import { Search, Store, Loader2, Plus, ChevronRight, Landmark } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -89,7 +90,10 @@ export default function Merchants() {
               <Link key={m.id} to={`/merchants/${m.id}`}
                 className="flex items-center gap-3 p-4 hover:bg-white/[0.02] transition-colors">
                 <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-slate-200 text-sm truncate">{m.vendorName}</p>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="font-semibold text-slate-200 text-sm truncate">{m.vendorName}</p>
+                    <DocBadge docType={m.docType} short />
+                  </div>
                   <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
                     <span>{m.typicalCategoryName || 'ไม่ระบุหมวด'}
                       {m.typicalSubCategoryName && <span className="text-slate-600"> › {m.typicalSubCategoryName}</span>}</span>

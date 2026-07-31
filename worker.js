@@ -1585,6 +1585,68 @@ async function listVendorProfiles(request, env, user) {
 }
 __name(listVendorProfiles, "listVendorProfiles");
 
+// แปลง body ของฝั่งเว็บ → คู่ (คอลัมน์, ค่า) พร้อมตรวจค่าที่ยอมรับได้
+// ใช้ร่วมกันทั้งตอนสร้างและตอนแก้ไข เพื่อให้กติกาการตรวจอยู่ที่เดียว — field พวกนี้
+// เป็นทางเดินเงินและฐานยื่นภาษี การตรวจคนละแบบสองที่คือบั๊กรอเกิด
+// คืน { error, status } ถ้าค่าไม่ผ่าน · field ที่ไม่ได้ส่งมา (undefined) จะไม่ถูกแตะ
+async function buildVendorFields(body, env, user) {
+  const cols = [], vals = [];
+  const put = (col, val) => { cols.push(col); vals.push(val); };
+  const lookup = async (table, id) => id
+    ? env.DB.prepare(`SELECT name FROM ${table} WHERE id = ? AND workspace_id = ?`).bind(id, user.workspace_id).first()
+    : null;
+
+  if (body.taxId !== void 0) put("tax_id", body.taxId || null);
+  if (body.address !== void 0) put("address", body.address || null);
+  if (body.phone !== void 0) put("phone", body.phone || null);
+  if (body.bankName !== void 0) put("bank_name", body.bankName || null);
+  if (body.bankAccountNo !== void 0) put("bank_account_no", body.bankAccountNo || null);
+  if (body.displayName !== void 0) put("display_name", body.displayName || null);
+  if (body.contactPerson !== void 0) put("contact_person", body.contactPerson || null);
+  if (body.bankAccountName !== void 0) put("bank_account_name", body.bankAccountName || null);
+  if (body.taxBranch !== void 0) put("tax_branch", body.taxBranch || null);
+
+  if (body.categoryId !== void 0) {
+    const c = await lookup("categories", body.categoryId);
+    if (body.categoryId && !c) return { error: "ไม่พบหมวดหมู่", status: 404 };
+    put("typical_category_id", body.categoryId || null);
+    put("typical_category_name", c?.name || null);
+  }
+  if (body.subCategoryId !== void 0) {
+    const sc = await lookup("categories", body.subCategoryId);
+    if (body.subCategoryId && !sc) return { error: "ไม่พบหมวดย่อย", status: 404 };
+    put("typical_sub_category_id", body.subCategoryId || null);
+    put("typical_sub_category_name", sc?.name || null);
+  }
+  if (body.walletId !== void 0) {
+    const w = await lookup("wallets", body.walletId);
+    if (body.walletId && !w) return { error: "ไม่พบกระเป๋า", status: 404 };
+    put("typical_wallet_id", body.walletId || null);
+    put("typical_wallet_name", w?.name || null);
+  }
+  if (body.promptpayId !== void 0) {
+    const pp = cleanPromptPay(body.promptpayId);
+    if (body.promptpayId && !pp) return { error: "เลขพร้อมเพย์ต้องเป็นเบอร์มือถือ 10 หลัก, เลขผู้เสียภาษี/บัตรประชาชน 13 หลัก หรือ e-Wallet 15 หลัก", status: 400 };
+    put("promptpay_id", pp);
+  }
+  if (body.taxpayerType !== void 0) {
+    if (body.taxpayerType && !TAXPAYER_TYPES.includes(body.taxpayerType)) return { error: "ประเภทผู้เสียภาษีไม่ถูกต้อง", status: 400 };
+    put("taxpayer_type", body.taxpayerType || null);
+  }
+  if (body.docType !== void 0) {
+    if (body.docType && !DOC_TYPES.includes(body.docType)) return { error: "ประเภทเอกสารไม่ถูกต้อง", status: 400 };
+    put("doc_type", body.docType || null);
+  }
+  if (body.whtType !== void 0) {
+    if (body.whtType && !(body.whtType in WHT_RATES)) return { error: "ประเภทหัก ณ ที่จ่ายไม่ถูกต้อง", status: 400 };
+    // อัตราคำนวณจากประเภทเสมอ ไม่ให้ฝั่งเว็บส่งมาเอง กัน "ค่าบริการ 5%" ที่ขัดกับกฎหมาย
+    put("wht_type", body.whtType || null);
+    put("wht_rate", body.whtType ? WHT_RATES[body.whtType] : null);
+  }
+  return { cols, vals };
+}
+__name(buildVendorFields, "buildVendorFields");
+
 // Create a merchant by hand (admin) — the directory can no longer depend on the bot
 // happening to see a slip first. Name is the bot's matching key, so a duplicate name
 // is rejected rather than silently creating a second profile that splits the history.
@@ -1598,22 +1660,15 @@ async function createVendorProfile(request, env, user) {
   ).bind(user.workspace_id, vendorName).first();
   if (dup) return json({ error: `มีร้าน "${vendorName}" อยู่แล้ว`, existingId: dup.id }, 409);
 
-  const cat = body.categoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.categoryId, user.workspace_id).first() : null;
-  const sub = body.subCategoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.subCategoryId, user.workspace_id).first() : null;
-  const wal = body.walletId ? await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(body.walletId, user.workspace_id).first() : null;
+  const f = await buildVendorFields(body, env, user);
+  if (f.error) return json({ error: f.error }, f.status);
 
   const id = 'vp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
-  await env.DB.prepare(`INSERT INTO vendor_profiles
-    (id, workspace_id, vendor_name, tax_id, address, phone,
-     typical_category_id, typical_category_name, typical_sub_category_id, typical_sub_category_name,
-     typical_wallet_id, typical_wallet_name, bank_name, bank_account_no, occurrence_count, last_seen)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
-  ).bind(
-    id, user.workspace_id, vendorName, body.taxId || null, body.address || null, body.phone || null,
-    body.categoryId || null, cat?.name || null, body.subCategoryId || null, sub?.name || null,
-    body.walletId || null, wal?.name || null, body.bankName || null, body.bankAccountNo || null,
-    new Date().toISOString().slice(0, 10)
-  ).run();
+  const cols = ["id", "workspace_id", "vendor_name", "occurrence_count", "last_seen", ...f.cols];
+  const vals = [id, user.workspace_id, vendorName, 0, new Date().toISOString().slice(0, 10), ...f.vals];
+  await env.DB.prepare(
+    `INSERT INTO vendor_profiles (${cols.join(", ")}) VALUES (${cols.map(() => "?").join(", ")})`
+  ).bind(...vals).run();
   await logAudit(env, user, "create", "vendor", id, { vendorName });
   const created = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ?").bind(id).first();
   return json({ vendor: formatVendor(created) }, 201);
@@ -1649,9 +1704,30 @@ function formatVendor(v) {
     typicalWalletId: v.typical_wallet_id, typicalWalletName: v.typical_wallet_name,
     occurrenceCount: v.occurrence_count, lastSeen: v.last_seen,
     bankName: v.bank_name || null, bankAccountNo: v.bank_account_no || null,
+    // merchants 2.0 — คอลัมน์เพิ่มทีหลัง อ่านแบบ optional เผื่อ worker ขึ้นก่อน migration
+    displayName: v.display_name || null, contactPerson: v.contact_person || null,
+    bankAccountName: v.bank_account_name || null, promptpayId: v.promptpay_id || null,
+    taxpayerType: v.taxpayer_type || null, taxBranch: v.tax_branch || null,
+    docType: v.doc_type || null,
+    whtType: v.wht_type || null, whtRate: v.wht_rate ?? null,
   };
 }
 __name(formatVendor, "formatVendor");
+
+// ค่าที่ยอมรับได้ของ field ที่เป็นตัวเลือก — กันค่าแปลกปลอมหลุดลง DB แล้วไป
+// ทำให้ป้ายเอกสารภาษี/ยอดหัก ณ ที่จ่าย เพี้ยนทีหลัง
+const DOC_TYPES = ["full_tax", "short_tax", "receipt", "none"];
+const TAXPAYER_TYPES = ["individual", "juristic"];
+const WHT_RATES = { none: 0, transport: 1, ads: 2, service: 3, rent: 5 };
+
+// เก็บเฉพาะตัวเลข แล้วต้องเป็นความยาวที่พร้อมเพย์รองรับจริง (มือถือ/เลข 13 หลัก/e-wallet)
+function cleanPromptPay(raw) {
+  const d = String(raw || "").replace(/\D/g, "");
+  if (!d) return null;
+  if (d.length === 10 || d.length === 11 || d.length === 13 || d.length === 15) return d;
+  return null;
+}
+__name(cleanPromptPay, "cleanPromptPay");
 
 // Manage a learned vendor profile (admin) — correct the category/wallet the AI
 // stored, fix details, or rename. Empty string clears a field; undefined leaves it.
@@ -1660,35 +1736,13 @@ async function updateVendorProfile(id, request, env, user) {
   const v = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!v) return json({ error: "ไม่พบ vendor" }, 404);
   const body = await request.json();
-  const updates = [], args = [];
-  const setField = (col, val) => { updates.push(`${col} = ?`); args.push(val); };
+  const f = await buildVendorFields(body, env, user);
+  if (f.error) return json({ error: f.error }, f.status);
+  const updates = f.cols.map(c => `${c} = ?`), args = [...f.vals];
   if (body.vendorName !== void 0) {
-    if (!String(body.vendorName).trim()) return json({ error: "ชื่อ vendor ห้ามว่าง" }, 400);
-    setField("vendor_name", String(body.vendorName).trim());
+    if (!String(body.vendorName).trim()) return json({ error: "ชื่อร้านค้าห้ามว่าง" }, 400);
+    updates.push("vendor_name = ?"); args.push(String(body.vendorName).trim());
   }
-  if (body.taxId !== void 0) setField("tax_id", body.taxId || null);
-  if (body.address !== void 0) setField("address", body.address || null);
-  if (body.phone !== void 0) setField("phone", body.phone || null);
-  if (body.categoryId !== void 0) {
-    const c = body.categoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.categoryId, user.workspace_id).first() : null;
-    if (body.categoryId && !c) return json({ error: "ไม่พบหมวดหมู่" }, 404);
-    setField("typical_category_id", body.categoryId || null);
-    setField("typical_category_name", c?.name || null);
-  }
-  if (body.subCategoryId !== void 0) {
-    const sc = body.subCategoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.subCategoryId, user.workspace_id).first() : null;
-    if (body.subCategoryId && !sc) return json({ error: "ไม่พบหมวดย่อย" }, 404);
-    setField("typical_sub_category_id", body.subCategoryId || null);
-    setField("typical_sub_category_name", sc?.name || null);
-  }
-  if (body.walletId !== void 0) {
-    const w = body.walletId ? await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(body.walletId, user.workspace_id).first() : null;
-    if (body.walletId && !w) return json({ error: "ไม่พบกระเป๋า" }, 404);
-    setField("typical_wallet_id", body.walletId || null);
-    setField("typical_wallet_name", w?.name || null);
-  }
-  if (body.bankName !== void 0) setField("bank_name", body.bankName ?? null);
-  if (body.bankAccountNo !== void 0) setField("bank_account_no", body.bankAccountNo ?? null);
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = datetime('now')");
   args.push(id);

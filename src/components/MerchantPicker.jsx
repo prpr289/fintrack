@@ -2,6 +2,7 @@ import { useState, useMemo, useRef, useEffect } from 'react'
 import { api } from '../api'
 import { Search, Store, X, Plus, Landmark } from 'lucide-react'
 import { searchMerchants } from '../../merchant-search.mjs'
+import DocBadge from './DocBadge'
 
 const INPUT = 'w-full rounded-lg pl-9 pr-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
 const INPUT_STYLE = { background: '#0d1120' }
@@ -47,7 +48,10 @@ export default function MerchantPicker({ vendors, value, onChange, canCreate = f
         <div className="rounded-lg p-3" style={{ background: '#0d1120', border: '1px solid rgba(16,185,129,0.3)' }}>
           <div className="flex items-start justify-between gap-2">
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-slate-200 truncate">{selected.vendorName}</p>
+              <div className="flex items-center gap-2 flex-wrap">
+                <p className="text-sm font-semibold text-slate-200 truncate">{selected.vendorName}</p>
+                <DocBadge docType={selected.docType} short />
+              </div>
               {selected.typicalCategoryName && (
                 <p className="text-xs text-slate-500 mt-0.5">{selected.typicalCategoryName}
                   {selected.typicalSubCategoryName && <span className="text-slate-600"> › {selected.typicalSubCategoryName}</span>}</p>
@@ -100,6 +104,7 @@ export default function MerchantPicker({ vendors, value, onChange, canCreate = f
                 <span className="flex items-center gap-2">
                   <Store className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />
                   <span className="text-sm text-slate-200 truncate">{v.vendorName}</span>
+                  {v.docType && <DocBadge docType={v.docType} short />}
                 </span>
                 <span className="block text-xs text-slate-500 mt-0.5 pl-5.5 truncate">
                   {v.typicalCategoryName || 'ไม่ระบุหมวด'}

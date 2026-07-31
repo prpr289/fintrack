@@ -5,6 +5,7 @@ import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck } from 'lucide-react'
 import MerchantPicker from '../components/MerchantPicker'
+import PromptPayQR from '../components/PromptPayQR'
 import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems } from '../../pending-bills-logic.mjs'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -375,7 +376,15 @@ function PayModal({ bill, onClose, onDone }) {
   const [file, setFile] = useState(null)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  const [merchant, setMerchant] = useState(null)
   useEffect(() => { api.wallets().then(d => { const ws = d.wallets || d || []; setWallets(ws); if (ws[0]) setWalletId(ws[0].id) }).catch(() => {}) }, [])
+  // ดึงข้อมูลร้าน ณ ตอนนี้เพื่อวาด QR พร้อมยอด — บิลเก็บ snapshot บัญชีไว้ตอนแจ้ง
+  // ถ้าสองอันไม่ตรงกันแปลว่ามีคนแก้บัญชีร้านหลังแจ้งบิล ต้องเตือนก่อนโอน
+  useEffect(() => {
+    if (bill.payeeType !== 'vendor' || !bill.payeeRefId) return
+    api.merchant(bill.payeeRefId).then(d => setMerchant(d.vendor)).catch(() => {})
+  }, [bill.payeeType, bill.payeeRefId])
+  const acctChanged = !!(merchant?.bankAccountNo && bill.payeeAccountNo && merchant.bankAccountNo !== bill.payeeAccountNo)
   const weak = isWeakEvidence(bill.evidenceType)
   const viewEvidence = async () => {
     try { const url = await api.fetchBillEvidenceBlob(bill.id); window.open(url, '_blank') } catch (e) { alert(e.message) }
@@ -443,9 +452,24 @@ function PayModal({ bill, onClose, onDone }) {
                 </div>
                 <CopyBtn text={bill.amount} />
               </div>
+              {acctChanged && (
+                <p className="text-xs text-amber-400 mt-2.5 leading-relaxed">
+                  ⚠ บัญชีของร้านถูกแก้หลังแจ้งบิลใบนี้ (ตอนนี้เป็น {merchant.bankAccountNo}) — ตรวจให้แน่ก่อนโอน
+                </p>
+              )}
             </div>
           ) : (
-            <p className="text-xs text-amber-400">ยังไม่ได้ตั้งบัญชีปลายทาง (ตั้งได้ที่หน้าผู้ใช้/Vendor)</p>
+            <p className="text-xs text-amber-400">ยังไม่ได้ตั้งบัญชีปลายทาง (ตั้งได้ที่เมนูร้านค้า)</p>
+          )}
+          {merchant?.promptpayId && !acctChanged && (
+            <div className="mt-3 pt-3 flex items-center gap-3" style={{ borderTop: '1px solid #1f2937' }}>
+              <PromptPayQR promptpayId={merchant.promptpayId} amount={bill.amount} size={96} label={null} />
+              <div className="text-xs text-slate-400 leading-relaxed">
+                <div className="text-slate-300 font-semibold">สแกนจ่ายพร้อมเพย์</div>
+                <div>ยอด <span className="tabular-nums text-emerald-400 font-semibold">{thb(bill.amount)}</span> ติดไปกับ QR แล้ว</div>
+                <div className="text-slate-500">{merchant.bankAccountName || merchant.vendorName}</div>
+              </div>
+            </div>
           )}
         </div>
 

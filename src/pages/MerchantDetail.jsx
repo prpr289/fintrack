@@ -2,6 +2,9 @@ import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api'
 import MerchantModal from '../components/MerchantModal'
+import PromptPayQR from '../components/PromptPayQR'
+import DocBadge from '../components/DocBadge'
+import { docTypeMeta, whtTypeMeta, taxpayerLabel } from '../merchantMeta'
 import { ArrowLeft, Store, Loader2, Pencil, Trash2, Landmark, Receipt, Plus } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -74,6 +77,8 @@ export default function MerchantDetail() {
 
   const m = data.vendor
   const bills = data.bills || []
+  const doc = docTypeMeta(m.docType)
+  const wht = whtTypeMeta(m.whtType)
 
   return (
     <div className="merchant-page p-4 sm:p-5 space-y-4">
@@ -98,7 +103,11 @@ export default function MerchantDetail() {
           <Store className="w-5 h-5 text-white" />
         </div>
         <div className="min-w-0 flex-1">
-          <h2 className="text-xl font-bold text-white leading-tight break-words">{m.vendorName}</h2>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h2 className="text-xl font-bold text-white leading-tight break-words">{m.vendorName}</h2>
+            <DocBadge docType={m.docType} short />
+          </div>
+          {m.displayName && <p className="text-xs text-slate-500 mt-0.5">{m.displayName}</p>}
           <p className="text-sm text-slate-500 mt-0.5">
             {m.typicalCategoryName || 'ยังไม่ระบุหมวด'}
             {m.typicalSubCategoryName && <span className="text-slate-600"> › {m.typicalSubCategoryName}</span>}
@@ -120,7 +129,7 @@ export default function MerchantDetail() {
           <dl>
             <Row label="ที่อยู่">{m.address}</Row>
             <Row label="เบอร์โทร">{m.phone && <span className="font-mono tabular-nums">{m.phone}</span>}</Row>
-            <Row label="เลขผู้เสียภาษี">{m.taxId && <span className="font-mono tabular-nums">{m.taxId}</span>}</Row>
+            <Row label="ผู้ติดต่อ">{m.contactPerson}</Row>
           </dl>
           {!m.address && (
             <p className="text-xs text-amber-400/90 mt-3 leading-relaxed">
@@ -130,21 +139,53 @@ export default function MerchantDetail() {
         </Panel>
 
         <Panel title="บัญชีรับเงิน">
-          {m.bankAccountNo ? (
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
-                style={{ background: 'rgba(16,185,129,0.12)' }}>
-                <Landmark className="w-4 h-4 text-emerald-400" />
+          {m.bankAccountNo || m.promptpayId ? (
+            <div className="flex gap-4">
+              <div className="min-w-0 flex-1 space-y-3">
+                {m.bankAccountNo && (
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0"
+                      style={{ background: 'rgba(16,185,129,0.12)' }}>
+                      <Landmark className="w-4 h-4 text-emerald-400" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="text-xs text-slate-500">{m.bankName || 'ธนาคาร (ไม่ระบุ)'}</p>
+                      <p className="text-base text-emerald-400 font-mono tabular-nums tracking-wide">{m.bankAccountNo}</p>
+                      {m.bankAccountName && <p className="text-xs text-slate-500 mt-0.5">{m.bankAccountName}</p>}
+                    </div>
+                  </div>
+                )}
+                {m.promptpayId && (
+                  <div>
+                    <p className="text-xs text-slate-500">พร้อมเพย์</p>
+                    <p className="text-sm text-slate-200 font-mono tabular-nums">{m.promptpayId}</p>
+                  </div>
+                )}
               </div>
-              <div className="min-w-0">
-                <p className="text-xs text-slate-500">{m.bankName || 'ธนาคาร (ไม่ระบุ)'}</p>
-                <p className="text-base text-emerald-400 font-mono tabular-nums tracking-wide">{m.bankAccountNo}</p>
-              </div>
+              {m.promptpayId && <PromptPayQR promptpayId={m.promptpayId} size={104} label="สแกนจ่ายได้ · ยังไม่ระบุยอด" />}
             </div>
           ) : (
             <p className="text-sm text-slate-500">ยังไม่มีเลขบัญชี —{' '}
               <button onClick={() => setEditing(true)} className="text-emerald-400 hover:text-emerald-300">เพิ่มเลย</button>
             </p>
+          )}
+        </Panel>
+
+        <Panel title="ข้อมูลภาษี (อ้างอิงสรรพากร)">
+          <dl>
+            <Row label="ประเภทผู้เสียภาษี">{taxpayerLabel(m.taxpayerType)}</Row>
+            <Row label="เลขผู้เสียภาษี">{m.taxId && <span className="font-mono tabular-nums">{m.taxId}</span>}</Row>
+            <Row label="รหัสสาขา">
+              {m.taxBranch && <span className="font-mono tabular-nums">{m.taxBranch}
+                {m.taxBranch === '00000' && <span className="text-slate-500 font-sans"> (สำนักงานใหญ่)</span>}</span>}
+            </Row>
+            <Row label="เอกสารที่ออกให้"><DocBadge docType={m.docType} /></Row>
+            <Row label="หัก ณ ที่จ่าย">
+              {wht ? <>{wht.label}{wht.rate > 0 && <span className="tabular-nums"> {wht.rate}%</span>}</> : null}
+            </Row>
+          </dl>
+          {doc && (
+            <p className="text-xs mt-3 leading-relaxed" style={{ color: doc.color }}>ซื้อจากร้านนี้ → {doc.effect}</p>
           )}
         </Panel>
 
