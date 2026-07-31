@@ -934,9 +934,12 @@ async function getHrosIntegration(env, user) {
     ? await env.DB.prepare("SELECT id, name, workspace_id, is_active, settings FROM users WHERE id = ?").bind(env.HROS_SERVICE_USER_ID).first()
     : null;
   const linked = !!svc && svc.workspace_id === user.workspace_id && svc.is_active === 1;
-  const last = await env.DB.prepare(
-    "SELECT date, created_at FROM transactions WHERE workspace_id = ? AND source = 'auto' ORDER BY created_at DESC LIMIT 1"
-  ).bind(user.workspace_id).first();
+  // `date` = วันของรายการที่ HR OS ส่งมา (Fintrack ไม่เคยเดาเอง — createTransaction บังคับให้ส่ง)
+  // `created_at` = เวลาที่ยิงเข้ามาจริง สองค่านี้คนละความหมาย จอฝั่งหน้าเว็บโชว์แยกกัน
+  const recent = await env.DB.prepare(
+    "SELECT id, name, amount, type, date, created_at, note FROM transactions WHERE workspace_id = ? AND source = 'auto' ORDER BY created_at DESC, date DESC LIMIT 30"
+  ).bind(user.workspace_id).all();
+  const rows = recent.results || [];
   const count = await env.DB.prepare(
     "SELECT COUNT(*) AS n FROM transactions WHERE workspace_id = ? AND source = 'auto'"
   ).bind(user.workspace_id).first();
@@ -945,8 +948,9 @@ async function getHrosIntegration(env, user) {
     linked,
     enabled: linked && hrosSyncEnabled(svc.settings),
     serviceUserName: linked ? svc.name || "HR OS" : null,
-    lastSyncAt: last?.created_at || null,
-    autoCount: count?.n || 0
+    lastSyncAt: rows[0]?.created_at || null,
+    autoCount: count?.n || 0,
+    recent: rows.map((r) => ({ id: r.id, name: r.name, amount: r.amount, type: r.type, date: r.date, createdAt: r.created_at, note: r.note }))
   });
 }
 __name(getHrosIntegration, "getHrosIntegration");
