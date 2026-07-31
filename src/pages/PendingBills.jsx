@@ -4,6 +4,7 @@ import QRCode from 'qrcode'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck } from 'lucide-react'
+import MerchantPicker from '../components/MerchantPicker'
 import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems } from '../../pending-bills-logic.mjs'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
@@ -97,13 +98,14 @@ function SubmitBillModal({ me, onClose, onDone }) {
           </select>
         </div>
         {form.payeeType === 'vendor' && (
-          <div>
-            <label className="block text-xs font-medium text-slate-400 mb-1.5">เลือกร้านค้า/ซัพพลายเออร์</label>
-            <select className={INPUT} style={INPUT_STYLE} value={form.vendorRefId} onChange={e => setForm({ ...form, vendorRefId: e.target.value })}>
-              <option value="">— เลือกร้านค้า —</option>
-              {vendors.map(v => <option key={v.id} value={v.id}>{v.vendorName}</option>)}
-            </select>
-          </div>
+          <MerchantPicker vendors={vendors} value={form.vendorRefId}
+            onChange={id => {
+              // เลือกร้าน → เติมหมวดที่ร้านนี้ใช้ประจำให้ ถ้ายังไม่ได้เลือกหมวดเอง
+              const v = vendors.find(x => x.id === id)
+              setForm(f => ({ ...f, vendorRefId: id, categoryId: f.categoryId || v?.typicalCategoryId || '' }))
+            }}
+            canCreate={me?.role === 'admin'}
+            onCreated={v => setVendors(prev => [v, ...prev])} />
         )}
         <div>
           <label className="block text-xs font-medium text-slate-400 mb-1.5">จ่ายด้วยวิธีไหน</label>
@@ -248,16 +250,8 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
       </div>
       <form onSubmit={submit} className="p-4 space-y-3.5 overflow-y-auto">
         <div>
-          <label className="block text-xs font-medium text-slate-400 mb-1.5">ผู้ขาย</label>
-          <select className={INPUT} style={INPUT_STYLE} value={vendorId} onChange={e => setVendorId(e.target.value)} required>
-            <option value="">— เลือกผู้ขาย —</option>
-            {vendors.map(v => <option key={v.id} value={v.id}>{v.vendorName}</option>)}
-          </select>
-          {vendor && (
-            <p className="text-xs text-slate-500 mt-1.5">
-              {vendor.bankAccountNo ? <>โอนเข้า: {vendor.bankName || '—'} ••{String(vendor.bankAccountNo).slice(-4)}</> : 'ยังไม่ได้ตั้งบัญชีรับเงินของผู้ขายนี้'}
-            </p>
-          )}
+          <MerchantPicker vendors={vendors} value={vendorId} onChange={setVendorId} label="ผู้ขาย"
+            canCreate={me?.role === 'admin'} onCreated={v => setVendors(prev => [v, ...prev])} />
           {vendors.length === 0 && <p className="text-xs text-amber-400 mt-1.5">ยังไม่มีผู้ขายในระบบ — แจ้งแอดมินให้เพิ่มผู้ขายก่อน</p>}
         </div>
 

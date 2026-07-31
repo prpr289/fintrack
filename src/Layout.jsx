@@ -39,6 +39,7 @@ const NAV_GROUPS = [
   { label: 'งานประจำวัน', items: [
     { to: '/transactions',  icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
     { to: '/pending-bills', icon: Receipt,         label: 'บิลรอจ่าย' },
+    { to: '/merchants',     icon: Store,           label: 'ร้านค้า',       admin: true },
     { to: '/bulk-upload',   icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
     { to: '/slips',         icon: Paperclip,       label: 'สลิปทั้งหมด' },
   ] },
@@ -53,7 +54,6 @@ const NAV_GROUPS = [
   { label: 'ข้อมูลหลัก', items: [
     { to: '/categories',    icon: Tag,             label: 'หมวดหมู่' },
     { to: '/category-rules', icon: Wand2,          label: 'กฎหมวดหมู่',     admin: true },
-    { to: '/vendors',       icon: Store,           label: 'Vendor (AI จำ)', admin: true },
   ] },
   { label: 'ผู้ดูแลระบบ', items: [
     { to: '/users',         icon: Users,           label: 'ผู้ใช้งาน',        admin: true },

@@ -12,7 +12,8 @@ import AuditLog from './pages/AuditLog'
 import Budget from './pages/Budget'
 import Recurring from './pages/Recurring'
 import SlipsGallery from './pages/SlipsGallery'
-import Vendors from './pages/Vendors'
+import Merchants from './pages/Merchants'
+import MerchantDetail from './pages/MerchantDetail'
 import Voucher from './pages/Voucher'
 import VouchersPrint from './pages/VouchersPrint'
 import Receipt from './pages/Receipt'
@@ -62,7 +63,10 @@ export default function App() {
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />
             <Route path="slips"        element={<SlipsGallery />} />
             <Route path="reports"      element={<RequireAdmin><Reports /></RequireAdmin>} />
-            <Route path="vendors"      element={<RequireAdmin><Vendors /></RequireAdmin>} />
+            <Route path="merchants"     element={<RequireAdmin><Merchants /></RequireAdmin>} />
+            <Route path="merchants/:id" element={<RequireAdmin><MerchantDetail /></RequireAdmin>} />
+            {/* เมนูเดิมชื่อ Vendor — คงลิงก์ไว้กัน bookmark เก่าพัง */}
+            <Route path="vendors"      element={<Navigate to="/merchants" replace />} />
             <Route path="category-rules" element={<RequireAdmin><CategoryRules /></RequireAdmin>} />
             <Route path="users"        element={<RequireAdmin><Users /></RequireAdmin>} />
             <Route path="integrations" element={<RequireAdmin><Integrations /></RequireAdmin>} />

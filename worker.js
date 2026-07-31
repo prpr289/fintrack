@@ -105,7 +105,9 @@ var worker_default = {
       if (slipMatch && method === "DELETE") return cors(await deleteSlip(slipMatch[1], env, user));
       if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
       if (path === "/vendor-profiles" && method === "POST") return cors(await learnVendorProfile(request, env, user));
+      if (path === "/vendor-profiles/create" && method === "POST") return cors(await createVendorProfile(request, env, user));
       const vendorMatch = path.match(/^\/vendor-profiles\/([a-zA-Z0-9_-]+)$/);
+      if (vendorMatch && method === "GET") return cors(await getVendorProfile(vendorMatch[1], env, user));
       if (vendorMatch && method === "PATCH") return cors(await updateVendorProfile(vendorMatch[1], request, env, user));
       if (vendorMatch && method === "DELETE") return cors(await deleteVendorProfile(vendorMatch[1], env, user));
       if (path === "/category-rules" && method === "GET") return cors(await listCategoryRules(env, user));
@@ -1549,21 +1551,95 @@ async function upsertVendorProfile(workspaceId, ocr, txCategoryId, txCategoryNam
 }
 __name(upsertVendorProfile, "upsertVendorProfile");
 
+// ?name= — legacy name-only lookup (LINE bot / bulk upload). Left untouched.
+// ?q=    — merchant directory search: name, tax id, bank account, phone. Digits-only
+//          terms also match accounts/tax ids stored with dashes, because at the till
+//          people remember "ท้ายบัญชี 4371" not the punctuation.
 async function listVendorProfiles(request, env, user) {
-  const name = new URL(request.url).searchParams.get('name') || '';
+  const params = new URL(request.url).searchParams;
+  const name = params.get('name') || '';
+  const q = (params.get('q') || '').trim();
   let rows;
   if (name) {
     rows = await env.DB.prepare(
       "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name LIKE ? ORDER BY occurrence_count DESC LIMIT 10"
     ).bind(user.workspace_id, `%${name}%`).all();
+  } else if (q) {
+    const like = `%${q}%`;
+    const digits = q.replace(/\D/g, '');
+    const dlike = digits ? `%${digits}%` : ' ';
+    rows = await env.DB.prepare(
+      `SELECT * FROM vendor_profiles WHERE workspace_id = ? AND (
+         vendor_name LIKE ? OR tax_id LIKE ? OR bank_account_no LIKE ? OR phone LIKE ?
+         OR REPLACE(REPLACE(IFNULL(bank_account_no,''),'-',''),' ','') LIKE ?
+         OR REPLACE(REPLACE(IFNULL(tax_id,''),'-',''),' ','') LIKE ?
+         OR REPLACE(REPLACE(IFNULL(phone,''),'-',''),' ','') LIKE ?
+       ) ORDER BY occurrence_count DESC, last_seen DESC LIMIT 100`
+    ).bind(user.workspace_id, like, like, like, like, dlike, dlike, dlike).all();
   } else {
     rows = await env.DB.prepare(
-      "SELECT * FROM vendor_profiles WHERE workspace_id = ? ORDER BY occurrence_count DESC, last_seen DESC LIMIT 50"
+      "SELECT * FROM vendor_profiles WHERE workspace_id = ? ORDER BY occurrence_count DESC, last_seen DESC LIMIT 200"
     ).bind(user.workspace_id).all();
   }
   return json({ vendors: (rows.results || []).map(formatVendor) });
 }
 __name(listVendorProfiles, "listVendorProfiles");
+
+// Create a merchant by hand (admin) — the directory can no longer depend on the bot
+// happening to see a slip first. Name is the bot's matching key, so a duplicate name
+// is rejected rather than silently creating a second profile that splits the history.
+async function createVendorProfile(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const body = await request.json();
+  const vendorName = String(body.vendorName || '').trim();
+  if (!vendorName) return json({ error: "ต้องมีชื่อร้านค้า" }, 400);
+  const dup = await env.DB.prepare(
+    "SELECT id FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
+  ).bind(user.workspace_id, vendorName).first();
+  if (dup) return json({ error: `มีร้าน "${vendorName}" อยู่แล้ว`, existingId: dup.id }, 409);
+
+  const cat = body.categoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.categoryId, user.workspace_id).first() : null;
+  const sub = body.subCategoryId ? await env.DB.prepare("SELECT name FROM categories WHERE id = ? AND workspace_id = ?").bind(body.subCategoryId, user.workspace_id).first() : null;
+  const wal = body.walletId ? await env.DB.prepare("SELECT name FROM wallets WHERE id = ? AND workspace_id = ?").bind(body.walletId, user.workspace_id).first() : null;
+
+  const id = 'vp_' + crypto.randomUUID().replace(/-/g, '').slice(0, 16);
+  await env.DB.prepare(`INSERT INTO vendor_profiles
+    (id, workspace_id, vendor_name, tax_id, address, phone,
+     typical_category_id, typical_category_name, typical_sub_category_id, typical_sub_category_name,
+     typical_wallet_id, typical_wallet_name, bank_name, bank_account_no, occurrence_count, last_seen)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?)`
+  ).bind(
+    id, user.workspace_id, vendorName, body.taxId || null, body.address || null, body.phone || null,
+    body.categoryId || null, cat?.name || null, body.subCategoryId || null, sub?.name || null,
+    body.walletId || null, wal?.name || null, body.bankName || null, body.bankAccountNo || null,
+    new Date().toISOString().slice(0, 10)
+  ).run();
+  await logAudit(env, user, "create", "vendor", id, { vendorName });
+  const created = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ?").bind(id).first();
+  return json({ vendor: formatVendor(created) }, 201);
+}
+__name(createVendorProfile, "createVendorProfile");
+
+// Merchant profile + every bill ever raised against it. Bills keep their own snapshot
+// of payee name/bank, so editing the merchant today never rewrites what was paid.
+async function getVendorProfile(id, env, user) {
+  const v = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!v) return json({ error: "ไม่พบร้านค้า" }, 404);
+  const bills = await env.DB.prepare(
+    `SELECT id, name, amount, status, evidence_type, kind, created_at, paid_at
+     FROM pending_bills WHERE workspace_id = ? AND payee_type = 'vendor' AND payee_ref_id = ?
+     ORDER BY created_at DESC LIMIT 50`
+  ).bind(user.workspace_id, id).all();
+  return json({
+    vendor: formatVendor(v),
+    bills: (bills.results || []).map(b => ({
+      id: b.id, name: b.name, amount: b.amount, status: b.status,
+      evidenceType: b.evidence_type, kind: b.kind,
+      createdAt: b.created_at, paidAt: b.paid_at,
+    })),
+  });
+}
+__name(getVendorProfile, "getVendorProfile");
 
 function formatVendor(v) {
   return {

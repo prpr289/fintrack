@@ -70,6 +70,11 @@ export const api = {
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   learnVendor: (body) => req('POST', '/vendor-profiles', body),
 
+  // เมนูร้านค้า — เรียกตารางเดียวกับ vendorProfiles แต่ค้นหาครอบ ชื่อ/เลขภาษี/เลขบัญชี/เบอร์
+  merchants: (q) => req('GET', '/vendor-profiles' + (q ? `?q=${encodeURIComponent(q)}` : '')),
+  merchant: (id) => req('GET', `/vendor-profiles/${id}`),
+  createMerchant: (body) => req('POST', '/vendor-profiles/create', body),
+
   categoryRules: () => req('GET', '/category-rules'),
   createCategoryRule: (body) => req('POST', '/category-rules', body),
   updateCategoryRule: (id, body) => req('PATCH', `/category-rules/${id}`, body),
