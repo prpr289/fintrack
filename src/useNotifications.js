@@ -50,7 +50,11 @@ export function useNotifications(user) {
   // kind filter: overdue/due => "manual", upcoming => auto, draft => draft
   const kindOn = (k) => k === 'draft' ? settings.kinds.draft : k === 'upcoming' ? settings.kinds.upcoming : settings.kinds.manual
   const items = (canSee ? list : []).filter(n => kindOn(n.kind))
-  const unreadCount = items.reduce((n, x) => n + (seen.has(x.id) ? 0 : 1), 0)
+  // Badge highlights urgent count when any urgent is unread; else falls back to all
+  // unread so normal alerts are never hidden by a zero-urgent badge.
+  const unseen = items.filter(x => !seen.has(x.id))
+  const urgentUnseen = unseen.reduce((n, x) => n + (x.priority ? 1 : 0), 0)
+  const unreadCount = urgentUnseen > 0 ? urgentUnseen : unseen.length
 
   const persist = (patch) => {
     const next = { ...settings, ...patch }
