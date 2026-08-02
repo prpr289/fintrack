@@ -4,6 +4,7 @@ import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
+import NotificationPopup from './components/NotificationPopup'
 import { useNotifications } from './useNotifications'
 
 function NavItem({ to, icon: Icon, label, onClick }) {
@@ -179,6 +180,7 @@ export default function Layout() {
       </main>
 
       <QuickAdd />
+      <NotificationPopup ctrl={notif} user={user} />
     </div>
   )
 }
