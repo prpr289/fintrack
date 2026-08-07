@@ -10,6 +10,7 @@ import {
   ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown, User, Printer,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
+import { groupTransactionsByDate } from '../transactionGroups'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -71,20 +72,6 @@ function AutoBadge() {
   )
 }
 
-// Group an already-date-sorted tx list into day buckets with a running net.
-function groupByDate(list) {
-  const groups = []
-  const idx = {}
-  for (const t of list) {
-    const k = t.date
-    if (!(k in idx)) { idx[k] = groups.length; groups.push({ key: k, items: [], net: 0 }) }
-    const g = groups[idx[k]]
-    g.items.push(t)
-    g.net += t.type === 'income' ? t.amount : -t.amount
-  }
-  return groups
-}
-
 function fullDayDate(value) {
   if (!value) return '-'
   return new Date(`${value}T00:00:00`).toLocaleDateString('th-TH', {
@@ -92,39 +79,83 @@ function fullDayDate(value) {
   })
 }
 
-function DayHeader({ group, isStaff, collapsed, onToggle, mobile = false }) {
-  const className = `flex items-center gap-2.5 sm:gap-3 ${mobile ? 'px-4' : 'px-6'} py-2.5`
-  const style = { background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }
-  const content = (
-    <>
-      {isStaff && <Calendar className="w-4 h-4 flex-none" style={{ color: 'rgba(203,213,225,0.78)' }} />}
-      <span style={{ fontFamily: FONT_SERIF, fontSize: mobile ? 13.5 : 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>
-        {isStaff ? fullDayDate(group.key) : date(group.key)}
-      </span>
-      <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)', whiteSpace: 'nowrap' }}>{group.items.length} รายการ</span>
-      <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
-      {isStaff ? (
-        <ChevronDown className={`w-4 h-4 flex-none transition-transform ${collapsed ? '' : 'rotate-180'}`} style={{ color: 'rgba(203,213,225,0.7)' }} />
-      ) : (
-        <>
-          {!mobile && <span className="uppercase" style={{ fontSize: 10.5, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.45)' }}>สุทธิ</span>}
-          <span style={{ fontFamily: FONT_MONO, fontSize: mobile ? 12 : 13, fontWeight: 500, color: group.net >= 0 ? 'rgba(110,231,199,0.92)' : 'rgba(251,154,168,0.92)', whiteSpace: 'nowrap' }}>
-            {signedThb(group.net >= 0 ? 'income' : 'expense', Math.abs(group.net))}
-          </span>
-        </>
-      )}
-    </>
+function DayTotal({ label, value, type, emphasized = false, mobile = false }) {
+  const color = type === 'expense'
+    ? 'rgba(251,113,133,0.94)'
+    : emphasized ? 'rgba(110,231,199,1)' : 'rgba(52,211,153,0.94)'
+
+  return (
+    <div className="min-w-0 text-center">
+      <div style={{ fontSize: mobile ? 9.5 : 10, lineHeight: 1.15, letterSpacing: '0.35px', color: 'rgba(148,163,184,0.62)', whiteSpace: 'nowrap' }}>
+        {label}
+      </div>
+      <div style={{ fontFamily: FONT_MONO, fontSize: mobile ? 11 : 12.5, lineHeight: 1.35, fontWeight: emphasized ? 650 : 550, color, whiteSpace: 'nowrap' }}>
+        {signedThb(type, value)}
+      </div>
+    </div>
   )
+}
+
+function DayHeader({ group, isStaff, collapsed, onToggle, mobile = false }) {
+  const horizontalPadding = mobile ? 'px-4' : 'px-6'
+  const style = { background: 'rgba(255,255,255,0.016)', borderBottom: '1px solid rgba(255,255,255,0.05)' }
 
   if (isStaff) {
     return (
-      <button type="button" onClick={onToggle} aria-expanded={!collapsed} className={`${className} w-full text-left hover:bg-white/[0.025] transition-colors`} style={style}>
-        {content}
+      <button type="button" onClick={onToggle} aria-expanded={!collapsed} className={`flex items-center gap-2.5 sm:gap-3 ${horizontalPadding} py-2.5 w-full text-left hover:bg-white/[0.025] transition-colors`} style={style}>
+        <Calendar className="w-4 h-4 flex-none" style={{ color: 'rgba(203,213,225,0.78)' }} />
+        <span style={{ fontFamily: FONT_SERIF, fontSize: mobile ? 13.5 : 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>
+          {fullDayDate(group.key)}
+        </span>
+        <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)', whiteSpace: 'nowrap' }}>{group.items.length} รายการ</span>
+        <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+        <ChevronDown className={`w-4 h-4 flex-none transition-transform ${collapsed ? '' : 'rotate-180'}`} style={{ color: 'rgba(203,213,225,0.7)' }} />
       </button>
     )
   }
 
-  return <div className={className} style={style}>{content}</div>
+  const totals = (
+    <div
+      className={`${mobile ? 'grid grid-cols-3 w-full pr-14' : 'grid'} gap-0`}
+      style={mobile ? undefined : { gridTemplateColumns: 'repeat(3, 140px)' }}
+      aria-label={`สรุปประจำวันที่ ${date(group.key)}`}>
+      <div className={mobile ? 'pr-2' : 'px-4'}>
+        <DayTotal label="รายรับรวม" value={group.income} type="income" mobile={mobile} />
+      </div>
+      <div className={mobile ? 'px-2' : 'px-4'} style={{ borderLeft: '1px solid rgba(255,255,255,0.075)' }}>
+        <DayTotal label="ค่าใช้จ่ายรวม" value={group.expense} type="expense" mobile={mobile} />
+      </div>
+      <div className={mobile ? 'pl-2' : 'px-4'} style={{ borderLeft: '1px solid rgba(255,255,255,0.075)' }}>
+        <DayTotal label="คงเหลือ" value={Math.abs(group.net)} type={group.net >= 0 ? 'income' : 'expense'} emphasized mobile={mobile} />
+      </div>
+    </div>
+  )
+
+  if (mobile) {
+    return (
+      <div className={`${horizontalPadding} py-2.5 flex flex-col gap-2.5`} style={style}>
+        <div className="flex items-center gap-2.5 w-full">
+          <span style={{ fontFamily: FONT_SERIF, fontSize: 13.5, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>
+            {date(group.key)}
+          </span>
+          <span style={{ fontFamily: FONT_MONO, fontSize: 11.5, color: 'rgba(148,163,184,0.75)', whiteSpace: 'nowrap' }}>{group.items.length} รายการ</span>
+          <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+        </div>
+        {totals}
+      </div>
+    )
+  }
+
+  return (
+    <div className={`flex items-center gap-3 ${horizontalPadding} py-2.5`} style={style}>
+      <span style={{ fontFamily: FONT_SERIF, fontSize: mobile ? 13.5 : 14, color: '#d9e1ea', fontWeight: 600, whiteSpace: 'nowrap' }}>
+        {date(group.key)}
+      </span>
+      <span style={{ fontFamily: FONT_MONO, fontSize: 12, color: 'rgba(148,163,184,0.75)', whiteSpace: 'nowrap' }}>{group.items.length} รายการ</span>
+      <span className="flex-1" style={{ height: 1, background: 'linear-gradient(90deg,rgba(255,255,255,0.07),transparent)' }} />
+      {totals}
+    </div>
+  )
 }
 
 function Modal({ title, onClose, children, wide = false }) {
@@ -1137,7 +1168,7 @@ export default function Transactions() {
   }
 
   const totalPages = Math.ceil(total / PAGE_SIZE)
-  const groups = groupByDate(txs)
+  const groups = groupTransactionsByDate(txs)
   // Colored dot per category: income → emerald, else the category's own color (or a stable hash).
   const dotColor = (t) => {
     if (t.type === 'income') return '#34d399'
