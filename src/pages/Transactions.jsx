@@ -18,6 +18,21 @@ const INPUT_STYLE = { background: '#0d1120' }
 const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', date: today(), walletId: '', categoryId: '', subCategoryId: '', note: '' }
 const PAGE_SIZE = 50
 
+const TX_AUDIT_LABEL = {
+  draft: 'ร่าง', pending_edit: 'รอยืนยันการแก้ไข', missing_category: 'ไม่มีหมวดหมู่',
+  unreconciled: 'ยังไม่ตรวจ', broken_transfer: 'คู่โอนไม่ครบ', possible_duplicate: 'อาจซ้ำ',
+}
+
+function AuditIssueBadges({ issues = [] }) {
+  return issues.map(issue => (
+    <span key={`${issue.code}:${issue.issueKey || ''}`}
+      className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full font-semibold"
+      style={{ color: '#fbbf24', background: 'rgba(251,191,36,.1)', border: '1px solid rgba(251,191,36,.18)' }}>
+      <AlertCircle className="w-2.5 h-2.5" /> {TX_AUDIT_LABEL[issue.code] || issue.code}
+    </span>
+  ))
+}
+
 // ── Luxe theme tokens (mirrors the standalone design) ──────────────
 const FONT_SERIF = "'Noto Serif Thai', serif"
 const FONT_MONO = "'JetBrains Mono', monospace"
@@ -1024,6 +1039,7 @@ export default function Transactions() {
   const [period, setPeriod] = useState('thisMonth') // default to the current month
   const [customRange, setCustomRange] = useState({ from: '', to: '' })
   const [collapsedDays, setCollapsedDays] = useState(() => new Set())
+  const [auditIssues, setAuditIssues] = useState({})
 
   const isStaff = user?.role === 'staff'
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
@@ -1060,10 +1076,29 @@ export default function Transactions() {
       api.wallets(),
       api.categories(),
     ])
-    setTxs(td.transactions || [])
+    const nextTransactions = td.transactions || []
+    setTxs(nextTransactions)
     setTotal(td.total || 0)
     setWallets(wd.wallets || [])
     setCategories(cd.categories || [])
+    const dates = [...new Set(nextTransactions.map(tx => tx.date).filter(Boolean))].sort()
+    if (dates.length === 0) {
+      setAuditIssues({})
+    } else {
+      const chunks = []
+      let start = dates[0], end = dates[0]
+      for (const current of dates.slice(1)) {
+        const span = Math.floor((new Date(`${current}T00:00:00Z`) - new Date(`${start}T00:00:00Z`)) / 86400000)
+        if (span > 31) { chunks.push({ from: start, to: end }); start = current }
+        end = current
+      }
+      chunks.push({ from: start, to: end })
+      try {
+        const responses = await Promise.all(chunks.map(range => api.transactionAuditIssues(range)))
+        const entries = responses.flatMap(result => result.issues || []).map(item => [item.transactionId, item.issues])
+        setAuditIssues(Object.fromEntries(entries))
+      } catch { setAuditIssues({}) }
+    }
     setLoading(false)
   }, [filter, page, debouncedSearch, period, customRange])
 
@@ -1163,7 +1198,14 @@ export default function Transactions() {
   const toggleReconcile = async (t) => {
     try {
       const res = await api.reconcileTransaction(t.id)
-      setTxs(prev => prev.map(tx => tx.id === t.id ? { ...tx, isReconciled: res.isReconciled } : tx))
+      setTxs(prev => prev.map(tx => tx.id === t.id ? { ...tx, isReconciled: res.isReconciled, reconciledByUserId: res.reconciledByUserId, reconciledAt: res.reconciledAt } : tx))
+      setAuditIssues(prev => {
+        const withoutReconcile = (prev[t.id] || []).filter(issue => issue.code !== 'unreconciled')
+        return {
+          ...prev,
+          [t.id]: res.isReconciled ? withoutReconcile : [...withoutReconcile, { code: 'unreconciled', issueKey: `reconcile:${t.id}` }],
+        }
+      })
     } catch (e) { alert(e.message) }
   }
 
@@ -1328,6 +1370,7 @@ export default function Transactions() {
                   {(!isStaff || !collapsedDays.has(g.key)) && g.items.map(t => {
                     const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                     const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
+                    const canReconcile = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                     return (
                       <div key={t.id} className="px-4 py-3.5 tx-rise" style={{ borderBottom: '1px solid rgba(255,255,255,0.05)', background: t.isDraft ? 'rgba(251,191,36,0.05)' : (t.pendingChanges ? 'rgba(96,165,250,0.06)' : 'transparent') }}>
                         {t.isDraft && (
@@ -1345,6 +1388,7 @@ export default function Transactions() {
                             <div className="flex items-center gap-2 flex-wrap">
                               <p className="leading-snug" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</p>
                               {isAutoTx(t) && <AutoBadge />}
+                              <AuditIssueBadges issues={auditIssues[t.id]} />
                             </div>
                             {t.categoryName ? (
                               <div className="inline-flex items-center gap-1.5 mt-1 max-w-full">
@@ -1400,7 +1444,7 @@ export default function Transactions() {
                             )}
                           </div>
                           <div className="flex items-center gap-1">
-                            {canWrite && (
+                            {canReconcile && (
                               <button onClick={() => toggleReconcile(t)} aria-label={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
                                 className={`flex items-center justify-center w-8 h-8 rounded-lg transition-colors ${
                                   t.isReconciled ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' : 'text-slate-500 border border-white/10 hover:border-emerald-500/40'
@@ -1441,6 +1485,7 @@ export default function Transactions() {
                     {(!isStaff || !collapsedDays.has(g.key)) && g.items.map(t => {
                       const canEdit = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                       const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
+                      const canReconcile = user?.role === 'admin' || (user?.role === 'staff' && t.createdByUserId === user.id)
                       return (
                         <div key={t.id} className={`grid items-center gap-4 px-6 ${isStaff ? 'py-2' : 'py-3.5'} transition-colors hover:bg-white/[0.028]`}
                           style={{ gridTemplateColumns: isStaff ? 'minmax(0,1.7fr) minmax(0,1.1fr) 150px 150px 120px 160px' : 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
@@ -1450,6 +1495,7 @@ export default function Transactions() {
                               {t.isDraft && <span className="flex items-center gap-1 text-xs text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full"><Clock className="w-2.5 h-2.5" /> Draft</span>}
                               {t.pendingChanges && <span className="flex items-center gap-1 text-xs text-blue-300 bg-blue-400/10 px-1.5 py-0.5 rounded-full"><Pencil className="w-2.5 h-2.5" /> แก้ไข</span>}
                               {isAutoTx(t) && <AutoBadge />}
+                              <AuditIssueBadges issues={auditIssues[t.id]} />
                             </div>
                             {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
                             {!isStaff && t.submittedBy && (
@@ -1496,7 +1542,7 @@ export default function Transactions() {
                             {thb(t.amount)}
                           </div>
                           <div className="flex items-center justify-end gap-0.5">
-                            {canWrite && (
+                            {canReconcile && (
                               <button onClick={() => toggleReconcile(t)} aria-label={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
                                 className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
                                   t.isReconciled ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400' : 'border-white/10 text-transparent hover:border-emerald-500/40 hover:text-emerald-500/60'

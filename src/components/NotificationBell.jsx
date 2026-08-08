@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Bell, AlertTriangle, Clock, FileText, Zap, Check, X, Settings, ChevronLeft, BellOff, Flame } from 'lucide-react'
+import { Bell, AlertTriangle, Clock, FileText, Zap, Check, X, Settings, ChevronLeft, BellOff, Flame, ShieldCheck } from 'lucide-react'
 import { thb } from '../fmt'
 import RecurringNotifyControls from './RecurringNotifyControls'
 
 // Per-kind visual language. Distinct icon SHAPES (not colour alone) satisfy color-not-only a11y.
 const KIND = {
+  audit:    { icon: ShieldCheck,   tag: 'Audit',          color: '#fbbf24', tint: 'rgba(251,191,36,0.12)', to: '/daily-audit' },
   overdue:  { icon: AlertTriangle, tag: 'เลยกำหนด',     color: '#f87171', tint: 'rgba(248,113,113,0.12)', to: '/recurring' },
   due:      { icon: Clock,         tag: 'ใกล้ครบกำหนด', color: '#fbbf24', tint: 'rgba(251,191,36,0.12)', to: '/recurring' },
   draft:    { icon: FileText,      tag: 'รอยืนยัน',     color: '#60a5fa', tint: 'rgba(96,165,250,0.12)', to: '/transactions' },
@@ -13,6 +14,7 @@ const KIND = {
 }
 const DAY_OPTIONS = [3, 7, 14, 30]
 const KIND_TOGGLES = [
+  { key: 'audit',    label: 'ตรวจยอดรายวัน', admin: true },
   { key: 'upcoming', label: 'ใกล้ตัดเงินอัตโนมัติ' },
   { key: 'manual',   label: 'ใกล้ / เลยกำหนด (บันทึกเอง)' },
   { key: 'draft',    label: 'Draft รอยืนยัน' },
@@ -23,6 +25,7 @@ const dayDiff = (fromISO, toISO) =>
   Math.round((new Date(toISO + 'T00:00:00Z') - new Date(fromISO + 'T00:00:00Z')) / 86400000)
 
 function describe(n) {
+  if (n.kind === 'audit') return `มีวันที่ยังปิดยอดไม่ครบ ${n.pendingDays || 1} วัน · แตะเพื่อตรวจยอด`
   if (n.kind === 'draft') return 'สร้างเป็น Draft แล้ว · แตะเพื่อยืนยันยอด + แนบสลิป'
   const d = dayDiff(todayISO(), n.dueDate)
   if (n.kind === 'upcoming') return d <= 0 ? `จะตัดเงินอัตโนมัติวันนี้ (${n.dueDate})` : `จะตัดเงินอัตโนมัติใน ${d} วัน (${n.dueDate})`
@@ -42,7 +45,7 @@ function Toggle({ on, onClick }) {
 }
 
 export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
-  const { list, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems } = ctrl
+  const { list, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems, isAdmin } = ctrl
   const nav = useNavigate()
   const [open, setOpen] = useState(false)
   const [view, setView] = useState('list')     // 'list' | 'settings'
@@ -159,7 +162,7 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
                 <div>
                   <p className="text-xs font-medium text-slate-400 mb-2">ประเภทที่แจ้งเตือน</p>
                   <div className="space-y-1">
-                    {KIND_TOGGLES.map(t => (
+                    {KIND_TOGGLES.filter(t => !t.admin || isAdmin).map(t => (
                       <div key={t.key} className="flex items-center justify-between py-1.5">
                         <span className="text-sm text-slate-300">{t.label}</span>
                         <Toggle on={!!settings.kinds[t.key]} onClick={() => toggleKind(t.key)} />
@@ -222,7 +225,7 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
                   const tint = urgent ? 'rgba(248,113,113,0.14)' : k.tint
                   const tag = urgent ? 'เร่งด่วน' : k.tag
                   const isNew = highlight.has(n.id)
-                  const canMute = n.kind !== 'draft'
+                  const canMute = !['draft', 'audit'].includes(n.kind)
                   const bg = urgent ? 'rgba(248,113,113,0.06)' : isNew ? 'rgba(16,185,129,0.045)' : undefined
                   return (
                     <div key={n.id} role="button" tabIndex={0}
@@ -242,9 +245,11 @@ export default function NotificationBell({ ctrl, placement = 'sidebar' }) {
                         <span className="block text-xs text-slate-500 leading-snug">{describe(n)}</span>
                       </span>
                       <span className="flex flex-col items-end gap-1 flex-shrink-0">
-                        <span className="text-sm font-bold tabular-nums" style={{ color: n.type === 'income' ? '#34d399' : '#f87171' }}>
-                          {n.type === 'income' ? '+' : '-'}{thb(n.amount)}
-                        </span>
+                        {n.amount != null && (
+                          <span className="text-sm font-bold tabular-nums" style={{ color: n.kind === 'audit' ? '#fbbf24' : n.type === 'income' ? '#34d399' : '#f87171' }}>
+                            {n.kind === 'audit' ? '' : n.type === 'income' ? '+' : '-'}{thb(n.amount)}
+                          </span>
+                        )}
                         {canMute && (
                           <button onClick={(e) => doMute(e, n)} title="ปิดเสียงรายการนี้"
                             className="text-slate-600 hover:text-slate-300 p-0.5" aria-label={`ปิดเสียง ${n.name}`}>

@@ -4,7 +4,7 @@ import { api } from './api'
 const POLL_MS = 5 * 60 * 1000
 const seenKey = (uid) => `ft_notif_seen_${uid || 'anon'}`
 const setKey = (uid) => `ft_notif_settings_${uid || 'anon'}`
-const DEFAULTS = { days: 7, kinds: { upcoming: true, manual: true, draft: true } }
+const DEFAULTS = { days: 7, kinds: { upcoming: true, manual: true, draft: true, audit: true } }
 
 const loadSeen = (uid) => {
   try { return new Set(JSON.parse(localStorage.getItem(seenKey(uid)) || '[]')) }
@@ -48,7 +48,7 @@ export function useNotifications(user) {
   }, [canSee, refetch])
 
   // kind filter: overdue/due => "manual", upcoming => auto, draft => draft
-  const kindOn = (k) => k === 'draft' ? settings.kinds.draft : k === 'upcoming' ? settings.kinds.upcoming : settings.kinds.manual
+  const kindOn = (k) => k === 'audit' ? settings.kinds.audit : k === 'draft' ? settings.kinds.draft : k === 'upcoming' ? settings.kinds.upcoming : settings.kinds.manual
   const items = (canSee ? list : []).filter(n => kindOn(n.kind))
   // Badge highlights urgent count when any urgent is unread; else falls back to all
   // unread so normal alerts are never hidden by a zero-urgent badge.
@@ -74,5 +74,5 @@ export function useNotifications(user) {
   const saveItem = async (id, patch) => { try { await api.updateRecurring(id, patch); await refetch() } catch { /* ignore */ } }
   const getItems = async () => { try { const { recurring } = await api.recurring(); return recurring || [] } catch { return [] } }
 
-  return { list: items, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems }
+  return { list: items, unreadCount, seen, markAllRead, settings, setDays, toggleKind, saveItem, getItems, isAdmin: user?.role === 'admin' }
 }

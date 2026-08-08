@@ -1,6 +1,7 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
 import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
 import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
+import { buildAuditIssues, canGreenClose, deriveWalletAuditStatus, parseObservedBalanceToSatang, satangToAmount, subtractSatang } from "./src/dailyAuditRules.js";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -76,6 +77,19 @@ var worker_default = {
       const triggerMatch = path.match(/^\/recurring\/([a-zA-Z0-9_-]+)\/trigger$/);
       if (triggerMatch && method === "POST") return cors(await triggerRecurring(triggerMatch[1], env, user));
       if (path === "/notifications" && method === "GET") return cors(await listNotifications(request, env, user));
+      if (path === "/audit/daily" && method === "GET") return cors(await getDailyAudit(request, env, user));
+      if (path === "/audit/transaction-issues" && method === "GET") return cors(await getTransactionAuditIssues(request, env, user));
+      const auditCloseMatch = path.match(/^\/audit\/daily\/(\d{4}-\d{2}-\d{2})\/wallets\/([a-zA-Z0-9_-]+)\/close$/);
+      if (auditCloseMatch && method === "POST") return cors(await closeDailyAuditWallet(auditCloseMatch[1], auditCloseMatch[2], request, env, user));
+      const auditReopenMatch = path.match(/^\/audit\/daily\/(\d{4}-\d{2}-\d{2})\/wallets\/([a-zA-Z0-9_-]+)\/reopen$/);
+      if (auditReopenMatch && method === "POST") return cors(await reopenDailyAuditWallet(auditReopenMatch[1], auditReopenMatch[2], request, env, user));
+      const auditEvidenceMatch = path.match(/^\/audit\/daily\/(\d{4}-\d{2}-\d{2})\/wallets\/([a-zA-Z0-9_-]+)\/evidence$/);
+      if (auditEvidenceMatch && method === "GET") return cors(await listDailyAuditEvidence(auditEvidenceMatch[1], auditEvidenceMatch[2], env, user));
+      if (auditEvidenceMatch && method === "POST") return cors(await uploadDailyAuditEvidence(auditEvidenceMatch[1], auditEvidenceMatch[2], request, env, user));
+      const auditEvidenceFileMatch = path.match(/^\/audit\/evidence\/([a-zA-Z0-9_-]+)$/);
+      if (auditEvidenceFileMatch && method === "GET") return cors(await getDailyAuditEvidence(auditEvidenceFileMatch[1], env, user));
+      const auditIssueMatch = path.match(/^\/audit\/issues\/([^/]+)\/resolve$/);
+      if (auditIssueMatch && method === "POST") return cors(await resolveDailyAuditIssue(decodeURIComponent(auditIssueMatch[1]), request, env, user));
       const reconcileMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/reconcile$/);
       if (reconcileMatch && method === "PATCH") return cors(await toggleReconcile(reconcileMatch[1], env, user));
       const confirmMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/confirm$/);
@@ -864,11 +878,79 @@ async function listNotifications(request, env, user) {
   for (const t of drafts.results || []) {
     out.push({ id: `draft:${t.id}`, kind: "draft", name: t.name, amount: Number(t.amount), type: t.type, dueDate: null, sortDate: t.date, refId: t.id, priority: false });
   }
-  const order = { overdue: 0, due: 1, draft: 2, upcoming: 3 };
+  if (user.role === "admin") {
+    const auditNotification = await buildDailyAuditNotification(env, user, today);
+    if (auditNotification) out.push(auditNotification);
+  }
+  const order = { audit: 0, overdue: 1, due: 2, draft: 3, upcoming: 4 };
   out.sort((a, b) => (b.priority - a.priority) || (order[a.kind] - order[b.kind]) || (a.sortDate < b.sortDate ? -1 : a.sortDate > b.sortDate ? 1 : 0));
   return json({ notifications: out });
 }
 __name(listNotifications, "listNotifications");
+
+async function buildDailyAuditNotification(env, user, utcToday) {
+  const today = thaiDateISO();
+  const settings = await ensureDailyAuditSettings(env, user.workspace_id);
+  if (Number(settings?.enabled ?? 1) !== 1) return null;
+  const walletRows = await env.DB.prepare(
+    "SELECT id FROM wallets WHERE workspace_id = ? AND scope = 'business' AND is_active = 1"
+  ).bind(user.workspace_id).all();
+  const walletIds = (walletRows.results || []).map((row) => row.id);
+  if (walletIds.length === 0) return null;
+  const start = validAuditDate(settings?.effective_date) && settings.effective_date <= today ? settings.effective_date : today;
+  const [closureRows, counterRows] = await Promise.all([
+    env.DB.prepare(
+      "SELECT * FROM daily_audit_wallet_closures WHERE workspace_id = ? AND audit_date >= ? AND audit_date <= ?"
+    ).bind(user.workspace_id, start, today).all(),
+    env.DB.prepare(
+      "SELECT wallet_id, audit_date, change_version FROM daily_audit_change_counters WHERE workspace_id = ? AND audit_date <= ? ORDER BY audit_date"
+    ).bind(user.workspace_id, today).all()
+  ]);
+  const closures = new Map((closureRows.results || []).map((row) => [`${row.audit_date}:${row.wallet_id}`, row]));
+  const counters = counterRows.results || [];
+  const versions = new Map(walletIds.map((walletId) => [walletId, 0]));
+  const counterChanges = new Map();
+  for (const row of counters) {
+    if (!versions.has(row.wallet_id)) continue;
+    if (row.audit_date < start) {
+      versions.set(row.wallet_id, versions.get(row.wallet_id) + Number(row.change_version || 0));
+      continue;
+    }
+    if (!counterChanges.has(row.audit_date)) counterChanges.set(row.audit_date, []);
+    counterChanges.get(row.audit_date).push(row);
+  }
+  const pendingDates = [];
+  let varianceSatang = 0;
+  for (let date = start; date <= today; date = addDays(date, 1)) {
+    for (const row of counterChanges.get(date) || []) {
+      versions.set(row.wallet_id, versions.get(row.wallet_id) + Number(row.change_version || 0));
+    }
+    let complete = true;
+    for (const walletId of walletIds) {
+      const closure = closures.get(`${date}:${walletId}`);
+      const currentVersion = versions.get(walletId) || 0;
+      if (!closure || !["closed", "closed_with_exception"].includes(closure.status) || Number(closure.change_version || 0) !== currentVersion) {
+        complete = false;
+      }
+      if (closure?.variance_satang != null) varianceSatang += Math.abs(Number(closure.variance_satang));
+    }
+    if (!complete) pendingDates.push(date);
+  }
+  if (pendingDates.length === 0) return null;
+  return {
+    id: `audit:${today}:${pendingDates.length}:${varianceSatang}`,
+    kind: "audit",
+    name: `ตรวจยอดรายวันค้าง ${pendingDates.length} วัน`,
+    amount: satangToAmount(varianceSatang),
+    type: "expense",
+    dueDate: pendingDates[0],
+    sortDate: pendingDates[0] || utcToday,
+    refId: pendingDates[0],
+    pendingDays: pendingDates.length,
+    priority: false
+  };
+}
+__name(buildDailyAuditNotification, "buildDailyAuditNotification");
 async function createRecurring(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();
@@ -971,11 +1053,581 @@ async function toggleReconcile(id, env, user) {
   const tx = await env.DB.prepare("SELECT * FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!tx) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E23\u0E32\u0E22\u0E01\u0E32\u0E23" }, 404);
   if (user.role === "viewer") return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
+  if (user.role === "staff" && tx.created_by_user_id !== user.id) return json({ error: "ตรวจสอบได้เฉพาะรายการของตัวเอง" }, 403);
   const newVal = tx.is_reconciled ? 0 : 1;
-  await env.DB.prepare("UPDATE transactions SET is_reconciled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newVal, id).run();
-  return json({ ok: true, isReconciled: !!newVal });
+  const reconciledAt = newVal ? (/* @__PURE__ */ new Date()).toISOString() : null;
+  const eventId = "tre_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  await env.DB.batch([
+    env.DB.prepare("UPDATE transactions SET is_reconciled = ?, reconciled_by_user_id = ?, reconciled_at = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND workspace_id = ?")
+      .bind(newVal, newVal ? user.id : null, reconciledAt, id, user.workspace_id),
+    env.DB.prepare("INSERT INTO transaction_reconcile_events (id, workspace_id, transaction_id, action, actor_user_id) VALUES (?, ?, ?, ?, ?)")
+      .bind(eventId, user.workspace_id, id, newVal ? "reconciled" : "unreconciled", user.id)
+  ]);
+  return json({ ok: true, isReconciled: !!newVal, reconciledByUserId: newVal ? user.id : null, reconciledAt });
 }
 __name(toggleReconcile, "toggleReconcile");
+
+const AUDIT_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const AUDIT_REQUEST_RE = /^[a-zA-Z0-9_-]{8,128}$/;
+
+function thaiDateISO(date = /* @__PURE__ */ new Date()) {
+  return new Date(date.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+__name(thaiDateISO, "thaiDateISO");
+
+function validAuditDate(value) {
+  if (!AUDIT_DATE_RE.test(value || "")) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+__name(validAuditDate, "validAuditDate");
+
+function cleanAuditReason(value) {
+  const reason = typeof value === "string" ? value.trim() : "";
+  return reason.length <= 1000 ? reason : "";
+}
+__name(cleanAuditReason, "cleanAuditReason");
+
+async function ensureDailyAuditSettings(env, workspaceId) {
+  const effectiveDate = thaiDateISO();
+  await env.DB.prepare(
+    "INSERT OR IGNORE INTO daily_audit_settings (workspace_id, effective_date, enabled) VALUES (?, ?, 1)"
+  ).bind(workspaceId, effectiveDate).run();
+  return env.DB.prepare("SELECT * FROM daily_audit_settings WHERE workspace_id = ?").bind(workspaceId).first();
+}
+__name(ensureDailyAuditSettings, "ensureDailyAuditSettings");
+
+function formatDailyAuditEvidence(row) {
+  return {
+    id: row.id,
+    auditDate: row.audit_date,
+    walletId: row.wallet_id,
+    fileName: row.original_name,
+    contentType: row.content_type,
+    sizeBytes: Number(row.size_bytes || 0),
+    uploadedByUserId: row.uploaded_by_user_id,
+    createdAt: row.created_at
+  };
+}
+__name(formatDailyAuditEvidence, "formatDailyAuditEvidence");
+
+function formatDailyAuditEvent(row) {
+  return {
+    id: row.id,
+    requestId: row.request_id,
+    auditDate: row.audit_date,
+    walletId: row.wallet_id,
+    issueKey: row.issue_key,
+    eventType: row.event_type,
+    previousStatus: row.previous_status,
+    newStatus: row.new_status,
+    revision: row.revision == null ? null : Number(row.revision),
+    bookBalance: row.book_balance_satang == null ? null : satangToAmount(Number(row.book_balance_satang)),
+    observedBalance: row.observed_balance_satang == null ? null : satangToAmount(Number(row.observed_balance_satang)),
+    variance: row.variance_satang == null ? null : satangToAmount(Number(row.variance_satang)),
+    transactionCount: Number(row.transaction_count || 0),
+    blockerCount: Number(row.blocker_count || 0),
+    changeVersion: Number(row.change_version || 0),
+    reason: row.reason || null,
+    evidenceId: row.evidence_id || null,
+    actorUserId: row.actor_user_id,
+    actorName: row.actor_name || null,
+    createdAt: row.created_at
+  };
+}
+__name(formatDailyAuditEvent, "formatDailyAuditEvent");
+
+async function persistStaleAuditTransitions(auditDate, walletRows, transactions, issueResult, closureRows, counters, env, user) {
+  const statements = [];
+  for (const closure of closureRows) {
+    if (!["closed", "closed_with_exception"].includes(closure.status)) continue;
+    const wallet = walletRows.find((row) => row.id === closure.wallet_id);
+    if (!wallet) continue;
+    const currentChangeVersion = counters.get(wallet.id) || 0;
+    const currentBookSatang = Number(wallet.book_balance_satang || 0);
+    const walletTransactions = transactions.filter((tx) => tx.wallet_id === wallet.id);
+    const blockerKeys = new Set();
+    for (const tx of walletTransactions) {
+      for (const issue of issueResult.byTransaction[tx.id] || []) {
+        blockerKeys.add(issue.issueKey || `${issue.code}:${tx.id}`);
+      }
+    }
+    if (Number(closure.change_version || 0) === currentChangeVersion
+      && Number(closure.book_balance_satang || 0) === currentBookSatang
+      && Number(closure.transaction_count || 0) === walletTransactions.length
+      && Number(closure.blocker_count || 0) === blockerKeys.size) continue;
+
+    const observedSatang = closure.observed_balance_satang == null ? null : Number(closure.observed_balance_satang);
+    let varianceSatang = null;
+    if (observedSatang != null) {
+      try { varianceSatang = subtractSatang(observedSatang, currentBookSatang); }
+      catch { varianceSatang = null; }
+    }
+    const requestId = `system-stale:${auditDate}:${wallet.id}:${closure.revision}:${currentChangeVersion}:${currentBookSatang}`;
+    const eventId = "dae_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+    const nextRevision = Number(closure.revision || 0) + 1;
+    const now = (/* @__PURE__ */ new Date()).toISOString();
+    const reason = "รายการธุรกรรมเปลี่ยนหลังปิดยอด";
+    statements.push(
+      env.DB.prepare(
+        `UPDATE daily_audit_wallet_closures
+         SET revision = ?, status = 'needs_review', book_balance_satang = ?, variance_satang = ?,
+             transaction_count = ?, blocker_count = ?, change_version = ?, exception_reason = ?,
+             last_request_id = ?, updated_at = ?
+         WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? AND revision = ?
+           AND status IN ('closed', 'closed_with_exception')`
+      ).bind(
+        nextRevision, currentBookSatang, varianceSatang, walletTransactions.length, blockerKeys.size,
+        currentChangeVersion, reason, requestId, now, user.workspace_id, auditDate, wallet.id, closure.revision
+      ),
+      env.DB.prepare(
+        `INSERT OR IGNORE INTO daily_audit_events
+         (id, workspace_id, request_id, audit_date, wallet_id, event_type, previous_status, new_status,
+          revision, book_balance_satang, observed_balance_satang, variance_satang, transaction_count,
+          blocker_count, change_version, reason, evidence_id, actor_user_id, created_at)
+         SELECT ?, workspace_id, ?, audit_date, wallet_id, 'stale', ?, status, revision, book_balance_satang,
+                observed_balance_satang, variance_satang, transaction_count, blocker_count, change_version,
+                ?, evidence_id, 'system', ?
+         FROM daily_audit_wallet_closures
+         WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? AND last_request_id = ?`
+      ).bind(
+        eventId, requestId, closure.status, reason, now,
+        user.workspace_id, auditDate, wallet.id, requestId
+      )
+    );
+  }
+  if (statements.length > 0) await env.DB.batch(statements);
+}
+__name(persistStaleAuditTransitions, "persistStaleAuditTransitions");
+
+async function loadDailyAuditContext(auditDate, env, user) {
+  const settings = await ensureDailyAuditSettings(env, user.workspace_id);
+  const [walletRows, transactionRows, initialClosureRows, counterRows, resolutionRows, evidenceRows] = await Promise.all([
+    env.DB.prepare(
+      `SELECT w.*,
+              CAST(ROUND(COALESCE(w.initial_balance, 0) * 100) AS INTEGER) + COALESCE(SUM(
+                 CASE WHEN COALESCE(t.is_draft, 0) = 1 THEN 0
+                      WHEN t.type = 'income' THEN CAST(ROUND(t.amount * 100) AS INTEGER)
+                      WHEN t.type = 'expense' THEN -CAST(ROUND(t.amount * 100) AS INTEGER)
+                      ELSE 0 END
+              ), 0) AS book_balance_satang
+       FROM wallets w
+       LEFT JOIN transactions t ON t.wallet_id = w.id AND t.workspace_id = w.workspace_id AND t.date <= ?
+       WHERE w.workspace_id = ? AND w.scope = 'business' AND w.is_active = 1
+       GROUP BY w.id
+       ORDER BY w.sort_order, w.name`
+    ).bind(auditDate, user.workspace_id).all(),
+    env.DB.prepare(
+      `SELECT t.* FROM transactions t
+       JOIN wallets w ON w.id = t.wallet_id AND w.workspace_id = t.workspace_id
+       WHERE t.workspace_id = ? AND t.date = ?
+       ORDER BY t.created_at, t.id`
+    ).bind(user.workspace_id, auditDate).all(),
+    env.DB.prepare("SELECT * FROM daily_audit_wallet_closures WHERE workspace_id = ? AND audit_date = ?")
+      .bind(user.workspace_id, auditDate).all(),
+    env.DB.prepare(
+      "SELECT wallet_id, COALESCE(SUM(change_version), 0) AS change_version FROM daily_audit_change_counters WHERE workspace_id = ? AND audit_date <= ? GROUP BY wallet_id"
+    ).bind(user.workspace_id, auditDate).all(),
+    env.DB.prepare("SELECT * FROM daily_audit_issue_resolutions WHERE workspace_id = ? AND audit_date = ?")
+      .bind(user.workspace_id, auditDate).all(),
+    env.DB.prepare("SELECT * FROM daily_audit_evidence WHERE workspace_id = ? AND audit_date = ? ORDER BY created_at DESC")
+      .bind(user.workspace_id, auditDate).all()
+  ]);
+
+  const transactions = transactionRows.results || [];
+  const resolvedKeys = (resolutionRows.results || []).map((row) => row.issue_key);
+  const issueResult = buildAuditIssues(transactions, resolvedKeys);
+  const counters = new Map((counterRows.results || []).map((row) => [row.wallet_id, Number(row.change_version || 0)]));
+  await persistStaleAuditTransitions(
+    auditDate, walletRows.results || [], transactions, issueResult,
+    initialClosureRows.results || [], counters, env, user
+  );
+  const [closureRows, eventRows] = await Promise.all([
+    env.DB.prepare("SELECT * FROM daily_audit_wallet_closures WHERE workspace_id = ? AND audit_date = ?")
+      .bind(user.workspace_id, auditDate).all(),
+    env.DB.prepare(
+      `SELECT e.*, u.name AS actor_name
+       FROM daily_audit_events e LEFT JOIN users u ON u.id = e.actor_user_id
+       WHERE e.workspace_id = ? AND e.audit_date = ?
+       ORDER BY e.created_at DESC, e.id DESC`
+    ).bind(user.workspace_id, auditDate).all()
+  ]);
+  const closures = new Map((closureRows.results || []).map((row) => [row.wallet_id, row]));
+  const evidence = evidenceRows.results || [];
+  const effectiveDate = settings?.effective_date || thaiDateISO();
+
+  const wallets = (walletRows.results || []).map((wallet) => {
+    const walletTransactions = transactions.filter((tx) => tx.wallet_id === wallet.id);
+    const uniqueIssues = new Map();
+    for (const tx of walletTransactions) {
+      for (const issue of issueResult.byTransaction[tx.id] || []) {
+        const key = issue.issueKey || `${issue.code}:${tx.id}`;
+        if (!uniqueIssues.has(key)) {
+          uniqueIssues.set(key, {
+            code: issue.code,
+            issueKey: issue.issueKey || null,
+            transactionId: tx.id,
+            transactionName: tx.name,
+            transactionCount: Number(issue.transactionCount || 1)
+          });
+        }
+      }
+    }
+    const closure = closures.get(wallet.id) || null;
+    const changeVersion = counters.get(wallet.id) || 0;
+    let status = deriveWalletAuditStatus(closure, changeVersion);
+    const currentBookSatang = Number(wallet.book_balance_satang || 0);
+    if (closure && Number(closure.book_balance_satang) !== currentBookSatang) status = "needs_review";
+    if (!closure && auditDate < effectiveDate) status = "historical_unverified";
+    return {
+      id: wallet.id,
+      name: wallet.name,
+      type: wallet.type,
+      color: wallet.color,
+      bookBalance: satangToAmount(currentBookSatang),
+      bookBalanceSatang: currentBookSatang,
+      observedBalance: closure?.observed_balance_satang == null ? null : satangToAmount(Number(closure.observed_balance_satang)),
+      observedBalanceSatang: closure?.observed_balance_satang == null ? null : Number(closure.observed_balance_satang),
+      variance: closure?.variance_satang == null ? null : satangToAmount(Number(closure.variance_satang)),
+      varianceSatang: closure?.variance_satang == null ? null : Number(closure.variance_satang),
+      status,
+      revision: Number(closure?.revision || 0),
+      currentChangeVersion: changeVersion,
+      capturedChangeVersion: Number(closure?.change_version || 0),
+      transactionCount: walletTransactions.length,
+      blockerCount: uniqueIssues.size,
+      issues: [...uniqueIssues.values()],
+      closedByUserId: closure?.closed_by_user_id || null,
+      closedAt: closure?.closed_at || null,
+      exceptionReason: closure?.exception_reason || null,
+      evidence: evidence.filter((row) => row.wallet_id === wallet.id).map(formatDailyAuditEvidence)
+    };
+  });
+
+  const allClosed = wallets.length > 0 && wallets.every((wallet) => ["closed", "closed_with_exception"].includes(wallet.status));
+  let overallStatus = "open";
+  if (wallets.length === 0) overallStatus = "not_required";
+  else if (allClosed) overallStatus = wallets.some((wallet) => wallet.status === "closed_with_exception") ? "closed_with_exception" : "closed";
+  else if (wallets.every((wallet) => wallet.status === "historical_unverified")) overallStatus = "historical_unverified";
+  else if (wallets.some((wallet) => wallet.status === "needs_review")) overallStatus = "needs_review";
+
+  return {
+    auditDate,
+    enabled: Number(settings?.enabled ?? 1) === 1,
+    effectiveDate,
+    overallStatus,
+    requiredWalletCount: wallets.length,
+    closedWalletCount: wallets.filter((wallet) => ["closed", "closed_with_exception"].includes(wallet.status)).length,
+    wallets,
+    events: (eventRows.results || []).map(formatDailyAuditEvent)
+  };
+}
+__name(loadDailyAuditContext, "loadDailyAuditContext");
+
+async function getDailyAudit(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const auditDate = new URL(request.url).searchParams.get("date") || thaiDateISO();
+  if (!validAuditDate(auditDate)) return json({ error: "วันที่ไม่ถูกต้อง" }, 400);
+  return json({ audit: await loadDailyAuditContext(auditDate, env, user) });
+}
+__name(getDailyAudit, "getDailyAudit");
+
+async function getTransactionAuditIssues(request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const url = new URL(request.url);
+  const from = url.searchParams.get("from") || thaiDateISO();
+  const to = url.searchParams.get("to") || from;
+  if (!validAuditDate(from) || !validAuditDate(to) || from > to) return json({ error: "ช่วงวันที่ไม่ถูกต้อง" }, 400);
+  const span = Math.floor((new Date(`${to}T00:00:00Z`) - new Date(`${from}T00:00:00Z`)) / 86400000);
+  if (span > 31) return json({ error: "ช่วงวันที่ต้องไม่เกิน 31 วัน" }, 400);
+  const transactionQuery = user.role === "staff"
+    ? env.DB.prepare(
+      `SELECT t.*, w.scope AS wallet_scope, w.is_active AS wallet_is_active FROM transactions t
+       JOIN wallets w ON w.id = t.wallet_id AND w.workspace_id = t.workspace_id
+       WHERE t.workspace_id = ? AND t.created_by_user_id = ? AND t.date >= ? AND t.date <= ?
+       ORDER BY t.date, t.created_at, t.id`
+    ).bind(user.workspace_id, user.id, from, to).all()
+    : env.DB.prepare(
+      `SELECT t.*, w.scope AS wallet_scope, w.is_active AS wallet_is_active FROM transactions t
+       JOIN wallets w ON w.id = t.wallet_id AND w.workspace_id = t.workspace_id
+       WHERE t.workspace_id = ? AND t.date >= ? AND t.date <= ?
+       ORDER BY t.date, t.created_at, t.id`
+    ).bind(user.workspace_id, from, to).all();
+  const [transactionRows, resolutionRows] = await Promise.all([
+    transactionQuery,
+    env.DB.prepare("SELECT issue_key FROM daily_audit_issue_resolutions WHERE workspace_id = ? AND audit_date >= ? AND audit_date <= ?")
+      .bind(user.workspace_id, from, to).all()
+  ]);
+  const rows = transactionRows.results || [];
+  const result = buildAuditIssues(rows, (resolutionRows.results || []).map((row) => row.issue_key));
+  const visibleRows = rows.filter((row) => row.wallet_scope === "business" && Number(row.wallet_is_active) === 1);
+  return json({
+    issues: visibleRows
+      .filter((row) => (result.byTransaction[row.id] || []).length > 0)
+      .map((row) => ({
+        transactionId: row.id,
+        date: row.date,
+        issues: user.role === "staff"
+          ? result.byTransaction[row.id].map((issue) => ({ code: issue.code }))
+          : result.byTransaction[row.id]
+      }))
+  });
+}
+__name(getTransactionAuditIssues, "getTransactionAuditIssues");
+
+async function findAuditEventByRequest(env, workspaceId, requestId) {
+  return env.DB.prepare("SELECT * FROM daily_audit_events WHERE workspace_id = ? AND request_id = ?").bind(workspaceId, requestId).first();
+}
+__name(findAuditEventByRequest, "findAuditEventByRequest");
+
+function repeatedAuditRequest(event, { auditDate, walletId, issueKey, eventTypes }) {
+  const matches = event.audit_date === auditDate
+    && (walletId == null || event.wallet_id === walletId)
+    && (issueKey == null || event.issue_key === issueKey)
+    && eventTypes.includes(event.event_type);
+  return matches
+    ? json({ ok: true, idempotent: true, event: formatDailyAuditEvent(event) })
+    : json({ error: "requestId นี้ถูกใช้กับคำขออื่นแล้ว", code: "AUDIT_REQUEST_CONFLICT" }, 409);
+}
+__name(repeatedAuditRequest, "repeatedAuditRequest");
+
+async function closeDailyAuditWallet(auditDate, walletId, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!validAuditDate(auditDate)) return json({ error: "วันที่ไม่ถูกต้อง" }, 400);
+  const body = await request.json();
+  const requestId = String(body.requestId || "");
+  if (!AUDIT_REQUEST_RE.test(requestId)) return json({ error: "requestId ไม่ถูกต้อง" }, 400);
+  const existingEvent = await findAuditEventByRequest(env, user.workspace_id, requestId);
+  if (existingEvent) return repeatedAuditRequest(existingEvent, { auditDate, walletId, eventTypes: ["close", "close_with_exception"] });
+  let observedSatang;
+  try { observedSatang = parseObservedBalanceToSatang(body.observedBalance); }
+  catch { return json({ error: "ยอดจริงต้องเป็นตัวเลขไม่เกิน 2 ตำแหน่งทศนิยม" }, 400); }
+  const expectedRevision = Number(body.expectedRevision);
+  const expectedChangeVersion = Number(body.expectedChangeVersion);
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 0 || !Number.isInteger(expectedChangeVersion) || expectedChangeVersion < 0) {
+    return json({ error: "revision ไม่ถูกต้อง" }, 400);
+  }
+  const context = await loadDailyAuditContext(auditDate, env, user);
+  const wallet = context.wallets.find((row) => row.id === walletId);
+  if (!wallet) return json({ error: "ไม่พบกระเป๋าธุรกิจที่ใช้งานอยู่" }, 404);
+  if (["closed", "closed_with_exception"].includes(wallet.status)) {
+    return json({ error: "ปิดยอดแล้ว กรุณาเปิดตรวจใหม่ก่อน", code: "AUDIT_REOPEN_REQUIRED" }, 409);
+  }
+  if (wallet.revision !== expectedRevision || wallet.currentChangeVersion !== expectedChangeVersion) {
+    return json({ error: "ข้อมูลเปลี่ยน กรุณาตรวจใหม่", code: "AUDIT_STALE" }, 409);
+  }
+  const bookSatang = wallet.bookBalanceSatang;
+  let varianceSatang;
+  try { varianceSatang = subtractSatang(observedSatang, bookSatang); }
+  catch { return json({ error: "ยอดเกินช่วงที่ระบบตรวจสอบได้" }, 422); }
+  const green = canGreenClose(varianceSatang, wallet.blockerCount);
+  const reason = cleanAuditReason(body.exceptionReason);
+  if (!green && !reason) return json({ error: "ยอดต่างหรือมีรายการค้าง กรุณาระบุเหตุผลข้อยกเว้น", code: "AUDIT_REASON_REQUIRED" }, 422);
+  const evidenceId = body.evidenceId ? String(body.evidenceId) : null;
+  if (evidenceId) {
+    const evidence = await env.DB.prepare(
+      "SELECT id FROM daily_audit_evidence WHERE id = ? AND workspace_id = ? AND audit_date = ? AND wallet_id = ?"
+    ).bind(evidenceId, user.workspace_id, auditDate, walletId).first();
+    if (!evidence) return json({ error: "ไม่พบหลักฐานที่เลือก" }, 400);
+  }
+  const status = green ? "closed" : "closed_with_exception";
+  const eventType = green ? "close" : "close_with_exception";
+  const newRevision = expectedRevision + 1;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const eventId = "dae_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  const previousStatus = wallet.status;
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO daily_audit_wallet_closures
+       (workspace_id, audit_date, wallet_id, revision, status, book_balance_satang, observed_balance_satang,
+        variance_satang, transaction_count, blocker_count, change_version, closed_by_user_id, closed_at,
+        exception_reason, evidence_id, last_request_id, updated_at)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE COALESCE((SELECT SUM(change_version) FROM daily_audit_change_counters
+                       WHERE workspace_id = ? AND wallet_id = ? AND audit_date <= ?), 0) = ?
+       ON CONFLICT (workspace_id, audit_date, wallet_id) DO UPDATE SET
+         revision = excluded.revision, status = excluded.status, book_balance_satang = excluded.book_balance_satang,
+         observed_balance_satang = excluded.observed_balance_satang, variance_satang = excluded.variance_satang,
+         transaction_count = excluded.transaction_count, blocker_count = excluded.blocker_count,
+         change_version = excluded.change_version, closed_by_user_id = excluded.closed_by_user_id,
+         closed_at = excluded.closed_at, exception_reason = excluded.exception_reason,
+         evidence_id = excluded.evidence_id, last_request_id = excluded.last_request_id, updated_at = excluded.updated_at
+       WHERE daily_audit_wallet_closures.revision = ?
+         AND COALESCE((SELECT SUM(change_version) FROM daily_audit_change_counters
+                       WHERE workspace_id = ? AND wallet_id = ? AND audit_date <= ?), 0) = ?`
+    ).bind(
+      user.workspace_id, auditDate, walletId, newRevision, status, bookSatang, observedSatang,
+      varianceSatang, wallet.transactionCount, wallet.blockerCount, expectedChangeVersion, user.id, now,
+      green ? null : reason, evidenceId, requestId, now,
+      user.workspace_id, walletId, auditDate, expectedChangeVersion,
+      expectedRevision, user.workspace_id, walletId, auditDate, expectedChangeVersion
+    ),
+    env.DB.prepare(
+      `INSERT INTO daily_audit_events
+       (id, workspace_id, request_id, audit_date, wallet_id, event_type, previous_status, new_status, revision,
+        book_balance_satang, observed_balance_satang, variance_satang, transaction_count, blocker_count,
+        change_version, reason, evidence_id, actor_user_id, created_at)
+       SELECT ?, workspace_id, ?, audit_date, wallet_id, ?, ?, status, revision, book_balance_satang,
+              observed_balance_satang, variance_satang, transaction_count, blocker_count, change_version,
+              exception_reason, evidence_id, ?, ?
+       FROM daily_audit_wallet_closures
+       WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? AND last_request_id = ?`
+    ).bind(eventId, requestId, eventType, previousStatus, user.id, now, user.workspace_id, auditDate, walletId, requestId)
+  ]);
+  if (!results?.[1]?.meta?.changes) return json({ error: "ข้อมูลเปลี่ยน กรุณาตรวจใหม่", code: "AUDIT_STALE" }, 409);
+  return json({ ok: true, audit: await loadDailyAuditContext(auditDate, env, user) });
+}
+__name(closeDailyAuditWallet, "closeDailyAuditWallet");
+
+async function reopenDailyAuditWallet(auditDate, walletId, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!validAuditDate(auditDate)) return json({ error: "วันที่ไม่ถูกต้อง" }, 400);
+  const body = await request.json();
+  const requestId = String(body.requestId || "");
+  const reason = cleanAuditReason(body.reason);
+  const expectedRevision = Number(body.expectedRevision);
+  if (!AUDIT_REQUEST_RE.test(requestId) || !Number.isInteger(expectedRevision) || expectedRevision < 1) return json({ error: "ข้อมูลคำขอไม่ถูกต้อง" }, 400);
+  if (!reason) return json({ error: "กรุณาระบุเหตุผลที่เปิดตรวจใหม่" }, 422);
+  const existingEvent = await findAuditEventByRequest(env, user.workspace_id, requestId);
+  if (existingEvent) return repeatedAuditRequest(existingEvent, { auditDate, walletId, eventTypes: ["reopen"] });
+  const context = await loadDailyAuditContext(auditDate, env, user);
+  const wallet = context.wallets.find((row) => row.id === walletId);
+  if (!wallet) return json({ error: "ไม่พบกระเป๋าธุรกิจที่ใช้งานอยู่" }, 404);
+  if (!["closed", "closed_with_exception"].includes(wallet.status)) {
+    return json({ error: "เปิดตรวจใหม่ได้เฉพาะยอดที่ปิดแล้ว", code: "AUDIT_INVALID_TRANSITION" }, 409);
+  }
+  const closure = await env.DB.prepare(
+    "SELECT * FROM daily_audit_wallet_closures WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ?"
+  ).bind(user.workspace_id, auditDate, walletId).first();
+  if (!closure) return json({ error: "ยังไม่มีการปิดยอดกระเป๋านี้" }, 404);
+  if (Number(closure.revision) !== expectedRevision) return json({ error: "ข้อมูลเปลี่ยน กรุณาตรวจใหม่", code: "AUDIT_STALE" }, 409);
+  const newRevision = expectedRevision + 1;
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  const eventId = "dae_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  const results = await env.DB.batch([
+    env.DB.prepare(
+      `UPDATE daily_audit_wallet_closures
+       SET revision = ?, status = 'needs_review', exception_reason = ?, last_request_id = ?, updated_at = ?
+       WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? AND revision = ?`
+    ).bind(newRevision, reason, requestId, now, user.workspace_id, auditDate, walletId, expectedRevision),
+    env.DB.prepare(
+      `INSERT INTO daily_audit_events
+       (id, workspace_id, request_id, audit_date, wallet_id, event_type, previous_status, new_status,
+        revision, book_balance_satang, observed_balance_satang, variance_satang, transaction_count,
+        blocker_count, change_version, reason, evidence_id, actor_user_id, created_at)
+       SELECT ?, workspace_id, ?, audit_date, wallet_id, 'reopen', ?, status, revision, book_balance_satang,
+              observed_balance_satang, variance_satang, transaction_count, blocker_count, change_version,
+              ?, evidence_id, ?, ?
+       FROM daily_audit_wallet_closures
+       WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? AND last_request_id = ?`
+    ).bind(eventId, requestId, closure.status, reason, user.id, now, user.workspace_id, auditDate, walletId, requestId)
+  ]);
+  if (!results?.[1]?.meta?.changes) return json({ error: "ข้อมูลเปลี่ยน กรุณาตรวจใหม่", code: "AUDIT_STALE" }, 409);
+  return json({ ok: true, audit: await loadDailyAuditContext(auditDate, env, user) });
+}
+__name(reopenDailyAuditWallet, "reopenDailyAuditWallet");
+
+async function resolveDailyAuditIssue(issueKey, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const body = await request.json();
+  const requestId = String(body.requestId || "");
+  const auditDate = String(body.auditDate || "");
+  const walletId = String(body.walletId || "");
+  if (!AUDIT_REQUEST_RE.test(requestId) || !validAuditDate(auditDate) || !walletId || !issueKey.startsWith("duplicate:")) {
+    return json({ error: "ข้อมูลคำขอไม่ถูกต้อง" }, 400);
+  }
+  const existingEvent = await findAuditEventByRequest(env, user.workspace_id, requestId);
+  if (existingEvent) return repeatedAuditRequest(existingEvent, { auditDate, walletId, issueKey, eventTypes: ["resolve_duplicate"] });
+  const context = await loadDailyAuditContext(auditDate, env, user);
+  const wallet = context.wallets.find((row) => row.id === walletId);
+  const activeIssue = wallet?.issues.find((issue) => issue.issueKey === issueKey && issue.code === "possible_duplicate");
+  if (!activeIssue) return json({ error: "รายการซ้ำนี้ถูกแก้ไขหรือยืนยันไปแล้ว กรุณาโหลดใหม่" }, 409);
+  const eventId = "dae_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  const now = (/* @__PURE__ */ new Date()).toISOString();
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO daily_audit_issue_resolutions
+       (workspace_id, issue_key, audit_date, wallet_id, resolution, resolved_by_user_id, resolved_at)
+       VALUES (?, ?, ?, ?, 'not_duplicate', ?, ?)
+       ON CONFLICT (workspace_id, issue_key) DO UPDATE SET
+         resolution = excluded.resolution, resolved_by_user_id = excluded.resolved_by_user_id,
+         resolved_at = excluded.resolved_at`
+    ).bind(user.workspace_id, issueKey, auditDate, walletId, user.id, now),
+    env.DB.prepare(
+      `INSERT INTO daily_audit_events
+       (id, workspace_id, request_id, audit_date, wallet_id, issue_key, event_type, previous_status,
+        new_status, reason, actor_user_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, 'resolve_duplicate', 'possible_duplicate', 'not_duplicate', ?, ?, ?)`
+    ).bind(eventId, user.workspace_id, requestId, auditDate, walletId, issueKey, cleanAuditReason(body.reason) || null, user.id, now)
+  ]);
+  return json({ ok: true, audit: await loadDailyAuditContext(auditDate, env, user) });
+}
+__name(resolveDailyAuditIssue, "resolveDailyAuditIssue");
+
+async function auditWalletExists(auditDate, walletId, env, user) {
+  if (!validAuditDate(auditDate)) return null;
+  return env.DB.prepare(
+    "SELECT id FROM wallets WHERE id = ? AND workspace_id = ? AND scope = 'business' AND is_active = 1"
+  ).bind(walletId, user.workspace_id).first();
+}
+__name(auditWalletExists, "auditWalletExists");
+
+async function uploadDailyAuditEvidence(auditDate, walletId, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!await auditWalletExists(auditDate, walletId, env, user)) return json({ error: "ไม่พบกระเป๋าธุรกิจที่ใช้งานอยู่" }, 404);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/") && contentType !== "application/pdf") return json({ error: "รองรับเฉพาะรูปภาพและ PDF" }, 400);
+  const body = await request.arrayBuffer();
+  if (body.byteLength > 10 * 1024 * 1024) return json({ error: "ไฟล์ใหญ่เกิน 10MB" }, 400);
+  const evidenceId = "daevi_" + crypto.randomUUID().replace(/-/g, "").slice(0, 20);
+  const requestedName = new URL(request.url).searchParams.get("name") || `audit-${auditDate}`;
+  const fileName = requestedName.replace(/[\r\n\0"]/g, "_").slice(0, 200) || `audit-${auditDate}`;
+  const objectKey = `daily-audit/${user.workspace_id}/${auditDate}/${walletId}/${evidenceId}`;
+  await env.SLIPS.put(objectKey, body, {
+    httpMetadata: { contentType },
+    customMetadata: { workspaceId: user.workspace_id, auditDate, walletId, fileName }
+  });
+  try {
+    await env.DB.prepare(
+      `INSERT INTO daily_audit_evidence
+       (id, workspace_id, audit_date, wallet_id, object_key, original_name, content_type, size_bytes, uploaded_by_user_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).bind(evidenceId, user.workspace_id, auditDate, walletId, objectKey, fileName, contentType, body.byteLength, user.id).run();
+  } catch (error) {
+    try { await env.SLIPS.delete(objectKey); } catch { /* best-effort orphan cleanup */ }
+    throw error;
+  }
+  const row = await env.DB.prepare("SELECT * FROM daily_audit_evidence WHERE id = ?").bind(evidenceId).first();
+  return json({ evidence: formatDailyAuditEvidence(row) }, 201);
+}
+__name(uploadDailyAuditEvidence, "uploadDailyAuditEvidence");
+
+async function listDailyAuditEvidence(auditDate, walletId, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!await auditWalletExists(auditDate, walletId, env, user)) return json({ error: "ไม่พบกระเป๋าธุรกิจที่ใช้งานอยู่" }, 404);
+  const rows = await env.DB.prepare(
+    "SELECT * FROM daily_audit_evidence WHERE workspace_id = ? AND audit_date = ? AND wallet_id = ? ORDER BY created_at DESC"
+  ).bind(user.workspace_id, auditDate, walletId).all();
+  return json({ evidence: (rows.results || []).map(formatDailyAuditEvidence) });
+}
+__name(listDailyAuditEvidence, "listDailyAuditEvidence");
+
+async function getDailyAuditEvidence(evidenceId, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const row = await env.DB.prepare(
+    "SELECT * FROM daily_audit_evidence WHERE id = ? AND workspace_id = ?"
+  ).bind(evidenceId, user.workspace_id).first();
+  if (!row) return json({ error: "ไม่พบหลักฐาน" }, 404);
+  const object = await env.SLIPS.get(row.object_key);
+  if (!object) return json({ error: "ไม่พบไฟล์หลักฐาน" }, 404);
+  const headers = new Headers();
+  headers.set("Content-Type", row.content_type || "application/octet-stream");
+  headers.set("Content-Disposition", `inline; filename="${String(row.original_name).replace(/[\r\n\0"]/g, "_")}"`);
+  headers.set("Cache-Control", "private, max-age=3600");
+  return new Response(object.body, { headers });
+}
+__name(getDailyAuditEvidence, "getDailyAuditEvidence");
+
 async function listAuditLog(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
   const url = new URL(request.url);
@@ -2082,6 +2734,8 @@ function formatTransaction(t) {
     note: t.note,
     transferPairId: t.transfer_pair_id || null,
     isReconciled: !!t.is_reconciled,
+    reconciledByUserId: t.reconciled_by_user_id || null,
+    reconciledAt: t.reconciled_at || null,
     isDraft: !!t.is_draft,
     recurringId: t.recurring_id || null,
     submittedBy: t.submitted_by || null,

@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap, ShieldCheck } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
@@ -39,6 +39,7 @@ const NAV_GROUPS = [
   ] },
   { label: 'งานประจำวัน', items: [
     { to: '/transactions',  icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
+    { to: '/daily-audit',   icon: ShieldCheck,     label: 'ตรวจยอดรายวัน', admin: true },
     { to: '/pending-bills', icon: Receipt,         label: 'บิลรอจ่าย' },
     { to: '/bulk-upload',   icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
     { to: '/slips',         icon: Paperclip,       label: 'สลิปทั้งหมด' },

@@ -1,0 +1,27 @@
+{
+  "schema": "ultracode-code-manifest/1.0",
+  "created": "2026-08-08T09:13:32+07:00",
+  "baselineCommit": "c780e3ed407a61a4212565ad0a57913ac6c8c07d",
+  "branch": "codex/prod-transaction-totals",
+  "aggregateAlgorithm": "sha256(path<TAB>sha256<LF>), paths in listed order",
+  "aggregateSha256": "a484666d337d31d561f743041ea87d5f153964126c6bc2fead8e46a57bdc4be0",
+  "files": [
+    { "path": "src/App.jsx", "state": "EDIT", "sha256": "913264002e00dfa392517a60d0a2db11628610bf4592c9effe7ab3d22bfa9694" },
+    { "path": "src/Layout.jsx", "state": "EDIT", "sha256": "636e039ec572166fa7288f6fe9676d696813966d2ceece5cf41eccca85b0c4a9" },
+    { "path": "src/api.js", "state": "EDIT", "sha256": "d79466406d1dfe7c06fd25ec00ec447be9445591bfd9f4ca7e4aecf45ab3860b" },
+    { "path": "src/components/NotificationBell.jsx", "state": "EDIT", "sha256": "5a0b0d4b44a8aaf2321ac7e3dc52ec37dd03e3581d62925de7d2c6a19e208e05" },
+    { "path": "src/pages/Transactions.jsx", "state": "EDIT", "sha256": "1689293ef5c7c1e70324e2a33968035b79bf28666d90f45e74aab8dd17b8291f" },
+    { "path": "src/useNotifications.js", "state": "EDIT", "sha256": "27477dd6c7ccf358ab78fedeeecaf32312a0a5865b796e8d17a2333cddbf7f6d" },
+    { "path": "worker.js", "state": "EDIT", "sha256": "afa54daaa9cfd393d881533e6548000064abd9350374a1cf96474ea0dbe4e6fd" },
+    { "path": "migrations/0006_daily_audit_gate.sql", "state": "NEW", "sha256": "bd95104662f0c1b21c65b6151ae353f7b1d8cf2229009ba595a41e1ac01f781e" },
+    { "path": "src/dailyAuditRules.js", "state": "NEW", "sha256": "b034c1fce9f59e6c70ac2b7445bf7d1261a752311fb9853fc2275c75b4b453b9" },
+    { "path": "src/dailyAuditRules.test.mjs", "state": "NEW", "sha256": "0442c08056f524c307b48178f41afc17324bb6abbf23970e3bc298dba013492f" },
+    { "path": "src/pages/DailyAudit.jsx", "state": "NEW", "sha256": "eb1c42caa856c5d8c86982cde3a1b0cdb991f92bf0b19e8c5c05f0132240ac2c" }
+  ],
+  "excludedUnrelatedUserPaths": [
+    ".superpowers/",
+    "design-qa.md",
+    "qa-artifacts/",
+    "vat-restaurant-guidance-th.html"
+  ]
+}

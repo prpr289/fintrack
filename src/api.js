@@ -41,6 +41,33 @@ export const api = {
   cancelEdit: (id) => req('POST', `/transactions/${id}/cancel-edit`),
   printTransaction: (id) => req('POST', `/transactions/${id}/print`),
 
+  dailyAudit: (date) => req('GET', `/audit/daily?${new URLSearchParams({ date })}`),
+  transactionAuditIssues: (params) => req('GET', '/audit/transaction-issues?' + new URLSearchParams(params || {})),
+  closeDailyAuditWallet: (date, walletId, body) => req('POST', `/audit/daily/${date}/wallets/${walletId}/close`, body),
+  reopenDailyAuditWallet: (date, walletId, body) => req('POST', `/audit/daily/${date}/wallets/${walletId}/reopen`, body),
+  resolveDailyAuditIssue: (issueKey, body) => req('POST', `/audit/issues/${encodeURIComponent(issueKey)}/resolve`, body),
+  uploadDailyAuditEvidence: (date, walletId, file) => {
+    const t = token()
+    const headers = { 'Content-Type': file.type }
+    if (t) headers.Authorization = `Bearer ${t}`
+    const params = new URLSearchParams({ name: file.name })
+    return fetch(`${BASE}/audit/daily/${date}/wallets/${walletId}/evidence?${params}`, {
+      method: 'POST', headers, body: file,
+    }).then(async r => {
+      const data = await r.json()
+      if (!r.ok) throw new Error(data.error || 'อัปโหลดหลักฐานไม่สำเร็จ')
+      return data
+    })
+  },
+  fetchDailyAuditEvidence: async (evidenceId) => {
+    const t = token()
+    const res = await fetch(`${BASE}/audit/evidence/${evidenceId}`, {
+      headers: t ? { Authorization: `Bearer ${t}` } : {},
+    })
+    if (!res.ok) throw new Error('โหลดหลักฐานไม่สำเร็จ')
+    return URL.createObjectURL(await res.blob())
+  },
+
   createTransfer: (body) => req('POST', '/transfers', body),
 
   categories: () => req('GET', '/categories'),
