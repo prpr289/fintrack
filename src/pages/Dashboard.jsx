@@ -198,6 +198,79 @@ function StatCard({ icon: Icon, iconBg, iconColor, label, value, valueColor, pre
   )
 }
 
+const WALLET_SCOPE_LABEL = {
+  business: 'ธุรกิจ',
+  personal: 'ส่วนตัว',
+}
+
+const WALLET_TYPE_LABEL = {
+  cash: 'เงินสด',
+  bank: 'บัญชีธนาคาร',
+  credit: 'บัตรเครดิต',
+}
+
+function walletMeta(wallet) {
+  const scope = WALLET_SCOPE_LABEL[wallet.scope] || wallet.scope || 'ไม่ระบุ scope'
+  const type = WALLET_TYPE_LABEL[wallet.type] || wallet.type || 'ไม่ระบุประเภท'
+  return `${scope} · ${type}`
+}
+
+function formatUpdatedAt(value) {
+  if (!value) return 'รอข้อมูลล่าสุด'
+  const day = value.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+  const time = value.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return `${day} · ${time}`
+}
+
+function WalletBalanceRail({ wallets, loading, lastUpdatedAt }) {
+  return (
+    <section
+      aria-labelledby="wallet-balances-heading"
+      aria-busy={loading}
+      className="overflow-hidden rounded-2xl"
+      style={{ background: '#101a23', border: '1px solid rgba(16,185,129,0.42)' }}
+    >
+      <div className="px-5 py-4 sm:px-7 sm:py-5 xl:pb-0 xl:pt-10">
+        <h3 id="wallet-balances-heading" className="text-sm font-semibold text-emerald-400 xl:text-base">ยอดคงเหลือรายกระเป๋า</h3>
+        <p className="mt-1 text-xs text-slate-500 xl:mt-2 xl:text-sm">อัปเดตล่าสุด {formatUpdatedAt(lastUpdatedAt)}</p>
+      </div>
+
+      {wallets.length > 0 ? (
+        <div className="wallet-balance-grid">
+          {wallets.map(wallet => {
+            const balance = wallet.currentBalance || 0
+            return (
+              <article
+                key={wallet.id}
+                aria-label={`${wallet.name} ยอดคงเหลือ ${thb(balance)}`}
+                className="wallet-balance-item min-w-0 px-5 py-5 sm:px-6 sm:py-8 xl:px-10 xl:pb-[3.375rem] xl:pt-11"
+                style={{ background: '#101a23' }}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden="true"
+                    className="h-3 w-3 flex-shrink-0 rounded-full"
+                    style={{ backgroundColor: wallet.color || '#94a3b8' }}
+                  />
+                  <p className="truncate text-sm font-semibold text-slate-100 sm:text-base xl:text-lg">{wallet.name}</p>
+                </div>
+                <p className="mt-2 truncate pl-6 text-xs text-slate-500 xl:text-sm">{walletMeta(wallet)}</p>
+                <p className={`mt-5 whitespace-nowrap pl-6 text-2xl font-bold tabular-nums sm:text-[1.7rem] xl:pl-0 xl:text-[2rem] ${balance < 0 ? 'text-red-400' : 'text-white'}`}>
+                  {thb(balance)}
+                </p>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="px-5 py-8 text-center text-sm text-slate-500">
+          {loading ? 'กำลังโหลดยอดกระเป๋า...' : 'ยังไม่มีกระเป๋าเงิน'}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [period, setPeriod] = useState('today')
   const [custom, setCustom] = useState({ from: '', to: '' })
@@ -205,6 +278,7 @@ export default function Dashboard() {
   const [wallets, setWallets] = useState([])
   const [txs, setTxs] = useState([])
   const [prevStats, setPrevStats] = useState(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -231,9 +305,11 @@ export default function Dashboard() {
     } else {
       setPrevStats(null)
     }
+    setLastUpdatedAt(new Date())
     setLoading(false)
   }, [period, appliedCustom])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load resolves asynchronously and seeds the dashboard subscription
   useEffect(() => { load() }, [load])
   const reloadTimer = useRef(null)
   useWs((msg) => {
@@ -300,6 +376,36 @@ export default function Dashboard() {
             transition-duration: 0.01ms !important;
           }
         }
+        .wallet-balance-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 1px;
+          background: #334155;
+        }
+        @media (min-width: 640px) {
+          .wallet-balance-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (min-width: 1280px) {
+          .wallet-balance-grid {
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0;
+            background: transparent;
+          }
+          .wallet-balance-item {
+            position: relative;
+          }
+          .wallet-balance-item + .wallet-balance-item::before {
+            content: '';
+            position: absolute;
+            top: 2rem;
+            bottom: 3.25rem;
+            left: 0;
+            width: 1px;
+            background: #334155;
+          }
+        }
       `}</style>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -335,6 +441,8 @@ export default function Dashboard() {
           prevValue={prevStats?.net}
         />
       </div>
+
+      <WalletBalanceRail wallets={wallets} loading={loading} lastUpdatedAt={lastUpdatedAt} />
 
       {dailyData.length > 0 && (
         <div className="rounded-xl p-4 sm:p-5" style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
@@ -383,25 +491,6 @@ export default function Dashboard() {
           <p className="text-slate-500 text-sm">ไม่มีรายการในช่วง <span className="text-slate-400">{periodLabel}</span></p>
         </div>
       )}
-
-      <div>
-        <h3 className="text-sm font-semibold text-slate-300 mb-3">กระเป๋าเงิน (ยอดปัจจุบัน)</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {wallets.map(w => (
-            <div key={w.id} className="rounded-xl p-4 flex items-center gap-3"
-              style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
-              <div className="w-1.5 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: w.color || '#9CA3AF' }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200 truncate">{w.name}</p>
-                <p className="text-xs text-slate-500">{w.type} · {w.scope}</p>
-              </div>
-              <div className={`text-sm font-bold tabular-nums ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
-                {thb(w.currentBalance || 0)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
 
       {recentTxs.length > 0 && (
         <div>
