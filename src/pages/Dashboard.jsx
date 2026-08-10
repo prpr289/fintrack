@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
+import { getOperatingTransactions, summarizeDashboardTransactions } from '../dashboardStats'
 import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard, History } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -358,9 +359,7 @@ export default function Dashboard() {
 
     if (prevTd) {
       const pl = prevTd.transactions || []
-      const pi = pl.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-      const pe = pl.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-      setPrevStats({ income: pi, expense: pe, net: pi - pe })
+      setPrevStats(summarizeDashboardTransactions(pl))
     } else {
       setPrevStats(null)
     }
@@ -378,13 +377,12 @@ export default function Dashboard() {
     }
   })
 
-  const income  = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-  const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-  const net     = income - expense
+  const operatingTxs = getOperatingTransactions(txs)
+  const { income, expense, net } = summarizeDashboardTransactions(operatingTxs)
   const monthlyTotalBalance = wallets.reduce((s, w) => s + (w.monthlyBalance || 0), 0)
 
   const catMap = {}
-  txs.forEach(t => {
+  operatingTxs.forEach(t => {
     const key = t.categoryName || 'ไม่ระบุ'
     if (!catMap[key]) catMap[key] = { name: key, income: 0, expense: 0, total: 0 }
     if (t.type === 'income') catMap[key].income += t.amount
@@ -401,7 +399,7 @@ export default function Dashboard() {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(fmt(d))
     const map = {}
     days.forEach(d => { map[d] = { income: 0, expense: 0 } })
-    txs.forEach(t => { if (t.date && map[t.date]) {
+    operatingTxs.forEach(t => { if (t.date && map[t.date]) {
       if (t.type === 'income') map[t.date].income += t.amount
       else map[t.date].expense += t.amount
     }})
