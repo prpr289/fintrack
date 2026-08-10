@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
-import { getOperatingTransactions, summarizeDashboardTransactions } from '../dashboardStats'
+import { getOperatingTransactions, isInternalTransfer, summarizeDashboardTransactions } from '../dashboardStats'
 import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard, History } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -557,23 +557,33 @@ export default function Dashboard() {
             รายการในช่วงนี้ {txs.length > 10 && <span className="text-slate-500 font-normal">(แสดง 10 ล่าสุด จาก {txs.length})</span>}
           </h3>
           <div className="rounded-xl overflow-hidden" style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
-            {recentTxs.map((t, i) => (
-              <div key={t.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
-                style={{ borderBottom: i < recentTxs.length - 1 ? '1px solid #1f2937' : 'none' }}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 font-bold"
-                  style={{ background: t.type === 'income' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: t.type === 'income' ? '#34d399' : '#f87171' }}>
-                  <span className="sr-only">{t.type === 'income' ? 'รายรับ' : 'รายจ่าย'}</span>
-                  <span aria-hidden="true">{t.type === 'income' ? '↑' : '↓'}</span>
+            {recentTxs.map((t, i) => {
+              const internalTransfer = isInternalTransfer(t)
+              const incomeTransaction = t.type === 'income'
+              const movementLabel = internalTransfer ? 'โอนภายใน' : (incomeTransaction ? 'รายรับ' : 'รายจ่าย')
+              const movementColor = internalTransfer ? '#60a5fa' : (incomeTransaction ? '#34d399' : '#f87171')
+              const movementBackground = internalTransfer
+                ? 'rgba(59,130,246,0.15)'
+                : (incomeTransaction ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)')
+
+              return (
+                <div key={t.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  style={{ borderBottom: i < recentTxs.length - 1 ? '1px solid #1f2937' : 'none' }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 font-bold"
+                    style={{ background: movementBackground, color: movementColor }}>
+                    <span className="sr-only">{movementLabel}</span>
+                    <span aria-hidden="true">{internalTransfer ? '↔' : (incomeTransaction ? '↑' : '↓')}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
+                    <p className="text-xs text-slate-500">{internalTransfer ? `${movementLabel} · ` : ''}{t.categoryName || '-'} · {t.walletName || '-'} · {date(t.date)}</p>
+                  </div>
+                  <div className="text-sm font-semibold flex-shrink-0 tabular-nums" style={{ color: movementColor }}>
+                    {incomeTransaction ? '+' : '-'}{thb(t.amount)}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
-                  <p className="text-xs text-slate-500">{t.categoryName || '-'} · {t.walletName || '-'} · {date(t.date)}</p>
-                </div>
-                <div className={`text-sm font-semibold flex-shrink-0 tabular-nums ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {t.type === 'income' ? '+' : '-'}{thb(t.amount)}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

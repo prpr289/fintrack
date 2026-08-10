@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { getOperatingTransactions, summarizeDashboardTransactions } from './dashboardStats.js'
+import { getOperatingTransactions, isInternalTransfer, summarizeDashboardTransactions } from './dashboardStats.js'
 
 test('credit-card payments do not count as operating income or expense', () => {
   const transactions = [
@@ -16,6 +16,8 @@ test('credit-card payments do not count as operating income or expense', () => {
 
   const stats = summarizeDashboardTransactions(transactions)
 
+  assert.equal(isInternalTransfer(transactions[2]), true)
+  assert.equal(isInternalTransfer(transactions[0]), false)
   assert.deepEqual(getOperatingTransactions(transactions).map(transaction => transaction.id), ['sales', 'costs'])
   assert.equal(stats.income, 813982)
   assert.equal(stats.expense, 746945.86)

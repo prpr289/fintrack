@@ -1,5 +1,9 @@
+export function isInternalTransfer(transaction) {
+  return Boolean(transaction?.transferPairId)
+}
+
 export function getOperatingTransactions(transactions = []) {
-  return transactions.filter(transaction => !transaction.transferPairId)
+  return transactions.filter(transaction => !isInternalTransfer(transaction))
 }
 
 export function summarizeDashboardTransactions(transactions = []) {
