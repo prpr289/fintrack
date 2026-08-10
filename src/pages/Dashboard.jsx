@@ -2,7 +2,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
-import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard } from 'lucide-react'
+import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard, History } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, ReferenceLine,
@@ -222,7 +222,15 @@ function formatUpdatedAt(value) {
   return `${day} · ${time}`
 }
 
-function WalletBalanceRail({ wallets, loading, lastUpdatedAt }) {
+function formatBalancePeriod(period) {
+  if (!period?.from) return 'เดือนปัจจุบัน'
+  return new Date(`${period.from}T00:00:00`).toLocaleDateString('th-TH', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function WalletBalanceRail({ wallets, loading, lastUpdatedAt, balancePeriod }) {
   return (
     <section
       aria-labelledby="wallet-balances-heading"
@@ -232,17 +240,19 @@ function WalletBalanceRail({ wallets, loading, lastUpdatedAt }) {
     >
       <div className="px-5 py-4 sm:px-7 sm:py-5 xl:pb-0 xl:pt-10">
         <h3 id="wallet-balances-heading" className="text-sm font-semibold text-emerald-400 xl:text-base">ยอดคงเหลือรายกระเป๋า</h3>
-        <p className="mt-1 text-xs text-slate-500 xl:mt-2 xl:text-sm">อัปเดตล่าสุด {formatUpdatedAt(lastUpdatedAt)}</p>
+        <p className="mt-1 text-xs text-slate-500 xl:mt-2 xl:text-sm">
+          {formatBalancePeriod(balancePeriod)} · เริ่มนับใหม่ทุกวันที่ 1 · อัปเดตล่าสุด {formatUpdatedAt(lastUpdatedAt)}
+        </p>
       </div>
 
       {wallets.length > 0 ? (
         <div className="wallet-balance-grid">
           {wallets.map(wallet => {
-            const balance = wallet.currentBalance || 0
+            const balance = wallet.monthlyBalance || 0
             return (
               <article
                 key={wallet.id}
-                aria-label={`${wallet.name} ยอดคงเหลือ ${thb(balance)}`}
+                aria-label={`${wallet.name} ยอดคงเหลือประจำเดือน ${thb(balance)}`}
                 className="wallet-balance-item min-w-0 px-5 py-5 sm:px-6 sm:py-8 xl:px-10 xl:pb-[3.375rem] xl:pt-11"
                 style={{ background: '#101a23' }}
               >
@@ -255,7 +265,8 @@ function WalletBalanceRail({ wallets, loading, lastUpdatedAt }) {
                   <p className="truncate text-sm font-semibold text-slate-100 sm:text-base xl:text-lg">{wallet.name}</p>
                 </div>
                 <p className="mt-2 truncate pl-6 text-xs text-slate-500 xl:text-sm">{walletMeta(wallet)}</p>
-                <p className={`mt-5 whitespace-nowrap pl-6 text-2xl font-bold tabular-nums sm:text-[1.7rem] xl:pl-0 xl:text-[2rem] ${balance < 0 ? 'text-red-400' : 'text-white'}`}>
+                <p className="mt-5 pl-6 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500 xl:pl-0">สุทธิเดือนนี้</p>
+                <p className={`mt-1 whitespace-nowrap pl-6 text-2xl font-bold tabular-nums sm:text-[1.7rem] xl:pl-0 xl:text-[2rem] ${balance < 0 ? 'text-red-400' : 'text-white'}`}>
                   {thb(balance)}
                 </p>
               </article>
@@ -271,11 +282,58 @@ function WalletBalanceRail({ wallets, loading, lastUpdatedAt }) {
   )
 }
 
+function CumulativeBalanceSection({ wallets, loading }) {
+  const total = wallets.reduce((sum, wallet) => sum + (wallet.currentBalance || 0), 0)
+
+  return (
+    <section
+      aria-labelledby="cumulative-balances-heading"
+      aria-busy={loading}
+      className="rounded-2xl px-5 py-4 sm:px-7 sm:py-5"
+      style={{ background: '#161b2e', border: '1px solid #2e3349' }}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: 'rgba(148,163,184,0.1)' }}>
+            <History aria-hidden="true" className="h-4 w-4 text-slate-400" />
+          </div>
+          <div>
+            <h3 id="cumulative-balances-heading" className="text-sm font-semibold text-slate-300">ยอดสะสมตั้งแต่เริ่มใช้งาน</h3>
+            <p className="mt-0.5 text-xs text-slate-500">ข้อมูลสะสมตลอดอายุ · ไม่รีเซ็ตรายเดือน</p>
+          </div>
+        </div>
+        <div className="sm:text-right">
+          <p className="text-[11px] text-slate-500">รวมทุกกระเป๋า</p>
+          <p className={`mt-0.5 text-xl font-bold tabular-nums ${total < 0 ? 'text-red-400' : 'text-slate-200'}`}>{thb(total)}</p>
+        </div>
+      </div>
+
+      {wallets.length > 0 && (
+        <div className="mt-4 grid grid-cols-1 gap-2 border-t border-slate-800 pt-4 sm:grid-cols-2 xl:grid-cols-4">
+          {wallets.map(wallet => {
+            const balance = wallet.currentBalance || 0
+            return (
+              <div key={wallet.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2" style={{ background: '#111827' }}>
+                <span className="flex min-w-0 items-center gap-2 text-xs text-slate-400">
+                  <span aria-hidden="true" className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: wallet.color || '#94a3b8' }} />
+                  <span className="truncate">{wallet.name}</span>
+                </span>
+                <span className={`flex-shrink-0 text-xs font-semibold tabular-nums ${balance < 0 ? 'text-red-400' : 'text-slate-300'}`}>{thb(balance)}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [period, setPeriod] = useState('today')
   const [custom, setCustom] = useState({ from: '', to: '' })
   const [appliedCustom, setAppliedCustom] = useState({ from: '', to: '' })
   const [wallets, setWallets] = useState([])
+  const [balancePeriod, setBalancePeriod] = useState(null)
   const [txs, setTxs] = useState([])
   const [prevStats, setPrevStats] = useState(null)
   const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
@@ -295,6 +353,7 @@ export default function Dashboard() {
 
     const [wd, td, prevTd] = await Promise.all(fetches)
     setWallets(wd.wallets || [])
+    setBalancePeriod(wd.balancePeriod || null)
     setTxs(td.transactions || [])
 
     if (prevTd) {
@@ -322,7 +381,7 @@ export default function Dashboard() {
   const income  = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
   const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
   const net     = income - expense
-  const totalBalance = wallets.reduce((s, w) => s + (w.currentBalance || 0), 0)
+  const monthlyTotalBalance = wallets.reduce((s, w) => s + (w.monthlyBalance || 0), 0)
 
   const catMap = {}
   txs.forEach(t => {
@@ -428,7 +487,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Wallet}       iconBg="rgba(59,130,246,0.15)"  iconColor="#60a5fa" label="ยอดรวมทุกกระเป๋า" value={thb(totalBalance)} />
+        <StatCard icon={Wallet}       iconBg="rgba(59,130,246,0.15)"  iconColor="#60a5fa" label="คงเหลือเดือนนี้" value={thb(monthlyTotalBalance)} valueColor={monthlyTotalBalance < 0 ? '#f87171' : '#f1f5f9'} />
         <StatCard icon={TrendingUp}   iconBg="rgba(16,185,129,0.15)"  iconColor="#34d399" label="รายรับ"  value={`+${thb(income)}`}  valueColor="#34d399" prevValue={prevStats?.income} />
         <StatCard icon={TrendingDown} iconBg="rgba(239,68,68,0.15)"   iconColor="#f87171" label="รายจ่าย" value={`-${thb(expense)}`} valueColor="#f87171" prevValue={prevStats?.expense} />
         <StatCard
@@ -442,7 +501,9 @@ export default function Dashboard() {
         />
       </div>
 
-      <WalletBalanceRail wallets={wallets} loading={loading} lastUpdatedAt={lastUpdatedAt} />
+      <WalletBalanceRail wallets={wallets} loading={loading} lastUpdatedAt={lastUpdatedAt} balancePeriod={balancePeriod} />
+
+      <CumulativeBalanceSection wallets={wallets} loading={loading} />
 
       {dailyData.length > 0 && (
         <div className="rounded-xl p-4 sm:p-5" style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
