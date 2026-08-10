@@ -5,6 +5,7 @@ import Login from './pages/Login'
 import Dashboard from './pages/Dashboard'
 import Transactions from './pages/Transactions'
 import Wallets from './pages/Wallets'
+import WalletDetail from './pages/WalletDetail'
 import Categories from './pages/Categories'
 import Users from './pages/Users'
 import Profile from './pages/Profile'
@@ -57,6 +58,7 @@ export default function App() {
             <Route path="pending-bills" element={<PendingBills />} />
             <Route path="bulk-upload"  element={<BulkUpload />} />
             <Route path="wallets"      element={<RequireAdmin><Wallets /></RequireAdmin>} />
+            <Route path="wallets/:walletId" element={<RequireAdmin><WalletDetail /></RequireAdmin>} />
             <Route path="categories"   element={<Categories />} />
             <Route path="budget"       element={<RequireAdmin><Budget /></RequireAdmin>} />
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />

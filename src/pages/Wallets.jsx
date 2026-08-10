@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { thb, today } from '../fmt'
 import { useAuth } from '../AuthContext'
@@ -414,6 +415,7 @@ function CreditCardPaymentDrawer({ creditWallet, wallets, onClose, onPaid }) {
 
 export default function Wallets() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [wallets, setWallets] = useState([])
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -424,6 +426,7 @@ export default function Wallets() {
   const [transfer, setTransfer] = useState(EMPTY_T)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const transferLinkHandledRef = useRef(false)
 
   const isAdmin = user?.role === 'admin'
   const canTransfer = user?.role === 'admin' || user?.role === 'staff'
@@ -437,6 +440,25 @@ export default function Wallets() {
   // The API-backed initial load intentionally starts when the page mounts.
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { load() }, [load])
+
+  useEffect(() => {
+    const fromWalletId = searchParams.get('transferFrom')
+    if (!fromWalletId || !wallets.length || transferLinkHandledRef.current) return
+
+    transferLinkHandledRef.current = true
+    const sourceWallet = wallets.find(wallet => wallet.id === fromWalletId)
+    const timerId = window.setTimeout(() => {
+      if (sourceWallet) {
+        setTransfer({ ...EMPTY_T, fromWalletId: sourceWallet.id })
+        setErr('')
+        setShowTransfer(true)
+      }
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('transferFrom')
+      setSearchParams(nextParams, { replace: true })
+    }, 0)
+    return () => window.clearTimeout(timerId)
+  }, [searchParams, setSearchParams, wallets])
 
   const openCreate = () => { setEditing(null); setForm(EMPTY_W); setErr(''); setShowForm(true) }
   const openEdit = (w) => {
@@ -495,7 +517,7 @@ export default function Wallets() {
   return (
     <div className={`wallets-page space-y-4 p-5 transition-[padding] duration-200 ${paymentCard ? 'sm:pr-[31.25rem]' : ''}`}>
       <style>{`
-        .wallets-page button:focus-visible, .wallets-page input:focus-visible, .wallets-page select:focus-visible {
+        .wallets-page button:focus-visible, .wallets-page a:focus-visible, .wallets-page input:focus-visible, .wallets-page select:focus-visible {
           outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
         }
         .credit-payment-scroll { scrollbar-width: none; -ms-overflow-style: none; }
@@ -544,8 +566,11 @@ export default function Wallets() {
       ) : (
       <div className={`grid grid-cols-1 gap-4 sm:grid-cols-2 ${paymentCard ? '' : 'lg:grid-cols-3'}`}>
         {wallets.map(w => (
-          <div key={w.id} className="rounded-xl p-5 relative"
+          <article key={w.id} className="wallet-card group relative rounded-xl p-5 transition-[transform,box-shadow] duration-200 hover:-translate-y-0.5 hover:shadow-xl hover:shadow-black/20"
             style={{ ...CARD, borderColor: w.type === 'credit' && getCreditOutstanding(w.currentBalance) > 0 ? 'rgba(248,113,113,0.45)' : '#1f2937', opacity: isAdmin ? 1 : 1 }}>
+            <Link to={`/wallets/${w.id}`} className="absolute inset-0 z-10 rounded-xl" aria-label={`ดูรายการค่าใช้จ่ายกระเป๋า ${w.name}`}>
+              <span className="sr-only">ดูรายการค่าใช้จ่ายกระเป๋า {w.name}</span>
+            </Link>
             {/* Private badge for admin view */}
             {isAdmin && !w.staffVisible && (
               <div className="absolute top-3 left-3 flex items-center gap-1 text-xs text-orange-400 bg-orange-400/10 border border-orange-400/20 px-2 py-0.5 rounded-full">
@@ -558,7 +583,7 @@ export default function Wallets() {
                 <span className="font-semibold text-slate-200">{w.name}</span>
               </div>
               {isAdmin && (
-                <div className="flex gap-1.5">
+                <div className="relative z-20 flex gap-1.5">
                   <button onClick={() => toggleVisibility(w)}
                     aria-label={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}
                     title={w.staffVisible ? 'ซ่อนจาก Staff' : 'แสดงให้ Staff เห็น'}
@@ -585,13 +610,13 @@ export default function Wallets() {
               {w.type === 'credit' && canTransfer && (
                 <button type="button" onClick={() => { setErr(''); setPaymentCard(w) }}
                   disabled={getCreditOutstanding(w.currentBalance) <= 0}
-                  className="flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-transparent disabled:text-slate-600"
+                  className="relative z-20 flex flex-shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/70 bg-emerald-500/10 px-3 py-1.5 text-xs font-semibold text-emerald-400 transition-colors hover:bg-emerald-500/20 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-transparent disabled:text-slate-600"
                   title={getCreditOutstanding(w.currentBalance) > 0 ? 'จ่ายค่าบัตรเครดิต' : 'ไม่มียอดค้างชำระ'}>
                   <CreditCard className="h-3.5 w-3.5" /> {getCreditOutstanding(w.currentBalance) > 0 ? 'จ่ายบัตร' : 'ชำระแล้ว'}
                 </button>
               )}
             </div>
-          </div>
+          </article>
         ))}
       </div>
       )}
