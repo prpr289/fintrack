@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 import { groupTransactionsByDate } from '../transactionGroups'
+import { summarizeTransactionPageTransactions } from '../transactionSummary'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -1111,11 +1112,7 @@ export default function Transactions() {
     api.transactions(params).then(d => {
       if (cancelled) return
       const list = d.transactions || []
-      const inc = list.filter(t => t.type === 'income')
-      const exp = list.filter(t => t.type === 'expense')
-      const income = inc.reduce((s, t) => s + t.amount, 0)
-      const expense = exp.reduce((s, t) => s + t.amount, 0)
-      setSummary({ income, expense, net: income - expense, incomeCount: inc.length, expenseCount: exp.length })
+      setSummary(summarizeTransactionPageTransactions(list))
     }).catch(() => {})
     return () => { cancelled = true }
   }, [filter, debouncedSearch, total, period, customRange, isStaff])
