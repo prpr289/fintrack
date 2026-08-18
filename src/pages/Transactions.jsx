@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import { thb, date, today, ymd } from '../fmt'
 import { useWs } from '../useWs'
@@ -11,6 +12,7 @@ import {
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 import { groupTransactionsByDate } from '../transactionGroups'
+import { summarizeTransactionPageTransactions } from '../transactionSummary'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -1001,6 +1003,7 @@ function ImportModal({ onClose, onDone }) {
 
 export default function Transactions() {
   const { user } = useAuth()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [txs, setTxs] = useState([])
   const [wallets, setWallets] = useState([])
   const [categories, setCategories] = useState([])
@@ -1024,6 +1027,7 @@ export default function Transactions() {
   const [period, setPeriod] = useState('thisMonth') // default to the current month
   const [customRange, setCustomRange] = useState({ from: '', to: '' })
   const [collapsedDays, setCollapsedDays] = useState(() => new Set())
+  const createLinkHandledRef = useRef(false)
 
   const isStaff = user?.role === 'staff'
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
@@ -1070,6 +1074,27 @@ export default function Transactions() {
   useEffect(() => { load() }, [load])
   useWs((msg) => { if (['tx.created', 'tx.updated', 'tx.deleted'].includes(msg.event)) load() })
 
+  useEffect(() => {
+    const requestedWalletId = searchParams.get('walletId')
+    if (searchParams.get('new') !== '1' || !requestedWalletId || !wallets.length || createLinkHandledRef.current) return
+
+    createLinkHandledRef.current = true
+    const requestedWallet = wallets.find(wallet => wallet.id === requestedWalletId)
+    const timerId = window.setTimeout(() => {
+      if (requestedWallet) {
+        setEditing(null)
+        setForm({ ...EMPTY, walletId: requestedWallet.id, scope: requestedWallet.scope || 'business' })
+        setErr('')
+        setShowForm(true)
+      }
+      const nextParams = new URLSearchParams(searchParams)
+      nextParams.delete('walletId')
+      nextParams.delete('new')
+      setSearchParams(nextParams, { replace: true })
+    }, 0)
+    return () => window.clearTimeout(timerId)
+  }, [searchParams, setSearchParams, wallets])
+
   // Totals across the whole filtered set (not just the current page).
   // Re-runs when the filter/search changes or the row count changes (add/delete).
   useEffect(() => {
@@ -1087,11 +1112,7 @@ export default function Transactions() {
     api.transactions(params).then(d => {
       if (cancelled) return
       const list = d.transactions || []
-      const inc = list.filter(t => t.type === 'income')
-      const exp = list.filter(t => t.type === 'expense')
-      const income = inc.reduce((s, t) => s + t.amount, 0)
-      const expense = exp.reduce((s, t) => s + t.amount, 0)
-      setSummary({ income, expense, net: income - expense, incomeCount: inc.length, expenseCount: exp.length })
+      setSummary(summarizeTransactionPageTransactions(list))
     }).catch(() => {})
     return () => { cancelled = true }
   }, [filter, debouncedSearch, total, period, customRange, isStaff])

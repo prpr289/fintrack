@@ -2,7 +2,8 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
 import { thb, date, ymd } from '../fmt'
 import { useWs } from '../useWs'
-import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard } from 'lucide-react'
+import { getOperatingTransactions, isInternalTransfer, summarizeDashboardTransactions } from '../dashboardStats'
+import { TrendingUp, TrendingDown, Wallet, ChevronDown, Calendar, X, LayoutDashboard, History } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
   LineChart, Line, CartesianGrid, Legend, ReferenceLine,
@@ -198,13 +199,145 @@ function StatCard({ icon: Icon, iconBg, iconColor, label, value, valueColor, pre
   )
 }
 
+const WALLET_SCOPE_LABEL = {
+  business: 'ธุรกิจ',
+  personal: 'ส่วนตัว',
+}
+
+const WALLET_TYPE_LABEL = {
+  cash: 'เงินสด',
+  bank: 'บัญชีธนาคาร',
+  credit: 'บัตรเครดิต',
+}
+
+function walletMeta(wallet) {
+  const scope = WALLET_SCOPE_LABEL[wallet.scope] || wallet.scope || 'ไม่ระบุ scope'
+  const type = WALLET_TYPE_LABEL[wallet.type] || wallet.type || 'ไม่ระบุประเภท'
+  return `${scope} · ${type}`
+}
+
+function formatUpdatedAt(value) {
+  if (!value) return 'รอข้อมูลล่าสุด'
+  const day = value.toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: 'numeric' })
+  const time = value.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', hour12: false })
+  return `${day} · ${time}`
+}
+
+function formatBalancePeriod(period) {
+  if (!period?.from) return 'เดือนปัจจุบัน'
+  return new Date(`${period.from}T00:00:00`).toLocaleDateString('th-TH', {
+    month: 'long',
+    year: 'numeric',
+  })
+}
+
+function WalletBalanceRail({ wallets, loading, lastUpdatedAt, balancePeriod }) {
+  return (
+    <section
+      aria-labelledby="wallet-balances-heading"
+      aria-busy={loading}
+      className="overflow-hidden rounded-2xl"
+      style={{ background: '#101a23', border: '1px solid rgba(16,185,129,0.42)' }}
+    >
+      <div className="px-5 py-4 sm:px-7 sm:py-5 xl:pb-0 xl:pt-10">
+        <h3 id="wallet-balances-heading" className="text-sm font-semibold text-emerald-400 xl:text-base">ยอดคงเหลือรายกระเป๋า</h3>
+        <p className="mt-1 text-xs text-slate-500 xl:mt-2 xl:text-sm">
+          {formatBalancePeriod(balancePeriod)} · เริ่มนับใหม่ทุกวันที่ 1 · อัปเดตล่าสุด {formatUpdatedAt(lastUpdatedAt)}
+        </p>
+      </div>
+
+      {wallets.length > 0 ? (
+        <div className="wallet-balance-grid">
+          {wallets.map(wallet => {
+            const balance = wallet.monthlyBalance || 0
+            return (
+              <article
+                key={wallet.id}
+                aria-label={`${wallet.name} ยอดคงเหลือประจำเดือน ${thb(balance)}`}
+                className="wallet-balance-item min-w-0 px-5 py-5 sm:px-6 sm:py-8 xl:px-10 xl:pb-[3.375rem] xl:pt-11"
+                style={{ background: '#101a23' }}
+              >
+                <div className="flex min-w-0 items-center gap-3">
+                  <span
+                    aria-hidden="true"
+                    className="h-3 w-3 flex-shrink-0 rounded-full"
+                    style={{ backgroundColor: wallet.color || '#94a3b8' }}
+                  />
+                  <p className="truncate text-sm font-semibold text-slate-100 sm:text-base xl:text-lg">{wallet.name}</p>
+                </div>
+                <p className="mt-2 truncate pl-6 text-xs text-slate-500 xl:text-sm">{walletMeta(wallet)}</p>
+                <p className="mt-5 pl-6 text-[11px] font-medium uppercase tracking-[0.12em] text-slate-500 xl:pl-0">สุทธิเดือนนี้</p>
+                <p className={`mt-1 whitespace-nowrap pl-6 text-2xl font-bold tabular-nums sm:text-[1.7rem] xl:pl-0 xl:text-[2rem] ${balance < 0 ? 'text-red-400' : 'text-white'}`}>
+                  {thb(balance)}
+                </p>
+              </article>
+            )
+          })}
+        </div>
+      ) : (
+        <div className="px-5 py-8 text-center text-sm text-slate-500">
+          {loading ? 'กำลังโหลดยอดกระเป๋า...' : 'ยังไม่มีกระเป๋าเงิน'}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function CumulativeBalanceSection({ wallets, loading }) {
+  const total = wallets.reduce((sum, wallet) => sum + (wallet.currentBalance || 0), 0)
+
+  return (
+    <section
+      aria-labelledby="cumulative-balances-heading"
+      aria-busy={loading}
+      className="rounded-2xl px-5 py-4 sm:px-7 sm:py-5"
+      style={{ background: '#161b2e', border: '1px solid #2e3349' }}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg" style={{ background: 'rgba(148,163,184,0.1)' }}>
+            <History aria-hidden="true" className="h-4 w-4 text-slate-400" />
+          </div>
+          <div>
+            <h3 id="cumulative-balances-heading" className="text-sm font-semibold text-slate-300">ยอดสะสมตั้งแต่เริ่มใช้งาน</h3>
+            <p className="mt-0.5 text-xs text-slate-500">ข้อมูลสะสมตลอดอายุ · ไม่รีเซ็ตรายเดือน</p>
+          </div>
+        </div>
+        <div className="sm:text-right">
+          <p className="text-[11px] text-slate-500">รวมทุกกระเป๋า</p>
+          <p className={`mt-0.5 text-xl font-bold tabular-nums ${total < 0 ? 'text-red-400' : 'text-slate-200'}`}>{thb(total)}</p>
+        </div>
+      </div>
+
+      {wallets.length > 0 && (
+        <div className="mt-4 grid grid-cols-1 gap-2 border-t border-slate-800 pt-4 sm:grid-cols-2 xl:grid-cols-4">
+          {wallets.map(wallet => {
+            const balance = wallet.currentBalance || 0
+            return (
+              <div key={wallet.id} className="flex items-center justify-between gap-3 rounded-lg px-3 py-2" style={{ background: '#111827' }}>
+                <span className="flex min-w-0 items-center gap-2 text-xs text-slate-400">
+                  <span aria-hidden="true" className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: wallet.color || '#94a3b8' }} />
+                  <span className="truncate">{wallet.name}</span>
+                </span>
+                <span className={`flex-shrink-0 text-xs font-semibold tabular-nums ${balance < 0 ? 'text-red-400' : 'text-slate-300'}`}>{thb(balance)}</span>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </section>
+  )
+}
+
 export default function Dashboard() {
   const [period, setPeriod] = useState('today')
   const [custom, setCustom] = useState({ from: '', to: '' })
   const [appliedCustom, setAppliedCustom] = useState({ from: '', to: '' })
   const [wallets, setWallets] = useState([])
+  const [balancePeriod, setBalancePeriod] = useState(null)
   const [txs, setTxs] = useState([])
   const [prevStats, setPrevStats] = useState(null)
+  const [lastUpdatedAt, setLastUpdatedAt] = useState(null)
   const [loading, setLoading] = useState(true)
 
   const load = useCallback(async () => {
@@ -221,19 +354,20 @@ export default function Dashboard() {
 
     const [wd, td, prevTd] = await Promise.all(fetches)
     setWallets(wd.wallets || [])
+    setBalancePeriod(wd.balancePeriod || null)
     setTxs(td.transactions || [])
 
     if (prevTd) {
       const pl = prevTd.transactions || []
-      const pi = pl.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-      const pe = pl.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-      setPrevStats({ income: pi, expense: pe, net: pi - pe })
+      setPrevStats(summarizeDashboardTransactions(pl))
     } else {
       setPrevStats(null)
     }
+    setLastUpdatedAt(new Date())
     setLoading(false)
   }, [period, appliedCustom])
 
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- load resolves asynchronously and seeds the dashboard subscription
   useEffect(() => { load() }, [load])
   const reloadTimer = useRef(null)
   useWs((msg) => {
@@ -243,13 +377,12 @@ export default function Dashboard() {
     }
   })
 
-  const income  = txs.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
-  const expense = txs.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
-  const net     = income - expense
-  const totalBalance = wallets.reduce((s, w) => s + (w.currentBalance || 0), 0)
+  const operatingTxs = getOperatingTransactions(txs)
+  const { income, expense, net } = summarizeDashboardTransactions(operatingTxs)
+  const monthlyTotalBalance = wallets.reduce((s, w) => s + (w.monthlyBalance || 0), 0)
 
   const catMap = {}
-  txs.forEach(t => {
+  operatingTxs.forEach(t => {
     const key = t.categoryName || 'ไม่ระบุ'
     if (!catMap[key]) catMap[key] = { name: key, income: 0, expense: 0, total: 0 }
     if (t.type === 'income') catMap[key].income += t.amount
@@ -266,7 +399,7 @@ export default function Dashboard() {
     for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) days.push(fmt(d))
     const map = {}
     days.forEach(d => { map[d] = { income: 0, expense: 0 } })
-    txs.forEach(t => { if (t.date && map[t.date]) {
+    operatingTxs.forEach(t => { if (t.date && map[t.date]) {
       if (t.type === 'income') map[t.date].income += t.amount
       else map[t.date].expense += t.amount
     }})
@@ -300,6 +433,36 @@ export default function Dashboard() {
             transition-duration: 0.01ms !important;
           }
         }
+        .wallet-balance-grid {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr);
+          gap: 1px;
+          background: #334155;
+        }
+        @media (min-width: 640px) {
+          .wallet-balance-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+          }
+        }
+        @media (min-width: 1280px) {
+          .wallet-balance-grid {
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 0;
+            background: transparent;
+          }
+          .wallet-balance-item {
+            position: relative;
+          }
+          .wallet-balance-item + .wallet-balance-item::before {
+            content: '';
+            position: absolute;
+            top: 2rem;
+            bottom: 3.25rem;
+            left: 0;
+            width: 1px;
+            background: #334155;
+          }
+        }
       `}</style>
       <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
@@ -322,7 +485,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <StatCard icon={Wallet}       iconBg="rgba(59,130,246,0.15)"  iconColor="#60a5fa" label="ยอดรวมทุกกระเป๋า" value={thb(totalBalance)} />
+        <StatCard icon={Wallet}       iconBg="rgba(59,130,246,0.15)"  iconColor="#60a5fa" label="คงเหลือเดือนนี้" value={thb(monthlyTotalBalance)} valueColor={monthlyTotalBalance < 0 ? '#f87171' : '#f1f5f9'} />
         <StatCard icon={TrendingUp}   iconBg="rgba(16,185,129,0.15)"  iconColor="#34d399" label="รายรับ"  value={`+${thb(income)}`}  valueColor="#34d399" prevValue={prevStats?.income} />
         <StatCard icon={TrendingDown} iconBg="rgba(239,68,68,0.15)"   iconColor="#f87171" label="รายจ่าย" value={`-${thb(expense)}`} valueColor="#f87171" prevValue={prevStats?.expense} />
         <StatCard
@@ -335,6 +498,10 @@ export default function Dashboard() {
           prevValue={prevStats?.net}
         />
       </div>
+
+      <WalletBalanceRail wallets={wallets} loading={loading} lastUpdatedAt={lastUpdatedAt} balancePeriod={balancePeriod} />
+
+      <CumulativeBalanceSection wallets={wallets} loading={loading} />
 
       {dailyData.length > 0 && (
         <div className="rounded-xl p-4 sm:p-5" style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
@@ -384,48 +551,39 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div>
-        <h3 className="text-sm font-semibold text-slate-300 mb-3">กระเป๋าเงิน (ยอดปัจจุบัน)</h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {wallets.map(w => (
-            <div key={w.id} className="rounded-xl p-4 flex items-center gap-3"
-              style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
-              <div className="w-1.5 h-10 rounded-full flex-shrink-0" style={{ backgroundColor: w.color || '#9CA3AF' }} />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-slate-200 truncate">{w.name}</p>
-                <p className="text-xs text-slate-500">{w.type} · {w.scope}</p>
-              </div>
-              <div className={`text-sm font-bold tabular-nums ${(w.currentBalance || 0) < 0 ? 'text-red-400' : 'text-white'}`}>
-                {thb(w.currentBalance || 0)}
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
       {recentTxs.length > 0 && (
         <div>
           <h3 className="text-sm font-semibold text-slate-300 mb-3">
             รายการในช่วงนี้ {txs.length > 10 && <span className="text-slate-500 font-normal">(แสดง 10 ล่าสุด จาก {txs.length})</span>}
           </h3>
           <div className="rounded-xl overflow-hidden" style={{ background: '#161b2e', border: '1px solid #1f2937' }}>
-            {recentTxs.map((t, i) => (
-              <div key={t.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
-                style={{ borderBottom: i < recentTxs.length - 1 ? '1px solid #1f2937' : 'none' }}>
-                <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 font-bold"
-                  style={{ background: t.type === 'income' ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)', color: t.type === 'income' ? '#34d399' : '#f87171' }}>
-                  <span className="sr-only">{t.type === 'income' ? 'รายรับ' : 'รายจ่าย'}</span>
-                  <span aria-hidden="true">{t.type === 'income' ? '↑' : '↓'}</span>
+            {recentTxs.map((t, i) => {
+              const internalTransfer = isInternalTransfer(t)
+              const incomeTransaction = t.type === 'income'
+              const movementLabel = internalTransfer ? 'โอนภายใน' : (incomeTransaction ? 'รายรับ' : 'รายจ่าย')
+              const movementColor = internalTransfer ? '#60a5fa' : (incomeTransaction ? '#34d399' : '#f87171')
+              const movementBackground = internalTransfer
+                ? 'rgba(59,130,246,0.15)'
+                : (incomeTransaction ? 'rgba(16,185,129,0.15)' : 'rgba(239,68,68,0.15)')
+
+              return (
+                <div key={t.id} className="flex items-center gap-3 px-4 py-3 hover:bg-white/[0.02] transition-colors"
+                  style={{ borderBottom: i < recentTxs.length - 1 ? '1px solid #1f2937' : 'none' }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center text-sm flex-shrink-0 font-bold"
+                    style={{ background: movementBackground, color: movementColor }}>
+                    <span className="sr-only">{movementLabel}</span>
+                    <span aria-hidden="true">{internalTransfer ? '↔' : (incomeTransaction ? '↑' : '↓')}</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
+                    <p className="text-xs text-slate-500">{internalTransfer ? `${movementLabel} · ` : ''}{t.categoryName || '-'} · {t.walletName || '-'} · {date(t.date)}</p>
+                  </div>
+                  <div className="text-sm font-semibold flex-shrink-0 tabular-nums" style={{ color: movementColor }}>
+                    {incomeTransaction ? '+' : '-'}{thb(t.amount)}
+                  </div>
                 </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-200 truncate">{t.name}</p>
-                  <p className="text-xs text-slate-500">{t.categoryName || '-'} · {t.walletName || '-'} · {date(t.date)}</p>
-                </div>
-                <div className={`text-sm font-semibold flex-shrink-0 tabular-nums ${t.type === 'income' ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {t.type === 'income' ? '+' : '-'}{thb(t.amount)}
-                </div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
       )}

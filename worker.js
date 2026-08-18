@@ -1,6 +1,7 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
 import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
 import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
+import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -260,8 +261,24 @@ async function changeMyPassword(request, env, user) {
 __name(changeMyPassword, "changeMyPassword");
 async function listWallets(env, user) {
   const visibilityFilter = user.role === "staff" || user.role === "viewer" ? " AND staff_visible = 1" : "";
-  const result = await env.DB.prepare(`SELECT * FROM wallets WHERE workspace_id = ? AND is_active = 1${visibilityFilter} ORDER BY scope, sort_order, name`).bind(user.workspace_id).all();
-  return json({ wallets: (result.results || []).map(formatWallet) });
+  const balancePeriod = monthToDateRange();
+  const [walletResult, monthlyResult] = await Promise.all([
+    env.DB.prepare(`SELECT * FROM wallets WHERE workspace_id = ? AND is_active = 1${visibilityFilter} ORDER BY scope, sort_order, name`).bind(user.workspace_id).all(),
+    env.DB.prepare(
+      `SELECT wallet_id,
+         SUM(CASE WHEN type = 'income' THEN amount ELSE -amount END) AS monthly_balance,
+         SUM(CASE WHEN type = 'income' THEN amount ELSE 0 END) AS monthly_income,
+         SUM(CASE WHEN type = 'expense' THEN amount ELSE 0 END) AS monthly_expense
+       FROM transactions
+       WHERE workspace_id = ? AND date >= ? AND date <= ?
+       GROUP BY wallet_id`
+    ).bind(user.workspace_id, balancePeriod.from, balancePeriod.to).all(),
+  ]);
+  const wallets = attachMonthlyBalances(
+    (walletResult.results || []).map(formatWallet),
+    monthlyResult.results || [],
+  );
+  return json({ wallets, balancePeriod });
 }
 __name(listWallets, "listWallets");
 async function createWallet(request, env, user) {
