@@ -40,6 +40,7 @@ export const api = {
   confirmEdit: (id) => req('POST', `/transactions/${id}/confirm-edit`),
   cancelEdit: (id) => req('POST', `/transactions/${id}/cancel-edit`),
   printTransaction: (id) => req('POST', `/transactions/${id}/print`),
+  transactionHistory: (id) => req('GET', `/transactions/${id}/history`),
 
   createTransfer: (body) => req('POST', '/transfers', body),
 

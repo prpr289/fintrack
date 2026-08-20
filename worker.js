@@ -53,6 +53,8 @@ var worker_default = {
       const txMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)$/);
       if (txMatch && method === "PATCH") return cors(await updateTransaction(txMatch[1], request, env, user));
       if (txMatch && method === "DELETE") return cors(await deleteTransaction(txMatch[1], env, user));
+      const txHistoryMatch = path.match(/^\/transactions\/([a-zA-Z0-9_-]+)\/history$/);
+      if (txHistoryMatch && method === "GET") return cors(await listTransactionHistory(txHistoryMatch[1], env, user));
       if (path === "/transfers" && method === "POST") return cors(await createTransfer(request, env, user));
       if (path === "/wallets" && method === "GET") return cors(await listWallets(env, user));
       if (path === "/wallets" && method === "POST") return cors(await createWallet(request, env, user));
@@ -347,6 +349,10 @@ async function listTransactions(request, env, user) {
   const scope = params.get("scope");
   const walletId = params.get("walletId");
   const categoryId = params.get("categoryId");
+  const createdByUserId = params.get("createdByUserId");
+  const sourceChannel = params.get("sourceChannel");
+  const status = params.get("status");
+  const hasSlip = params.get("hasSlip");
   const search = params.get("search");
   const limit = Math.min(parseInt(params.get("limit") || "50"), 1e3);
   const offset = parseInt(params.get("offset") || "0");
@@ -355,6 +361,11 @@ async function listTransactions(request, env, user) {
     LEFT JOIN categories c ON t.category_id = c.id
     LEFT JOIN categories sc ON t.sub_category_id = sc.id
     LEFT JOIN wallets w ON t.wallet_id = w.id
+    LEFT JOIN (
+      SELECT workspace_id, transaction_id, COUNT(*) AS slip_count
+      FROM slips
+      GROUP BY workspace_id, transaction_id
+    ) sx ON sx.workspace_id = t.workspace_id AND sx.transaction_id = t.id
     WHERE t.workspace_id = ?`;
   const args = [user.workspace_id];
   let filters = "";
@@ -382,36 +393,77 @@ async function listTransactions(request, env, user) {
     filters += " AND (t.category_id = ? OR t.sub_category_id = ?)";
     args.push(categoryId, categoryId);
   }
-  if (search) {
-    filters += " AND (t.name LIKE ? OR t.note LIKE ?)";
-    args.push(`%${search}%`, `%${search}%`);
+  if (createdByUserId) {
+    filters += " AND t.created_by_user_id = ?";
+    args.push(createdByUserId);
   }
-  const [countRow, result] = await Promise.all([
-    env.DB.prepare(`SELECT COUNT(*) as cnt FROM transactions t WHERE t.workspace_id = ?${filters}`).bind(...args).first(),
+  if (sourceChannel) {
+    filters += ` AND COALESCE(NULLIF(t.source_channel, ''), CASE
+      WHEN t.transfer_pair_id IS NOT NULL THEN 'internal_transfer'
+      WHEN t.source = 'auto' THEN 'hros'
+      WHEN t.recurring_id IS NOT NULL THEN 'recurring'
+      WHEN TRIM(COALESCE(t.submitted_by, '')) <> '' THEN 'line'
+      ELSE 'legacy_manual' END) = ?`;
+    args.push(sourceChannel);
+  }
+  if (status === "posted") filters += " AND COALESCE(t.is_draft, 0) = 0 AND t.pending_changes IS NULL";
+  if (status === "reconciled") filters += " AND COALESCE(t.is_reconciled, 0) = 1 AND COALESCE(t.is_draft, 0) = 0 AND t.pending_changes IS NULL";
+  if (status === "unreconciled") filters += " AND COALESCE(t.is_reconciled, 0) = 0 AND COALESCE(t.is_draft, 0) = 0 AND t.pending_changes IS NULL";
+  if (status === "draft") filters += " AND COALESCE(t.is_draft, 0) = 1";
+  if (status === "pending_edit") filters += " AND COALESCE(t.is_draft, 0) = 0 AND t.pending_changes IS NOT NULL";
+  if (hasSlip === "true") filters += " AND COALESCE(sx.slip_count, 0) > 0";
+  if (hasSlip === "false") filters += " AND COALESCE(sx.slip_count, 0) = 0";
+  if (search) {
+    filters += " AND (t.name LIKE ? OR t.note LIKE ? OR t.submitted_by LIKE ? OR u.name LIKE ? OR c.name LIKE ? OR sc.name LIKE ? OR w.name LIKE ?)";
+    const term = `%${search}%`;
+    args.push(term, term, term, term, term, term, term);
+  }
+  const [countRow, result, creatorRows] = await Promise.all([
+    env.DB.prepare(`SELECT COUNT(*) as cnt ${joinClause}${filters}`).bind(...args).first(),
     env.DB.prepare(`SELECT t.*, u.name AS created_by_name,
       c.name AS category_name, c.color AS category_color,
       sc.name AS sub_category_name, sc.color AS sub_category_color,
-      w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type
+      w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type,
+      COALESCE(sx.slip_count, 0) AS slip_count
       ${joinClause}${filters}
-      ORDER BY t.date DESC, t.created_at DESC LIMIT ? OFFSET ?`).bind(...args, limit, offset).all()
+      ORDER BY t.date DESC, t.created_at DESC LIMIT ? OFFSET ?`).bind(...args, limit, offset).all(),
+    env.DB.prepare(`SELECT t.created_by_user_id AS id, MAX(u.name) AS name
+      FROM transactions t
+      LEFT JOIN users u ON t.created_by_user_id = u.id
+      WHERE t.workspace_id = ? AND t.created_by_user_id IS NOT NULL
+      GROUP BY t.created_by_user_id
+      ORDER BY COALESCE(MAX(u.name), t.created_by_user_id)`).bind(user.workspace_id).all()
   ]);
   return json({
     transactions: (result.results || []).map(formatTransaction),
+    creators: (creatorRows.results || []).map((creator) => ({ id: creator.id, name: creator.name || null })),
     total: countRow?.cnt || 0,
     limit,
     offset
   });
 }
 __name(listTransactions, "listTransactions");
+const TRANSACTION_SOURCE_CHANNELS = new Set(["web", "line", "csv_import", "bulk_slip", "pending_bill", "recurring", "hros", "internal_transfer", "legacy_manual"]);
+function resolveTransactionSourceChannel(transaction) {
+  if (TRANSACTION_SOURCE_CHANNELS.has(transaction?.source_channel)) return transaction.source_channel;
+  if (TRANSACTION_SOURCE_CHANNELS.has(transaction?.sourceChannel)) return transaction.sourceChannel;
+  if (transaction?.transfer_pair_id || transaction?.transferPairId) return "internal_transfer";
+  if (transaction?.source === "auto") return "hros";
+  if (transaction?.recurring_id || transaction?.recurringId) return "recurring";
+  if (String(transaction?.submitted_by || transaction?.submittedBy || "").trim()) return "line";
+  return "legacy_manual";
+}
+__name(resolveTransactionSourceChannel, "resolveTransactionSourceChannel");
 async function createTransaction(request, env, user) {
   if (!requireRole(user, "admin", "staff")) return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const body = await request.json();
-  const { name, amount, type, scope, date, note, walletId, categoryId, subCategoryId, submittedBy, source } = body;
+  const { name, amount, type, scope, date, note, walletId, categoryId, subCategoryId, submittedBy, source, sourceChannel } = body;
   if (!name || !amount || !type || !scope || !date) {
     return json({ error: "fields required: name, amount, type, scope, date" }, 400);
   }
   if (!["income", "expense"].includes(type)) return json({ error: "invalid type" }, 400);
   if (!["business", "personal"].includes(scope)) return json({ error: "invalid scope" }, 400);
+  if (sourceChannel && !TRANSACTION_SOURCE_CHANNELS.has(sourceChannel)) return json({ error: "invalid sourceChannel" }, 400);
   if (Number(amount) <= 0 || isNaN(Number(amount))) return json({ error: "amount must be positive" }, 400);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json({ error: "invalid date format (YYYY-MM-DD)" }, 400);
   let resolvedWalletId = walletId;
@@ -430,13 +482,14 @@ async function createTransaction(request, env, user) {
   // "auto" marks rows pushed by an integration (HR OS payroll sync) vs hand-keyed.
   // Only "auto" is honoured from the payload; anything else falls back to "manual".
   const txSource = source === "auto" ? "auto" : "manual";
+  const txSourceChannel = sourceChannel || (txSource === "auto" ? "hros" : ((String(submittedBy || "").trim() || user.id === env.SERVICE_USER_ID) ? "line" : "web"));
   await env.DB.batch([
     env.DB.prepare(
-      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-    ).bind(id, user.workspace_id, user.id, resolvedWalletId, categoryId || null, subCategoryId || null, name, amt, type, scope, date, note || null, submittedBy || null, txSource),
+      "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    ).bind(id, user.workspace_id, user.id, resolvedWalletId, categoryId || null, subCategoryId || null, name, amt, type, scope, date, note || null, submittedBy || null, txSource, txSourceChannel),
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, resolvedWalletId)
   ]);
-  await logAudit(env, user, "create", "transaction", id, { name, amount: amt });
+  await logAudit(env, user, "create", "transaction", id, { name, amount: amt, sourceChannel: txSourceChannel });
   await broadcastChange(env, user.workspace_id, { event: "tx.created", txId: id, walletId: resolvedWalletId, by: user.name });
   const tx = await env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
   return json({ transaction: formatTransaction(tx) }, 201);
@@ -497,7 +550,7 @@ __name(updateTransaction, "updateTransaction");
 
 // Full transaction row with joined names — used by update/confirm paths.
 async function fetchTxFull(env, id) {
-  return env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id WHERE t.id = ?`).bind(id).first();
+  return env.DB.prepare(`SELECT t.*, u.name AS created_by_name, c.name AS category_name, c.color AS category_color, sc.name AS sub_category_name, sc.color AS sub_category_color, w.name AS wallet_name, w.color AS wallet_color, w.type AS wallet_type, COALESCE(sx.slip_count, 0) AS slip_count FROM transactions t LEFT JOIN users u ON t.created_by_user_id = u.id LEFT JOIN categories c ON t.category_id = c.id LEFT JOIN categories sc ON t.sub_category_id = sc.id LEFT JOIN wallets w ON t.wallet_id = w.id LEFT JOIN (SELECT workspace_id, transaction_id, COUNT(*) AS slip_count FROM slips GROUP BY workspace_id, transaction_id) sx ON sx.workspace_id = t.workspace_id AND sx.transaction_id = t.id WHERE t.id = ?`).bind(id).first();
 }
 __name(fetchTxFull, "fetchTxFull");
 
@@ -610,14 +663,18 @@ async function createTransfer(request, env, user) {
   const transferNote = note || `\u0E42\u0E2D\u0E19 ${fromW.name} \u2192 ${toW.name}`;
   await env.DB.batch([
     // Outgoing tx (expense from source wallet)
-    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(outId, user.workspace_id, user.id, fromWalletId, transferNote, amt, "expense", fromW.scope, date, note || null, pairId),
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'internal_transfer')").bind(outId, user.workspace_id, user.id, fromWalletId, transferNote, amt, "expense", fromW.scope, date, note || null, pairId),
     // Incoming tx (income to target wallet)
-    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(inId, user.workspace_id, user.id, toWalletId, transferNote, amt, "income", toW.scope, date, note || null, pairId),
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, name, amount, type, scope, date, note, transfer_pair_id, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'internal_transfer')").bind(inId, user.workspace_id, user.id, toWalletId, transferNote, amt, "income", toW.scope, date, note || null, pairId),
     // Update balances
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ? WHERE id = ?").bind(amt, fromWalletId),
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ? WHERE id = ?").bind(amt, toWalletId)
   ]);
   await logAudit(env, user, "transfer", "transaction", pairId, { fromWalletId, toWalletId, amount: amt });
+  await Promise.all([
+    logAudit(env, user, "create_transfer", "transaction", outId, { pairId, direction: "out", amount: amt }),
+    logAudit(env, user, "create_transfer", "transaction", inId, { pairId, direction: "in", amount: amt })
+  ]);
   await broadcastChange(env, user.workspace_id, { event: "transfer.created", pairId, by: user.name });
   return json({ ok: true, transferPairId: pairId, outgoingId: outId, incomingId: inId }, 201);
 }
@@ -992,9 +1049,33 @@ async function toggleReconcile(id, env, user) {
   if (user.role === "viewer") return json({ error: "\u0E44\u0E21\u0E48\u0E21\u0E35\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C" }, 403);
   const newVal = tx.is_reconciled ? 0 : 1;
   await env.DB.prepare("UPDATE transactions SET is_reconciled = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(newVal, id).run();
+  await logAudit(env, user, newVal ? "reconcile" : "unreconcile", "transaction", id, { isReconciled: !!newVal });
   return json({ ok: true, isReconciled: !!newVal });
 }
 __name(toggleReconcile, "toggleReconcile");
+async function listTransactionHistory(id, env, user) {
+  const tx = await env.DB.prepare("SELECT id FROM transactions WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!tx) return json({ error: "ไม่พบรายการ" }, 404);
+  const result = await env.DB.prepare(
+    `SELECT a.*, u.name AS user_name
+     FROM audit_log a
+     LEFT JOIN users u ON a.user_id = u.id
+     WHERE a.workspace_id = ? AND a.entity_type = 'transaction' AND a.entity_id = ?
+     ORDER BY a.created_at DESC
+     LIMIT 200`
+  ).bind(user.workspace_id, id).all();
+  return json({
+    history: (result.results || []).map((entry) => ({
+      id: entry.id,
+      action: entry.action,
+      userId: entry.user_id,
+      userName: entry.user_name || null,
+      details: entry.details ? (() => { try { return JSON.parse(entry.details); } catch { return {}; } })() : {},
+      createdAt: entry.created_at
+    }))
+  });
+}
+__name(listTransactionHistory, "listTransactionHistory");
 async function listAuditLog(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
   const url = new URL(request.url);
@@ -1091,11 +1172,12 @@ async function triggerRecurring(id, env, user) {
   const wallet = await env.DB.prepare("SELECT id FROM wallets WHERE id = ? AND is_active = 1").bind(rec.wallet_id).first();
   if (!wallet) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A\u0E01\u0E23\u0E30\u0E40\u0E1B\u0E4B\u0E32" }, 404);
   await env.DB.batch([
-    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(txId, rec.workspace_id, user.id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (manual trigger)", Number(rec.amount), rec.type, rec.scope, today, "triggered manually"),
+    env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'recurring')").bind(txId, rec.workspace_id, user.id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (manual trigger)", Number(rec.amount), rec.type, rec.scope, today, "triggered manually"),
     env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, rec.wallet_id)
   ]);
   const nextDue = calcNextDueDate(rec.frequency, rec.due_day, today);
   await env.DB.prepare("UPDATE recurring_templates SET next_due_date = ? WHERE id = ?").bind(nextDue, rec.id).run();
+  await logAudit(env, user, "create_recurring", "transaction", txId, { recurringId: rec.id });
   await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, by: user.name });
   return json({ ok: true, txId, nextDueDate: nextDue });
 }
@@ -1117,12 +1199,12 @@ async function processRecurring(env, thaiHour = 8) {
       const txId = "tx_" + crypto.randomUUID();
       if (isDraft) {
         await env.DB.prepare(
-          "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, is_draft, recurring_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)"
+          "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, is_draft, recurring_id, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'recurring')"
         ).bind(txId, rec.workspace_id, rec.created_by_user_id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name, Number(rec.amount), rec.type, rec.scope, today, "draft \u2014 \u0E23\u0E2D\u0E22\u0E37\u0E19\u0E22\u0E31\u0E19", rec.id).run();
       } else {
         const balanceChange = rec.type === "income" ? Number(rec.amount) : -Number(rec.amount);
         await env.DB.batch([
-          env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").bind(txId, rec.workspace_id, rec.created_by_user_id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (auto)", Number(rec.amount), rec.type, rec.scope, today, "auto-created from recurring template"),
+          env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'recurring')").bind(txId, rec.workspace_id, rec.created_by_user_id, rec.wallet_id, rec.category_id, rec.sub_category_id, rec.name + " (auto)", Number(rec.amount), rec.type, rec.scope, today, "auto-created from recurring template"),
           env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(balanceChange, rec.wallet_id)
         ]);
       }
@@ -2001,6 +2083,7 @@ async function uploadSlip(transactionId, request, env, user) {
   await env.DB.prepare(
     "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(slipId, user.workspace_id, transactionId, fileKey, fileName, body.byteLength, contentType, slipType, ocrText, ocrData).run();
+  await logAudit(env, user, "upload_slip", "transaction", transactionId, { slipId, slipType, fileName });
   return json({ slip: { id: slipId, fileName, slipType, mimeType: contentType, fileSize: body.byteLength, ocrData: ocrData ? JSON.parse(ocrData) : null } }, 201);
 }
 __name(uploadSlip, "uploadSlip");
@@ -2034,6 +2117,7 @@ async function deleteSlip(slipId, env, user) {
   if (!s) return json({ error: "Slip not found" }, 404);
   await env.SLIPS.delete(s.file_key);
   await env.DB.prepare("DELETE FROM slips WHERE id = ?").bind(slipId).run();
+  await logAudit(env, user, "delete_slip", "transaction", s.transaction_id, { slipId, slipType: s.slip_type, fileName: s.file_name });
   return json({ ok: true });
 }
 __name(deleteSlip, "deleteSlip");
@@ -2264,6 +2348,8 @@ function formatTransaction(t) {
     recurringId: t.recurring_id || null,
     submittedBy: t.submitted_by || null,
     source: t.source || "manual",
+    sourceChannel: resolveTransactionSourceChannel(t),
+    slipCount: Number(t.slip_count || 0),
     pendingChanges: t.pending_changes ? (() => { try { return JSON.parse(t.pending_changes); } catch { return null; } })() : null,
     editedBy: t.edited_by || null,
     editedAt: t.edited_at || null,
@@ -2460,7 +2546,7 @@ async function payPendingBill(id, request, env, user) {
   try {
     await env.DB.batch([
       env.DB.prepare(
-        "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual')"
+        "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual', 'pending_bill')"
       ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
       env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
       env.DB.prepare(
@@ -2474,6 +2560,7 @@ async function payPendingBill(id, request, env, user) {
     return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
   }
   await logAudit(env, user, "pay", "pending_bill", id, { txId, amount: amt });
+  await logAudit(env, user, "create_pending_bill", "transaction", txId, { pendingBillId: id, amount: amt });
   await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
   const tx = await fetchTxFull(env, txId);
   return json({ ok: true, transaction: formatTransaction(tx), txId });
@@ -2603,7 +2690,7 @@ async function refundPendingBill(id, request, env, user) {
   if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้คืนเงินไปแล้ว" }, 409);
   try {
     await env.DB.batch([
-      env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'income', ?, ?, ?, ?, 'manual')").bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, "คืนเงิน: " + b.name, amt, b.scope, date, "คืนจากบิล " + id, b.submitted_by_name || null),
+      env.DB.prepare("INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'income', ?, ?, ?, ?, 'manual', 'pending_bill')").bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, "คืนเงิน: " + b.name, amt, b.scope, date, "คืนจากบิล " + id, b.submitted_by_name || null),
       env.DB.prepare("UPDATE wallets SET current_balance = current_balance + ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId)
     ]);
   } catch (e) {
@@ -2612,6 +2699,7 @@ async function refundPendingBill(id, request, env, user) {
     return json({ error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" }, 500);
   }
   await logAudit(env, user, "refund", "pending_bill", id, { txId, amount: amt });
+  await logAudit(env, user, "refund_pending_bill", "transaction", txId, { pendingBillId: id, amount: amt });
   await broadcastChange(env, user.workspace_id, { event: "tx.created", txId, walletId, by: user.name });
   return json({ ok: true, txId });
 }

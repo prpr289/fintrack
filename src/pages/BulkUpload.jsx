@@ -150,7 +150,7 @@ export default function BulkUpload() {
       try {
         const body = {
           name: buildTxName(row), amount: Number(row.amount), type: row.type,
-          scope: row.scope || 'business', date: row.date,
+          scope: row.scope || 'business', date: row.date, sourceChannel: 'bulk_slip',
         }
         if (row.walletId) body.walletId = row.walletId
         if (row.categoryId) body.categoryId = row.categoryId

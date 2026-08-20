@@ -1,7 +1,9 @@
+import { sourceChannelLabel, transactionStatus } from './transactionLedger'
+
 // ── Export ────────────────────────────────────────────────────────────────────
 
 export function exportTransactionsCsv(transactions, filename = 'transactions.csv') {
-  const headers = ['date', 'name', 'amount', 'type', 'scope', 'category', 'sub_category', 'wallet', 'reconciled', 'note']
+  const headers = ['date', 'name', 'amount', 'type', 'scope', 'category', 'sub_category', 'wallet', 'reconciled', 'submitted_by', 'recorded_by', 'source_channel', 'status', 'slip_count', 'created_at', 'updated_at', 'note']
   const rows = transactions.map(t => [
     t.date || '',
     t.name || '',
@@ -12,11 +14,18 @@ export function exportTransactionsCsv(transactions, filename = 'transactions.csv
     t.subCategoryName || '',
     t.walletName || '',
     t.isReconciled ? 'yes' : 'no',
-    (t.note || '').replace(/"/g, '""'),
+    t.submittedBy || '',
+    t.createdByName || '',
+    sourceChannelLabel(t),
+    transactionStatus(t).label,
+    Number(t.slipCount || 0),
+    t.createdAt || '',
+    t.updatedAt || '',
+    t.note || '',
   ])
 
   const csv = [headers, ...rows]
-    .map(row => row.map(v => `"${v}"`).join(','))
+    .map(row => row.map(v => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
     .join('\r\n')
 
   const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8;' })
@@ -30,7 +39,7 @@ export function exportTransactionsCsv(transactions, filename = 'transactions.csv
 
 export function exportTransactionsXls(transactions, filename = 'transactions.xls') {
   const rows = [
-    ['วันที่', 'ชื่อรายการ', 'หมวดหมู่', 'หมวดย่อย', 'กระเป๋า', 'ประเภท', 'Scope', 'จำนวน (บาท)', 'ยืนยันแล้ว', 'หมายเหตุ'],
+    ['วันที่', 'ชื่อรายการ', 'หมวดหมู่', 'หมวดย่อย', 'กระเป๋า', 'ประเภท', 'Scope', 'จำนวน (บาท)', 'ยืนยันแล้ว', 'ผู้ส่งข้อมูล', 'ผู้บันทึก', 'ช่องทาง', 'สถานะ', 'หลักฐาน (ไฟล์)', 'สร้างเมื่อ', 'แก้ไขล่าสุด', 'หมายเหตุ'],
     ...transactions.map(t => [
       t.date || '',
       t.name || '',
@@ -41,6 +50,13 @@ export function exportTransactionsXls(transactions, filename = 'transactions.xls
       t.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว',
       t.type === 'expense' ? -t.amount : t.amount,
       t.isReconciled ? 'ใช่' : 'ไม่',
+      t.submittedBy || '',
+      t.createdByName || '',
+      sourceChannelLabel(t),
+      transactionStatus(t).label,
+      Number(t.slipCount || 0),
+      t.createdAt || '',
+      t.updatedAt || '',
       t.note || '',
     ]),
   ]
@@ -122,6 +138,7 @@ export function parseCsv(text) {
         type: obj.type,
         scope: obj.scope,
         note: obj.note || undefined,
+        sourceChannel: 'csv_import',
       })
     }
   }

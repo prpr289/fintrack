@@ -8,17 +8,44 @@ import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
   CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
   Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
-  ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown, User, Printer,
+  ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown, Printer,
 } from 'lucide-react'
 import { exportTransactionsCsv, exportTransactionsXls, exportTemplateCsv, parseCsv } from '../csvUtils'
 import { groupTransactionsByDate } from '../transactionGroups'
 import { summarizeTransactionPageTransactions } from '../transactionSummary'
+import {
+  buildTransactionQuery,
+  sourceChannelLabel,
+  transactionActors,
+  transactionStatus,
+  TRANSACTION_SOURCE_LABELS,
+} from '../transactionLedger'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
 const INPUT_STYLE = { background: '#0d1120' }
 const EMPTY = { name: '', amount: '', type: 'expense', scope: 'business', date: today(), walletId: '', categoryId: '', subCategoryId: '', note: '' }
+const EMPTY_FILTERS = {
+  type: '', scope: '', walletId: '', categoryId: '', createdByUserId: '',
+  sourceChannel: '', status: '', hasSlip: '',
+}
 const PAGE_SIZE = 50
+
+async function fetchAllTransactions(params) {
+  const pageSize = 1000
+  const transactions = []
+  let total
+  let offset = 0
+  do {
+    const data = await api.transactions({ ...params, limit: pageSize, offset })
+    const batch = data.transactions || []
+    total = Number(data.total || 0)
+    transactions.push(...batch)
+    offset += batch.length
+    if (batch.length === 0) break
+  } while (offset < total)
+  return { transactions, total }
+}
 
 // ── Luxe theme tokens (mirrors the standalone design) ──────────────
 const FONT_SERIF = "'Noto Serif Thai', serif"
@@ -71,6 +98,158 @@ function AutoBadge() {
       <span style={{ width: 5, height: 5, borderRadius: '50%', background: '#818cf8' }} />
       ระบบ
     </span>
+  )
+}
+
+function ActorCell({ transaction, compact = false }) {
+  const actors = transactionActors(transaction)
+  const rowClass = compact ? 'flex items-center gap-1.5 min-w-0' : 'grid grid-cols-[58px_minmax(0,1fr)] gap-x-2 min-w-0'
+  return (
+    <div className="space-y-1 min-w-0" style={{ fontSize: compact ? 11.5 : 11 }}>
+      <div className={rowClass}>
+        <span style={{ color: 'rgba(148,163,184,0.62)' }}>ผู้ส่ง</span>
+        <span className="truncate" style={{ color: actors.submitter ? '#8de8ce' : 'rgba(148,163,184,0.5)' }}>{actors.submitter || '—'}</span>
+      </div>
+      <div className={rowClass}>
+        <span style={{ color: 'rgba(148,163,184,0.62)' }}>ผู้บันทึก</span>
+        <span className="truncate" title={actors.recorder || actors.recorderId || ''} style={{ color: actors.recorder ? '#d6dee8' : '#f2b86b' }}>
+          {actors.recorder || 'ไม่พบชื่อผู้ใช้'}
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function LedgerStatus({ transaction, compact = false }) {
+  const status = transactionStatus(transaction)
+  const colors = {
+    warning: ['#fbbf24', 'rgba(251,191,36,0.1)'],
+    info: ['#93c5fd', 'rgba(96,165,250,0.1)'],
+    success: ['#6ee7c7', 'rgba(16,185,129,0.1)'],
+    neutral: ['#a9b5c4', 'rgba(148,163,184,0.08)'],
+  }
+  const [color, background] = colors[status.tone]
+  return (
+    <div className={`flex ${compact ? 'flex-row flex-wrap items-center' : 'flex-col items-start'} gap-1.5 min-w-0`}>
+      <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 whitespace-nowrap" style={{ fontSize: 10.5, color, background, border: `1px solid ${color}33` }}>
+        <span style={{ width: 5, height: 5, borderRadius: '50%', background: color }} />{status.label}
+      </span>
+      <span className="truncate max-w-full" style={{ fontSize: 10.5, color: 'rgba(148,163,184,0.72)' }}>{sourceChannelLabel(transaction)}</span>
+      <span className="inline-flex items-center gap-1" style={{ fontSize: 10.5, color: Number(transaction.slipCount || 0) > 0 ? '#e6c47a' : 'rgba(148,163,184,0.48)' }}>
+        <Paperclip className="w-3 h-3" /> {Number(transaction.slipCount || 0)} ไฟล์
+      </span>
+    </div>
+  )
+}
+
+const HISTORY_LABELS = {
+  create: 'สร้างรายการ',
+  update: 'แก้ไขรายการ',
+  edit_pending: 'ส่งคำขอแก้ไข',
+  confirm_edit: 'ยืนยันการแก้ไข',
+  cancel_edit: 'ยกเลิกการแก้ไข',
+  reconcile: 'กระทบยอด',
+  unreconcile: 'ยกเลิกกระทบยอด',
+  upload_slip: 'เพิ่มหลักฐาน',
+  delete_slip: 'ลบหลักฐาน',
+  print: 'พิมพ์เอกสาร',
+  create_transfer: 'สร้างจากการโอนภายใน',
+  create_recurring: 'สร้างจากรายการประจำ',
+  create_pending_bill: 'สร้างจากบิลรอจ่าย',
+  refund_pending_bill: 'คืนเงินจากบิลรอจ่าย',
+}
+
+function formatAuditTime(value) {
+  if (!value) return '—'
+  const d = new Date(String(value).includes('T') ? value : `${String(value).replace(' ', 'T')}Z`)
+  return Number.isNaN(d.getTime()) ? value : d.toLocaleString('th-TH', { dateStyle: 'medium', timeStyle: 'short' })
+}
+
+function TransactionDetailDrawer({ transaction, onClose, onOpenSlips }) {
+  const [history, setHistory] = useState(null)
+  const [historyError, setHistoryError] = useState('')
+  const [historyAttempt, setHistoryAttempt] = useState(0)
+  const actors = transactionActors(transaction)
+
+  useEffect(() => {
+    let active = true
+    api.transactionHistory(transaction.id)
+      .then(data => { if (active) setHistory(data.history || []) })
+      .catch(error => { if (active) setHistoryError(error.message || 'โหลดประวัติไม่สำเร็จ') })
+    return () => { active = false }
+  }, [transaction.id, historyAttempt])
+
+  return (
+    <div className="fixed inset-0 z-[60] bg-black/60" onMouseDown={onClose}>
+      <aside className="absolute inset-y-0 right-0 w-full sm:max-w-xl overflow-y-auto" onMouseDown={event => event.stopPropagation()}
+        style={{ background: '#0b1019', borderLeft: '1px solid rgba(255,255,255,0.1)', boxShadow: '-30px 0 80px rgba(0,0,0,0.45)' }}>
+        <div className="sticky top-0 z-10 flex items-start justify-between gap-3 px-5 sm:px-6 py-5" style={{ background: 'rgba(11,16,25,0.94)', backdropFilter: 'blur(18px)', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+          <div className="min-w-0">
+            <p className="uppercase" style={{ fontSize: 10, letterSpacing: '2px', color: '#6ee7c7' }}>รายละเอียดรายการ</p>
+            <h3 className="mt-1 text-lg text-slate-100 font-semibold truncate">{transaction.name}</h3>
+            <p className="mt-1" style={{ fontFamily: FONT_MONO, color: transaction.type === 'income' ? '#34d399' : '#fb7185' }}>{signedThb(transaction.type, transaction.amount)}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-xl text-slate-400 hover:text-white hover:bg-white/5" aria-label="ปิดรายละเอียด"><X className="w-5 h-5" /></button>
+        </div>
+
+        <div className="p-5 sm:p-6 space-y-5">
+          <section className="grid grid-cols-2 gap-3">
+            {[
+              ['วันที่รายการ', date(transaction.date)],
+              ['หมวดหมู่', [transaction.categoryName, transaction.subCategoryName].filter(Boolean).join(' › ') || '—'],
+              ['กระเป๋า', transaction.walletName || '—'],
+              ['Scope', transaction.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'],
+            ].map(([label, value]) => (
+              <div key={label} className="rounded-xl p-3 min-w-0" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+                <p className="text-[11px] text-slate-500">{label}</p><p className="mt-1 text-sm text-slate-200 break-words">{value}</p>
+              </div>
+            ))}
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex items-center justify-between gap-3"><h4 className="text-sm font-semibold text-slate-200">ผู้เกี่ยวข้องและที่มา</h4><LedgerStatus transaction={transaction} compact /></div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <div><p className="text-[11px] text-slate-500">ผู้ส่งข้อมูล</p><p className="mt-1 text-sm text-emerald-200">{actors.submitter || '—'}</p></div>
+              <div><p className="text-[11px] text-slate-500">ผู้บันทึกในระบบ</p><p className="mt-1 text-sm text-slate-200">{actors.recorder || 'ไม่พบชื่อผู้ใช้'}</p>{!actors.recorder && actors.recorderId && <p className="text-[10px] text-amber-400 mt-1">ID: {actors.recorderId}</p>}</div>
+            </div>
+          </section>
+
+          <section className="rounded-2xl p-4 space-y-3" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <div className="flex items-center justify-between gap-3">
+              <div><h4 className="text-sm font-semibold text-slate-200">หลักฐานและเอกสาร</h4><p className="text-xs text-slate-500 mt-1">แนบแล้ว {Number(transaction.slipCount || 0)} ไฟล์ · พิมพ์ {Number(transaction.printCount || 0)} ครั้ง</p></div>
+              <button onClick={() => onOpenSlips(transaction)} className="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs text-amber-300 hover:bg-amber-400/10" style={{ border: '1px solid rgba(251,191,36,0.22)' }}><Paperclip className="w-3.5 h-3.5" /> ดู/แนบไฟล์</button>
+            </div>
+            {transaction.printedBy && <p className="text-xs text-slate-400">พิมพ์ล่าสุดโดย {transaction.printedBy} · {formatAuditTime(transaction.printedAt)}</p>}
+          </section>
+
+          <section className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.07)' }}>
+            <h4 className="text-sm font-semibold text-slate-200">เวลาและหมายเหตุ</h4>
+            <div className="mt-3 grid grid-cols-2 gap-3 text-xs"><div><p className="text-slate-500">สร้างเมื่อ</p><p className="text-slate-300 mt-1">{formatAuditTime(transaction.createdAt)}</p></div><div><p className="text-slate-500">แก้ไขล่าสุด</p><p className="text-slate-300 mt-1">{formatAuditTime(transaction.updatedAt)}</p></div></div>
+            {transaction.note && <p className="mt-3 rounded-lg p-3 text-sm text-slate-300" style={{ background: 'rgba(0,0,0,0.2)' }}>{transaction.note}</p>}
+          </section>
+
+          <section>
+            <h4 className="text-sm font-semibold text-slate-200">ประวัติรายการ</h4>
+            <div className="mt-3 space-y-2">
+              {history === null && !historyError && <div className="flex items-center gap-2 text-xs text-slate-500"><Loader2 className="w-4 h-4 animate-spin" /> กำลังโหลดประวัติ…</div>}
+              {historyError && (
+                <div className="flex items-center justify-between gap-3 rounded-xl p-3" style={{ background: 'rgba(244,63,94,0.08)' }}>
+                  <p className="text-xs text-red-300">{historyError}</p>
+                  <button onClick={() => { setHistoryError(''); setHistory(null); setHistoryAttempt(attempt => attempt + 1) }} className="text-xs text-red-200 underline underline-offset-2">ลองใหม่</button>
+                </div>
+              )}
+              {history?.length === 0 && <p className="text-xs text-slate-500">ยังไม่มีประวัติที่บันทึกไว้</p>}
+              {history?.map(entry => (
+                <div key={entry.id} className="grid grid-cols-[10px_minmax(0,1fr)] gap-3 rounded-xl p-3" style={{ border: '1px solid rgba(255,255,255,0.06)' }}>
+                  <span className="mt-1.5 w-2 h-2 rounded-full" style={{ background: '#34d399' }} />
+                  <div className="min-w-0"><p className="text-sm text-slate-300">{HISTORY_LABELS[entry.action] || entry.action}</p><p className="text-[11px] text-slate-500 mt-1">{entry.userName || 'ระบบ'} · {formatAuditTime(entry.createdAt)}</p></div>
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+      </aside>
+    </div>
   )
 }
 
@@ -783,12 +962,12 @@ function ExportModal({ onClose, currentFilter, currentSearch, defaultRange }) {
     if (!from || !to || from > to) { alert('ช่วงวันที่ไม่ถูกต้อง'); return }
     setExporting(true)
     try {
-      const all = await api.transactions({
-        limit: 5000, from, to,
-        ...(currentFilter.type && { type: currentFilter.type }),
-        ...(currentFilter.scope && { scope: currentFilter.scope }),
-        ...(currentSearch && { search: currentSearch }),
-      })
+      const all = await fetchAllTransactions(buildTransactionQuery({
+        ...currentFilter,
+        from,
+        to,
+        search: currentSearch,
+      }))
       const txs = all.transactions || []
       const filename = `transactions-${from}-to-${to}`
       if (fmt === 'csv') exportTransactionsCsv(txs, `${filename}.csv`)
@@ -1007,6 +1186,7 @@ export default function Transactions() {
   const [txs, setTxs] = useState([])
   const [wallets, setWallets] = useState([])
   const [categories, setCategories] = useState([])
+  const [creators, setCreators] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [loading, setLoading] = useState(true)
@@ -1015,7 +1195,7 @@ export default function Transactions() {
   const [form, setForm] = useState(EMPTY)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
-  const [filter, setFilter] = useState({ type: '', scope: '' })
+  const [filter, setFilter] = useState(() => ({ ...EMPTY_FILTERS }))
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [showImport, setShowImport] = useState(false)
@@ -1023,6 +1203,7 @@ export default function Transactions() {
   const [slipTx, setSlipTx] = useState(null)
   const [confirmTx, setConfirmTx] = useState(null)
   const [editConfirmTx, setEditConfirmTx] = useState(null)
+  const [detailTx, setDetailTx] = useState(null)
   const [summary, setSummary] = useState(null) // { income, expense, net } across current filter
   const [period, setPeriod] = useState('thisMonth') // default to the current month
   const [customRange, setCustomRange] = useState({ from: '', to: '' })
@@ -1054,11 +1235,13 @@ export default function Transactions() {
   const load = useCallback(async () => {
     setLoading(true)
     const range = txRangeOf(period, customRange)
-    const params = { limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE }
-    if (filter.type) params.type = filter.type
-    if (filter.scope) params.scope = filter.scope
-    if (debouncedSearch) params.search = debouncedSearch
-    if (range) { params.from = range.from; params.to = range.to }
+    const params = buildTransactionQuery({
+      ...filter,
+      ...(range || {}),
+      search: debouncedSearch,
+      limit: PAGE_SIZE,
+      offset: (page - 1) * PAGE_SIZE,
+    })
     const [td, wd, cd] = await Promise.all([
       api.transactions(params),
       api.wallets(),
@@ -1068,6 +1251,7 @@ export default function Transactions() {
     setTotal(td.total || 0)
     setWallets(wd.wallets || [])
     setCategories(cd.categories || [])
+    setCreators(td.creators || [])
     setLoading(false)
   }, [filter, page, debouncedSearch, period, customRange])
 
@@ -1104,12 +1288,12 @@ export default function Transactions() {
 
     let cancelled = false
     const range = txRangeOf(period, customRange)
-    const params = { limit: 5000 }
-    if (filter.type) params.type = filter.type
-    if (filter.scope) params.scope = filter.scope
-    if (debouncedSearch) params.search = debouncedSearch
-    if (range) { params.from = range.from; params.to = range.to }
-    api.transactions(params).then(d => {
+    const params = buildTransactionQuery({
+      ...filter,
+      ...(range || {}),
+      search: debouncedSearch,
+    })
+    fetchAllTransactions(params).then(d => {
       if (cancelled) return
       const list = d.transactions || []
       setSummary(summarizeTransactionPageTransactions(list))
@@ -1183,8 +1367,8 @@ export default function Transactions() {
 
   const toggleReconcile = async (t) => {
     try {
-      const res = await api.reconcileTransaction(t.id)
-      setTxs(prev => prev.map(tx => tx.id === t.id ? { ...tx, isReconciled: res.isReconciled } : tx))
+      await api.reconcileTransaction(t.id)
+      await load()
     } catch (e) { alert(e.message) }
   }
 
@@ -1196,6 +1380,24 @@ export default function Transactions() {
     const c = categories.find(x => x.id === t.categoryId)
     return c?.color || hashColor(t.categoryName || t.name || '')
   }
+  const hasActiveFilters = Object.values(filter).some(Boolean)
+  const filterSelectStyle = {
+    fontSize: 12.5,
+    fontWeight: 500,
+    color: '#cdd6e1',
+    background: "rgba(255,255,255,0.035) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\") no-repeat right 12px center",
+    border: '1px solid rgba(255,255,255,0.08)',
+  }
+  const ledgerFilterOptions = [
+    { key: 'type', label: 'ทุกประเภท', options: [['income', 'รายรับ'], ['expense', 'รายจ่าย']] },
+    { key: 'scope', label: 'ทุก scope', options: [['business', 'ธุรกิจ'], ['personal', 'ส่วนตัว']] },
+    { key: 'walletId', label: 'ทุกกระเป๋า', options: wallets.map(wallet => [wallet.id, wallet.name]) },
+    { key: 'categoryId', label: 'ทุกหมวดหมู่', options: mainCats.map(category => [category.id, category.name]) },
+    { key: 'sourceChannel', label: 'ทุกช่องทาง', options: Object.entries(TRANSACTION_SOURCE_LABELS).map(([value, label]) => [value, label]) },
+    { key: 'status', label: 'ทุกสถานะ', options: [['posted', 'รายการปกติ'], ['reconciled', 'ตรวจแล้ว'], ['unreconciled', 'รอตรวจ'], ['draft', 'ฉบับร่าง'], ['pending_edit', 'รออนุมัติแก้ไข']] },
+    { key: 'hasSlip', label: 'ทุกหลักฐาน', options: [['true', 'มีหลักฐาน'], ['false', 'ไม่มีหลักฐาน']] },
+    { key: 'createdByUserId', label: 'ผู้บันทึกทั้งหมด', options: creators.map(item => [item.id, item.name || `ไม่พบชื่อ (${item.id})`]) },
+  ]
 
   return (
     <div className="tx-page relative p-4 sm:p-6" style={{ background: '#06080c', minHeight: '100%', fontFamily: "'Anuphan', sans-serif", color: '#dbe2ea' }}>
@@ -1272,41 +1474,46 @@ export default function Transactions() {
       </div>
 
       {/* Search + Filters */}
-      <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
-        <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 flex-1 sm:min-w-[260px] transition-all"
-          style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.08)' }}>
-          <Search className="w-[18px] h-[18px] flex-shrink-0" style={{ color: 'rgba(148,163,184,0.8)' }} strokeWidth={1.9} />
-          <input
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            placeholder="ค้นหาชื่อ หรือ หมายเหตุ…"
-            className="flex-1 bg-transparent focus:outline-none min-w-0"
-            style={{ color: '#e2e8f0', fontSize: 13.5 }}
-          />
-          {search && (
-            <button onClick={() => setSearch('')} aria-label="ล้างคำค้นหา" title="ล้างคำค้นหา" className="flex-shrink-0 min-w-[40px] min-h-[40px] flex items-center justify-center" style={{ color: 'rgba(148,163,184,0.7)' }}>
-              <X className="w-3.5 h-3.5" />
-            </button>
-          )}
+      <div className="space-y-2.5">
+        <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2.5">
+          <div className="flex items-center gap-2.5 rounded-xl px-4 py-3 flex-1 sm:min-w-[300px] transition-all"
+            style={{ background: 'rgba(255,255,255,0.035)', border: '1px solid rgba(255,255,255,0.08)' }}>
+            <Search className="w-[18px] h-[18px] flex-shrink-0" style={{ color: 'rgba(148,163,184,0.8)' }} strokeWidth={1.9} />
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="ค้นหารายการ ผู้ส่ง ผู้บันทึก หมวดหมู่ หรือกระเป๋า…"
+              className="flex-1 bg-transparent focus:outline-none min-w-0"
+              style={{ color: '#e2e8f0', fontSize: 13.5 }}
+            />
+            {search && (
+              <button onClick={() => setSearch('')} aria-label="ล้างคำค้นหา" title="ล้างคำค้นหา" className="flex-shrink-0 min-w-[40px] min-h-[40px] flex items-center justify-center" style={{ color: 'rgba(148,163,184,0.7)' }}>
+                <X className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
+          <PeriodControl period={period} customRange={customRange} onPick={pickPeriod} onApplyCustom={applyCustom} />
         </div>
-        <PeriodControl period={period} customRange={customRange} onPick={pickPeriod} onApplyCustom={applyCustom} />
-        <div className="flex gap-2.5">
-          {[
-            { key: 'type', options: [['', 'ทุกประเภท'], ['income', 'รายรับ'], ['expense', 'รายจ่าย']] },
-            { key: 'scope', options: [['', 'ทุก scope'], ['business', 'ธุรกิจ'], ['personal', 'ส่วนตัว']] },
-          ].map(({ key, options }) => (
+        <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-8 gap-2">
+          {ledgerFilterOptions.map(({ key, label, options }) => (
             <select key={key} value={filter[key]}
-              onChange={e => setFilterWithReset(f => ({ ...f, [key]: e.target.value }))}
-              className="flex-1 rounded-xl pl-4 pr-9 py-3 focus:outline-none transition-all appearance-none cursor-pointer"
-              style={{
-                fontSize: 13, fontWeight: 500, color: '#cdd6e1',
-                background: "rgba(255,255,255,0.035) url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%2394a3b8' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E\") no-repeat right 12px center",
-                border: '1px solid rgba(255,255,255,0.08)',
-              }}>
-              {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+              aria-label={label}
+              onChange={e => setFilterWithReset(current => ({ ...current, [key]: e.target.value }))}
+              className="min-w-0 rounded-xl pl-3 pr-8 py-2.5 focus:outline-none transition-all appearance-none cursor-pointer"
+              style={filterSelectStyle}>
+              <option value="">{label}</option>
+              {options.map(([value, optionLabel]) => <option key={value} value={value}>{optionLabel}</option>)}
             </select>
           ))}
         </div>
+        {(hasActiveFilters || search) && (
+          <div className="flex justify-end">
+            <button onClick={() => { setFilter({ ...EMPTY_FILTERS }); setSearch(''); setPage(1) }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-white/5">
+              <X className="w-3.5 h-3.5" /> ล้างตัวกรอง
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Summary totals (current filter) */}
@@ -1336,7 +1543,7 @@ export default function Transactions() {
             </div>
             <p style={{ color: '#d3dbe5', fontSize: 14, fontWeight: 600 }}>ไม่พบรายการ</p>
             <p style={{ color: 'rgba(148,163,184,0.75)', fontSize: 12.5 }}>
-              {(debouncedSearch || filter.type || filter.scope || period !== 'all') ? 'ลองปรับช่วงเวลา / คำค้นหา หรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
+              {(debouncedSearch || hasActiveFilters || period !== 'all') ? 'ลองปรับช่วงเวลา / คำค้นหา หรือตัวกรอง' : 'ยังไม่มีรายการธุรกรรม — เริ่มจากปุ่มเพิ่มรายการ'}
             </p>
           </div>
         ) : (
@@ -1387,12 +1594,19 @@ export default function Transactions() {
                               <CreditCardIcon /> <span className="truncate" style={{ fontFamily: FONT_MONO, fontSize: 12 }}>{t.walletName}</span>
                             </span>
                           )}
-                          {t.submittedBy && <span className="inline-flex items-center gap-1" style={{ color: 'rgba(110,231,199,0.7)' }}><User className="w-3 h-3" /> {t.submittedBy}</span>}
-                          {t.isReconciled && <span className="inline-flex items-center gap-1" style={{ color: '#34d399' }}><Check className="w-3 h-3" /> กระทบยอดแล้ว</span>}
                           {t.printedBy && <span className="inline-flex items-center gap-1"><Printer className="w-3 h-3" /> {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
+                        </div>
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto] gap-3 mt-3 rounded-xl px-3 py-2.5" style={{ background: 'rgba(255,255,255,0.025)', border: '1px solid rgba(255,255,255,0.055)' }}>
+                          <ActorCell transaction={t} compact />
+                          <LedgerStatus transaction={t} compact />
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-3 pt-3" style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
                           <div className="flex items-center gap-1.5 flex-wrap">
+                            <button onClick={() => setDetailTx(t)}
+                              className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg transition-colors text-emerald-300 hover:bg-emerald-500/10"
+                              style={{ border: '1px solid rgba(110,231,199,0.22)' }}>
+                              <Eye className="w-3 h-3" /> รายละเอียด
+                            </button>
                             {t.isDraft && canWrite && (
                               <button onClick={() => setConfirmTx(t)}
                                 className="flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg font-semibold text-amber-400 border border-amber-400/30 hover:bg-amber-400/10 transition-colors">
@@ -1450,10 +1664,10 @@ export default function Transactions() {
 
             {/* ── Desktop: grouped grid ── */}
             <div className="hidden md:block">
-              <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 860 }}>
-                <div className="grid items-center gap-4 px-6 py-3.5" style={{ gridTemplateColumns: isStaff ? 'minmax(0,1.7fr) minmax(0,1.1fr) 150px 150px 120px 160px' : 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
-                  {(isStaff ? ['รายการ', 'หมวดหมู่', 'กระเป๋า', 'พนักงาน', 'จำนวนเงิน', 'จัดการ'] : ['รายการ', 'หมวดหมู่', 'กระเป๋า', 'จำนวน', '']).map((h, i) => (
-                    <div key={i} className="uppercase" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.55)', textAlign: (isStaff ? i === 4 : i === 3) ? 'right' : 'left' }}>{h}</div>
+              <div style={{ overflowX: 'auto' }}><div style={{ minWidth: 1180 }}>
+                <div className="grid items-center gap-4 px-6 py-3.5" style={{ gridTemplateColumns: 'minmax(220px,1.5fr) minmax(150px,.9fr) 140px minmax(175px,1fr) 130px 125px 180px', borderBottom: '1px solid rgba(255,255,255,0.07)' }}>
+                  {['รายการ', 'หมวดหมู่', 'กระเป๋า', 'ผู้เกี่ยวข้อง', 'สถานะ', 'จำนวนเงิน', 'จัดการ'].map((h, i) => (
+                    <div key={i} className="uppercase" style={{ fontSize: 10.5, fontWeight: 600, letterSpacing: '1.5px', color: 'rgba(148,163,184,0.55)', textAlign: i === 5 ? 'right' : 'left' }}>{h}</div>
                   ))}
                 </div>
                 {groups.map(g => (
@@ -1464,7 +1678,7 @@ export default function Transactions() {
                       const canConfirmEdit = user?.role === 'admin' || t.createdByUserId === user?.id
                       return (
                         <div key={t.id} className={`grid items-center gap-4 px-6 ${isStaff ? 'py-2' : 'py-3.5'} transition-colors hover:bg-white/[0.028]`}
-                          style={{ gridTemplateColumns: isStaff ? 'minmax(0,1.7fr) minmax(0,1.1fr) 150px 150px 120px 160px' : 'minmax(0,1.7fr) minmax(0,1.1fr) 160px 130px 160px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
+                          style={{ gridTemplateColumns: 'minmax(220px,1.5fr) minmax(150px,.9fr) 140px minmax(175px,1fr) 130px 125px 180px', borderBottom: '1px solid rgba(255,255,255,0.04)', background: t.isDraft ? 'rgba(251,191,36,0.04)' : (t.pendingChanges ? 'rgba(96,165,250,0.05)' : undefined) }}>
                           <div className="flex flex-col gap-0.5 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="truncate" style={{ fontSize: 14, color: '#eaf0f6', fontWeight: 500 }}>{t.name}</span>
@@ -1473,12 +1687,6 @@ export default function Transactions() {
                               {isAutoTx(t) && <AutoBadge />}
                             </div>
                             {t.note && t.note !== 'draft — รอยืนยัน' && !isAuto(t) && <span style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}>{t.note}</span>}
-                            {!isStaff && t.submittedBy && (
-                              <span className="inline-flex items-center gap-1.5" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.7)' }}>
-                                <span className="flex items-center justify-center flex-none" style={{ width: 16, height: 16, borderRadius: '50%', fontSize: 8.5, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
-                                {t.submittedBy}
-                              </span>
-                            )}
                             {t.printedBy && <span className="inline-flex items-center gap-1" style={{ fontSize: 12, color: 'rgba(148,163,184,0.75)' }}><Printer className="w-3 h-3" /> {t.printedBy}{t.printCount > 1 ? ` ×${t.printCount}` : ''}</span>}
                           </div>
                           <div className="min-w-0">
@@ -1502,21 +1710,17 @@ export default function Transactions() {
                               </span>
                             ) : <span style={{ color: 'rgba(148,163,184,0.75)' }}>-</span>}
                           </div>
-                          {isStaff && (
-                            <div className="min-w-0">
-                              {t.submittedBy ? (
-                                <span className="inline-flex items-center gap-1.5 max-w-full min-w-0" style={{ fontSize: 11.5, color: 'rgba(203,213,225,0.76)' }}>
-                                  <span className="flex items-center justify-center flex-none" style={{ width: 20, height: 20, borderRadius: '50%', fontSize: 9, fontWeight: 700, color: '#0a1410', background: 'linear-gradient(135deg,#6ee7c7,#5fb8d9)' }}>{t.submittedBy.slice(0, 1)}</span>
-                                  <span className="truncate">{t.submittedBy}</span>
-                                </span>
-                              ) : <span style={{ color: 'rgba(148,163,184,0.6)', fontSize: 12 }}>-</span>}
-                            </div>
-                          )}
+                          <ActorCell transaction={t} />
+                          <LedgerStatus transaction={t} />
                           <div className="flex items-center justify-end gap-1.5 whitespace-nowrap" style={{ fontFamily: FONT_MONO, fontWeight: 500, fontSize: 14, color: t.type === 'income' ? '#34d399' : '#fb7185' }}>
                             {t.type === 'income' ? <ArrowUp className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} /> : <ArrowDown className="w-3 h-3" strokeWidth={2.8} style={{ opacity: 0.85 }} />}
                             {thb(t.amount)}
                           </div>
                           <div className="flex items-center justify-end gap-0.5">
+                            <button onClick={() => setDetailTx(t)} aria-label="ดูรายละเอียดรายการ" title="ดูรายละเอียดรายการ"
+                              className="p-2 text-slate-500 hover:text-emerald-300 hover:bg-emerald-500/10 rounded-lg transition-colors">
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
                             {canWrite && (
                               <button onClick={() => toggleReconcile(t)} aria-label={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'} title={t.isReconciled ? 'กระทบยอดแล้ว' : 'คลิกเพื่อกระทบยอด'}
                                 className={`w-9 h-9 rounded-lg border flex items-center justify-center transition-colors ${
@@ -1678,9 +1882,10 @@ export default function Transactions() {
 
       {showExport && <ExportModal onClose={() => setShowExport(false)} currentFilter={filter} currentSearch={debouncedSearch} defaultRange={txRangeOf(period, customRange)} />}
       {showImport && <ImportModal onClose={() => setShowImport(false)} onDone={load} />}
-      {slipTx && <SlipModal tx={slipTx} onClose={() => setSlipTx(null)} />}
+      {slipTx && <SlipModal tx={slipTx} onClose={() => { setSlipTx(null); load() }} />}
       {confirmTx && <ConfirmDraftModal tx={confirmTx} onClose={() => setConfirmTx(null)} onDone={load} />}
       {editConfirmTx && <EditConfirmModal tx={editConfirmTx} cats={categories} wallets={wallets} onClose={() => setEditConfirmTx(null)} onDone={load} />}
+      {detailTx && <TransactionDetailDrawer key={detailTx.id} transaction={detailTx} onClose={() => setDetailTx(null)} onOpenSlips={(transaction) => { setDetailTx(null); setSlipTx(transaction) }} />}
     </div>
   )
 }
