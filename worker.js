@@ -52,6 +52,8 @@ var worker_default = {
       if (rcptSigMatch && method === "GET") return cors(await getPublicReceiptSignature(rcptSigMatch[1], env));
       // คู่ค้ายืนยัน/ทักท้วงรายการเอง + ดูสลิปโอน — เปิดสาธารณะด้วย token 64 ตัว
       // ต้องตั้ง Cloudflare rate limiting ที่ /receipt/* ก่อนเปิดใช้จริง กันยิงเดา token
+      const rcptSignMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/signature$/);
+      if (rcptSignMatch && method === "POST") return cors(await signPublicReceipt(rcptSignMatch[1], request, env));
       const rcptAckMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/ack$/);
       if (rcptAckMatch && method === "POST") return cors(await ackPublicReceipt(rcptAckMatch[1], request, env));
       const rcptDisMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/dispute$/);
@@ -3138,6 +3140,26 @@ async function loadAckableBill(token, env) {
 }
 __name(loadAckableBill, "loadAckableBill");
 
+// คู่ค้าเซ็นชื่อเองจากลิงก์ — เก็บที่เดียวกับลายเซ็นของโหมดรับของ (vendor_signature_key)
+// ต้องอัปก่อนกดยืนยันเสมอ: ถ้าอัปพลาดคือยังไม่เกิดอะไรขึ้น ปลอดภัยกว่ายืนยันแล้วค่อยเซ็น
+async function signPublicReceipt(token, request, env) {
+  const found = await loadAckableBill(token, env);
+  if (found.error) return found.error;
+  if (found.ack && found.ack.at) return json({ error: "ใบนี้ยืนยันไปแล้ว" }, 409);
+  const contentType = request.headers.get("Content-Type") || "";
+  if (!contentType.startsWith("image/")) return json({ error: "ลายเซ็นต้องเป็นรูปภาพ" }, 400);
+  const buf = await request.arrayBuffer();
+  if (buf.byteLength > 2 * 1024 * 1024) return json({ error: "ไฟล์ใหญ่เกินไป" }, 400);
+  if (buf.byteLength < 100) return json({ error: "ยังไม่ได้เซ็น" }, 400);
+  const sigId = "sig_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const fileKey = `${found.bill.workspace_id}/signatures/${found.bill.id}/${sigId}`;
+  await env.SLIPS.put(fileKey, buf, { httpMetadata: { contentType } });
+  await env.DB.prepare("UPDATE pending_bills SET vendor_signature_key = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(fileKey, found.bill.id).run();
+  return json({ ok: true }, 201);
+}
+__name(signPublicReceipt, "signPublicReceipt");
+
 async function ackPublicReceipt(token, request, env) {
   const found = await loadAckableBill(token, env);
   if (found.error) return found.error;
@@ -3146,6 +3168,9 @@ async function ackPublicReceipt(token, request, env) {
   const body = await request.json().catch(() => ({}));
   const name = String(body.name || "").trim().slice(0, 120);
   if (!name) return json({ error: "กรุณาพิมพ์ชื่อผู้ยืนยัน" }, 400);
+  // บังคับให้เซ็นก่อน — เช็คที่เซิร์ฟเวอร์ด้วย ไม่ใช่แค่ที่หน้าจอ
+  const sig = await env.DB.prepare("SELECT vendor_signature_key FROM pending_bills WHERE id = ?").bind(found.bill.id).first();
+  if (!sig || !sig.vendor_signature_key) return json({ error: "กรุณาเซ็นชื่อก่อนยืนยัน" }, 400);
   const ack = {
     name,
     at: (/* @__PURE__ */ new Date()).toISOString(),
