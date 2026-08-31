@@ -2,6 +2,7 @@
 import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
 import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
 import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
+import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -124,6 +125,14 @@ var worker_default = {
       const slipMatch = path.match(/^\/slips\/([a-zA-Z0-9_-]+)$/);
       if (slipMatch && method === "GET") return cors(await getSlipUrl(slipMatch[1], env, user));
       if (slipMatch && method === "DELETE") return cors(await deleteSlip(slipMatch[1], env, user));
+      if (path === "/workspace" && method === "GET") return cors(await getWorkspace(env, user));
+      if (path === "/workspace" && method === "PATCH") return cors(await updateWorkspace(request, env, user));
+      const viMatch = path.match(/^\/vendor-profiles\/([a-zA-Z0-9_-]+)\/items$/);
+      if (viMatch && method === "GET") return cors(await listVendorItems(viMatch[1], request, env, user));
+      if (viMatch && method === "POST") return cors(await createVendorItem(viMatch[1], request, env, user));
+      const viIdMatch = path.match(/^\/vendor-items\/([a-zA-Z0-9_-]+)$/);
+      if (viIdMatch && method === "PATCH") return cors(await updateVendorItem(viIdMatch[1], request, env, user));
+      if (viIdMatch && method === "DELETE") return cors(await deleteVendorItem(viIdMatch[1], env, user));
       if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
       if (path === "/vendor-profiles" && method === "POST") return cors(await learnVendorProfile(request, env, user));
       if (path === "/vendor-profiles/create" && method === "POST") return cors(await createVendorProfile(request, env, user));
@@ -876,6 +885,8 @@ async function reportItems(request, env, user) {
 __name(reportItems, "reportItems");
 
 // ราคาล่าสุดต่อชื่อของ — ใช้เติมช่องราคาให้อัตโนมัติตอนออกใบวางบิล
+// นับบิลที่ยัง 'pending' ด้วย (กันเฉพาะที่ถูกปฏิเสธ) เพราะราคาถูกตกลงตอนออกใบ ไม่ใช่ตอนจ่าย
+// เดิมกรองเฉพาะ 'paid' ทำให้ช่วงซ้อมที่ยังไม่กดจ่าย ตัวเติมราคาว่างเปล่าตลอด
 // ไม่จำกัดเฉพาะ admin เพราะพนักงานที่ออกใบต้องใช้ (และเห็นราคาบนบิลที่ตัวเองออกอยู่แล้ว)
 // ส่ง vendorId มาด้วยจะได้สองชุดในคำขอเดียว: ราคาจากคู่ค้ารายนี้ (isVendor=true) และจากร้านอื่น
 // หน้าจอเลือกใช้ของคู่ค้ารายนี้ก่อน ถ้าไม่มีค่อยตกไปใช้ราคาทั่วไป
@@ -897,7 +908,7 @@ async function reportLastPrices(request, env, user) {
                              CASE WHEN pb.payee_ref_id = ? THEN 1 ELSE 0 END
                 ORDER BY pb.paid_at DESC) AS rn
        FROM pending_bills pb, json_each(pb.line_items) li
-       WHERE pb.workspace_id = ? AND pb.status = 'paid' AND pb.line_items IS NOT NULL
+       WHERE pb.workspace_id = ? AND pb.status <> 'rejected' AND pb.line_items IS NOT NULL
      ) WHERE rn = 1 ORDER BY is_vendor DESC, item LIMIT ?`
   ).bind(vendorId, vendorId, user.workspace_id, limit).all();
 
@@ -1987,6 +1998,154 @@ function formatVendor(v) {
 }
 __name(formatVendor, "formatVendor");
 
+// ── ข้อมูลร้าน (ขึ้นหัวเอกสารที่คู่ค้าเห็น) ────────────────────────────────
+// อ่านแบบ optional เผื่อ worker ขึ้นก่อน migration 0010 — ของเดิมยังทำงานได้
+function formatWorkspace(w) {
+  return {
+    id: w.id, name: w.name || null,
+    address: w.address || null, taxId: w.tax_id || null,
+    taxBranch: w.tax_branch || null, phone: w.phone || null,
+  };
+}
+__name(formatWorkspace, "formatWorkspace");
+
+async function getWorkspace(env, user) {
+  const w = await env.DB.prepare("SELECT * FROM workspaces WHERE id = ?").bind(user.workspace_id).first();
+  if (!w) return json({ error: "ไม่พบร้าน" }, 404);
+  return json({ workspace: formatWorkspace(w) });
+}
+__name(getWorkspace, "getWorkspace");
+
+async function updateWorkspace(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await request.json().catch(() => ({}));
+  const name = b.name === undefined ? undefined : String(b.name || "").trim().slice(0, 120);
+  if (name !== undefined && !name) return json({ error: "ชื่อร้านห้ามว่าง" }, 400);
+  const sets = [];
+  const args = [];
+  const put = /* @__PURE__ */ __name((col, val, max) => {
+    if (val === undefined) return;
+    sets.push(`${col} = ?`);
+    args.push(val === null || val === "" ? null : String(val).trim().slice(0, max));
+  }, "put");
+  put("name", name, 120);
+  put("address", b.address, 300);
+  put("tax_id", b.taxId, 40);
+  put("tax_branch", b.taxBranch, 20);
+  put("phone", b.phone, 40);
+  if (!sets.length) return json({ error: "ไม่มีอะไรให้แก้" }, 400);
+  args.push(user.workspace_id);
+  await env.DB.prepare(`UPDATE workspaces SET ${sets.join(", ")} WHERE id = ?`).bind(...args).run();
+  await logAudit(env, user, "update", "workspace", user.workspace_id, { fields: sets.length });
+  const w = await env.DB.prepare("SELECT * FROM workspaces WHERE id = ?").bind(user.workspace_id).first();
+  return json({ workspace: formatWorkspace(w) });
+}
+__name(updateWorkspace, "updateWorkspace");
+
+// ── ตะกร้าสินค้าประจำของคู่ค้า ─────────────────────────────────────────────
+function formatVendorItem(r) {
+  return {
+    id: r.id, vendorId: r.vendor_id, name: r.name, unit: r.unit || null,
+    lastPrice: r.last_price == null ? null : Number(r.last_price),
+    timesBought: Number(r.times_bought) || 0,
+    lastBoughtAt: r.last_bought_at || null,
+    isActive: r.is_active !== 0,
+  };
+}
+__name(formatVendorItem, "formatVendorItem");
+
+async function listVendorItems(vendorId, request, env, user) {
+  const includeHidden = new URL(request.url).searchParams.get("all") === "1";
+  const res = await env.DB.prepare(
+    `SELECT * FROM vendor_items WHERE workspace_id = ? AND vendor_id = ?${includeHidden ? "" : " AND is_active = 1"}`
+  ).bind(user.workspace_id, vendorId).all();
+  return json({ items: sortBasket((res.results || []).map(formatVendorItem)) });
+}
+__name(listVendorItems, "listVendorItems");
+
+async function createVendorItem(vendorId, request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const b = await request.json().catch(() => ({}));
+  if (!isValidItemName(b.name)) return json({ error: "ชื่อสินค้าไม่ถูกต้อง" }, 400);
+  const price = Number(b.lastPrice);
+  const id = "vi_" + crypto.randomUUID();
+  // กรอกเองล่วงหน้าได้ — times_bought = 0 และ last_bought_at ว่าง แปลว่ายังไม่เคยซื้อจริง
+  await env.DB.prepare(
+    `INSERT INTO vendor_items (id, workspace_id, vendor_id, name, unit, last_price, times_bought)
+     VALUES (?, ?, ?, ?, ?, ?, 0)
+     ON CONFLICT(workspace_id, vendor_id, name) DO UPDATE SET
+       unit = COALESCE(excluded.unit, vendor_items.unit),
+       last_price = COALESCE(excluded.last_price, vendor_items.last_price),
+       is_active = 1, updated_at = CURRENT_TIMESTAMP`
+  ).bind(id, user.workspace_id, vendorId, itemKey(b.name), b.unit ? String(b.unit).trim().slice(0, 20) : null,
+    Number.isFinite(price) && price > 0 ? price : null).run();
+  const row = await env.DB.prepare(
+    "SELECT * FROM vendor_items WHERE workspace_id = ? AND vendor_id = ? AND name = ?"
+  ).bind(user.workspace_id, vendorId, itemKey(b.name)).first();
+  return json({ item: formatVendorItem(row) }, 201);
+}
+__name(createVendorItem, "createVendorItem");
+
+async function updateVendorItem(itemId, request, env, user) {
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  const b = await request.json().catch(() => ({}));
+  const sets = [];
+  const args = [];
+  if (b.name !== undefined) {
+    if (!isValidItemName(b.name)) return json({ error: "ชื่อสินค้าไม่ถูกต้อง" }, 400);
+    sets.push("name = ?"); args.push(itemKey(b.name));
+  }
+  if (b.unit !== undefined) { sets.push("unit = ?"); args.push(b.unit ? String(b.unit).trim().slice(0, 20) : null); }
+  if (b.lastPrice !== undefined) {
+    const p = Number(b.lastPrice);
+    sets.push("last_price = ?"); args.push(Number.isFinite(p) && p > 0 ? p : null);
+  }
+  if (b.isActive !== undefined) { sets.push("is_active = ?"); args.push(b.isActive ? 1 : 0); }
+  if (!sets.length) return json({ error: "ไม่มีอะไรให้แก้" }, 400);
+  sets.push("updated_at = CURRENT_TIMESTAMP");
+  args.push(itemId, user.workspace_id);
+  try {
+    await env.DB.prepare(`UPDATE vendor_items SET ${sets.join(", ")} WHERE id = ? AND workspace_id = ?`).bind(...args).run();
+  } catch {
+    // ชนกับ unique index = เปลี่ยนชื่อไปซ้ำกับของที่มีอยู่แล้วในร้านเดียวกัน
+    return json({ error: "ร้านนี้มีสินค้าชื่อนี้อยู่แล้ว" }, 409);
+  }
+  const row = await env.DB.prepare("SELECT * FROM vendor_items WHERE id = ? AND workspace_id = ?").bind(itemId, user.workspace_id).first();
+  if (!row) return json({ error: "ไม่พบสินค้า" }, 404);
+  return json({ item: formatVendorItem(row) });
+}
+__name(updateVendorItem, "updateVendorItem");
+
+async function deleteVendorItem(itemId, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  await env.DB.prepare("DELETE FROM vendor_items WHERE id = ? AND workspace_id = ?").bind(itemId, user.workspace_id).run();
+  return json({ ok: true });
+}
+__name(deleteVendorItem, "deleteVendorItem");
+
+// เรียกตอนออกใบวางบิล/ใบรับของ — ตะกร้าโตเองโดยพนักงานไม่ต้องกรอกซ้ำ
+// ห้ามทำให้การออกใบล้มเหลวถ้าตรงนี้พัง: ใบสำคัญกว่าตะกร้า
+async function upsertVendorItems(env, workspaceId, vendorId, lineItems) {
+  if (!vendorId) return;
+  const rows = billItemsToBasketRows(lineItems);
+  if (!rows.length) return;
+  try {
+    await env.DB.batch(rows.map((r) => env.DB.prepare(
+      `INSERT INTO vendor_items (id, workspace_id, vendor_id, name, unit, last_price, times_bought, last_bought_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, CURRENT_TIMESTAMP)
+       ON CONFLICT(workspace_id, vendor_id, name) DO UPDATE SET
+         unit = COALESCE(excluded.unit, vendor_items.unit),
+         last_price = COALESCE(excluded.last_price, vendor_items.last_price),
+         times_bought = vendor_items.times_bought + 1,
+         last_bought_at = CURRENT_TIMESTAMP,
+         is_active = 1, updated_at = CURRENT_TIMESTAMP`
+    ).bind("vi_" + crypto.randomUUID(), workspaceId, vendorId, r.name, r.unit, r.unitPrice)));
+  } catch (e) {
+    console.error("upsertVendorItems failed:", e);
+  }
+}
+__name(upsertVendorItems, "upsertVendorItems");
+
 // ค่าที่ยอมรับได้ของ field ที่เป็นตัวเลือก — กันค่าแปลกปลอมหลุดลง DB แล้วไป
 // ทำให้ป้ายเอกสารภาษี/ยอดหัก ณ ที่จ่าย เพี้ยนทีหลัง
 const DOC_TYPES = ["full_tax", "short_tax", "receipt", "none"];
@@ -2616,6 +2775,7 @@ async function createPendingBill(request, env, user) {
   await env.DB.prepare(
     "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit, kind, line_items, received_by_user_id, received_by_name, public_token) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
   ).bind(id, user.workspace_id, user.id, user.name || null, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : isBillingLink ? "billing_link" : "simple", lineItemsJson, hasItems ? user.id : null, hasItems ? (user.name || null) : null, publicToken).run();
+  if (hasItems && payeeType === "vendor") await upsertVendorItems(env, user.workspace_id, payeeRefId, lineItems);
   await logAudit(env, user, "create", "pending_bill", id, { name, amount: finalAmount });
   const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
   return json({ bill: formatPendingBill(b) }, 201);
@@ -2891,8 +3051,19 @@ async function uploadVendorSignature(billId, request, env, user) {
 __name(uploadVendorSignature, "uploadVendorSignature");
 
 async function getPublicReceipt(token, env) {
+  // ดึงข้อมูลร้านเราและคู่ค้ามาด้วย — ทั้งสองชุดกรอกไว้ในระบบอยู่แล้ว แค่ไม่เคยส่งออกหน้าเอกสาร
+  // คอลัมน์ของ migration 0010 อ่านแบบ optional เผื่อ worker ขึ้นก่อน migration
   const b = await env.DB.prepare(
-    "SELECT pb.*, w.name AS shop_name FROM pending_bills pb LEFT JOIN workspaces w ON pb.workspace_id = w.id WHERE pb.public_token = ?"
+    `SELECT pb.*,
+       w.name AS shop_name, w.address AS shop_address, w.tax_id AS shop_tax_id,
+       w.tax_branch AS shop_tax_branch, w.phone AS shop_phone,
+       vp.vendor_name AS vp_name, vp.display_name AS vp_display, vp.address AS vp_address,
+       vp.tax_id AS vp_tax_id, vp.tax_branch AS vp_tax_branch, vp.phone AS vp_phone,
+       vp.contact_person AS vp_contact, vp.bank_account_name AS vp_acct_name
+     FROM pending_bills pb
+     LEFT JOIN workspaces w ON pb.workspace_id = w.id
+     LEFT JOIN vendor_profiles vp ON pb.payee_ref_id = vp.id AND vp.workspace_id = pb.workspace_id
+     WHERE pb.public_token = ?`
   ).bind(token).first();
   if (!b) return json({ error: "ไม่พบเอกสาร" }, 404);
   const acc = b.payee_account_no ? ("••" + String(b.payee_account_no).slice(-4)) : null;
@@ -2906,10 +3077,25 @@ async function getPublicReceipt(token, env) {
     ).bind(b.created_tx_id).first();
     hasPaymentSlip = !!s;
   }
+  // วันนัดส่งเก็บอยู่ในหมายเหตุตอนออกใบ ("ของส่งวันที่ YYYY-MM-DD") — ดึงกลับมาแสดงแยก
+  const dm = String(b.note || "").match(/ของส่งวันที่\s*(\d{4}-\d{2}-\d{2})/);
   return json({
     receiptNo: (kind === "billing_link" ? "BL-" : "GR-") + (b.created_at || "").slice(2, 10).replace(/-/g, "") + "-" + b.id.slice(-4),
     kind,
     shopName: b.shop_name || "ร้านค้า",
+    shop: {
+      name: b.shop_name || null, address: b.shop_address || null,
+      taxId: b.shop_tax_id || null, taxBranch: b.shop_tax_branch || null, phone: b.shop_phone || null,
+    },
+    // ข้อมูลคู่ค้าเท่าที่กรอกไว้ — หน้าเอกสารซ่อนบรรทัดที่ว่างเอง ไม่บังคับกรอกครบ
+    vendor: {
+      name: b.vp_display || b.vp_name || b.payee_name || null,
+      legalName: b.vp_name || null,
+      address: b.vp_address || null, taxId: b.vp_tax_id || null, taxBranch: b.vp_tax_branch || null,
+      phone: b.vp_phone || null, contactPerson: b.vp_contact || null,
+      accountName: b.vp_acct_name || null,
+    },
+    deliveryDate: dm ? dm[1] : null,
     vendorName: b.payee_name || null,
     date: b.created_at,
     lineItems: items,

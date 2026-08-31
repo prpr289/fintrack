@@ -72,6 +72,16 @@ export const api = {
   // ราคาล่าสุดต่อชื่อของ ไว้เติมช่องราคาตอนออกใบ — ส่ง vendorId เพื่อให้ราคาของคู่ค้ารายนั้นมาก่อน
   lastPrices: (params) => req('GET', '/reports/last-prices?' + new URLSearchParams(params || {})),
 
+  // ข้อมูลร้าน — ขึ้นหัวเอกสารที่คู่ค้าเห็น (แก้ได้เฉพาะแอดมิน)
+  workspace: () => req('GET', '/workspace'),
+  updateWorkspace: (body) => req('PATCH', '/workspace', body),
+
+  // ตะกร้าสินค้าประจำของคู่ค้า
+  vendorItems: (vendorId, opts) => req('GET', `/vendor-profiles/${vendorId}/items` + (opts?.all ? '?all=1' : '')),
+  createVendorItem: (vendorId, body) => req('POST', `/vendor-profiles/${vendorId}/items`, body),
+  updateVendorItem: (itemId, body) => req('PATCH', `/vendor-items/${itemId}`, body),
+  deleteVendorItem: (itemId) => req('DELETE', `/vendor-items/${itemId}`),
+
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   learnVendor: (body) => req('POST', '/vendor-profiles', body),
 

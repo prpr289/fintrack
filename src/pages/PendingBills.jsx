@@ -181,6 +181,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
   const validItems = items.filter(it => String(it.name || '').trim() && Number(it.qty) > 0 && Number(it.unitPrice) >= 0)
   const total = sumLineItems(validItems)
 
+
   const updateItem = (idx, next) => setItems(prev => prev.map((it, i) => i === idx ? next : it))
   const addItem = () => setItems(prev => [...prev, emptyLineItem()])
   const removeItem = (idx) => setItems(prev => prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev)
@@ -380,6 +381,9 @@ function BillingLinkModal({ me, onClose, onDone }) {
   const [unparsed, setUnparsed] = useState([])
   const [deliveryDate, setDeliveryDate] = useState(null)
   const [prices, setPrices] = useState([])
+  const [basket, setBasket] = useState([])
+  const [picked, setPicked] = useState({})   // { itemId: qty }
+  const [showBasket, setShowBasket] = useState(false)
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
   const [created, setCreated] = useState(null)
@@ -392,6 +396,15 @@ function BillingLinkModal({ me, onClose, onDone }) {
     api.lastPrices(vendorId ? { vendorId } : {}).then(d => setPrices(d.prices || [])).catch(() => setPrices([]))
   }, [vendorId])
 
+  // ตะกร้าสินค้าประจำของคู่ค้ารายนี้ — คู่ค้าเก่าสั่งของชุดเดิมซ้ำ ๆ กดเลือกเร็วกว่าพิมพ์
+  useEffect(() => {
+    let cancelled = false
+    const p = vendorId ? api.vendorItems(vendorId) : Promise.resolve({ items: [] })
+    p.then(d => { if (!cancelled) setBasket(d.items || []) })
+      .catch(() => { if (!cancelled) setBasket([]) })
+    return () => { cancelled = true }
+  }, [vendorId])
+
   const priceMap = {}
   for (const p of prices) if (!(p.name in priceMap)) priceMap[p.name] = p
   const nameOptions = Object.keys(priceMap)
@@ -400,6 +413,25 @@ function BillingLinkModal({ me, onClose, onDone }) {
   const validItems = items.filter(it => String(it.name || '').trim() && Number(it.qty) > 0 && Number(it.unitPrice) >= 0)
   const total = sumLineItems(validItems)
   const missingPrice = items.filter(it => String(it.name || '').trim() && !(Number(it.unitPrice) > 0)).length
+
+  const pickedCount = Object.values(picked).filter(q => Number(q) > 0).length
+  // เพิ่มของที่ติ๊กไว้เข้าตาราง — ถ้ามีชื่อนั้นอยู่แล้วให้บวกจำนวนแทนสร้างแถวซ้ำ
+  const addPicked = () => {
+    const rows = basket.filter(b => Number(picked[b.id]) > 0)
+    if (!rows.length) return
+    setItems(prev => {
+      const next = [...prev]
+      for (const b of rows) {
+        const qty = Number(picked[b.id])
+        const at = next.findIndex(it => String(it.name || '').trim() === b.name)
+        if (at >= 0) next[at] = { ...next[at], qty: (Number(next[at].qty) || 0) + qty }
+        else next.push({ name: b.name, qty, unit: b.unit || 'กก.', unitPrice: b.lastPrice ?? '', guessedUnit: false })
+      }
+      return next
+    })
+    setPicked({})
+    setShowBasket(false)
+  }
 
   const withLastPrice = (it) => {
     const p = priceMap[it.name]
@@ -500,6 +532,42 @@ function BillingLinkModal({ me, onClose, onDone }) {
             แตกเป็นรายการ
           </button>
         </div>
+
+        {basket.length > 0 && (
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #2e3349' }}>
+            <button type="button" onClick={() => setShowBasket(v => !v)}
+              className="w-full flex items-center justify-between px-3 py-2.5 text-xs font-medium"
+              style={{ color: '#34d399', background: '#10b98115' }}>
+              <span>เลือกจากรายการประจำของร้านนี้ ({basket.length})</span>
+              <span className="text-slate-400">{showBasket ? 'ซ่อน' : 'เปิด'}</span>
+            </button>
+            {showBasket && (
+              <div className="max-h-56 overflow-y-auto divide-y" style={{ borderColor: '#1f2937' }}>
+                {basket.map(b => (
+                  <div key={b.id} className="flex items-center gap-2 px-3 py-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs text-slate-200 truncate">{b.name}</p>
+                      <p className="text-[11px] text-slate-600 tabular-nums">
+                        {b.unit || '—'}{b.lastPrice != null ? ` · ${thb(b.lastPrice)}` : ' · ยังไม่มีราคา'}
+                      </p>
+                    </div>
+                    <input type="number" min="0" step="0.01" inputMode="decimal" placeholder="จำนวน"
+                      className="w-20 rounded-md px-2 py-1 text-xs text-slate-200 border border-slate-600 text-right focus:outline-none focus:border-emerald-500"
+                      style={INPUT_STYLE} value={picked[b.id] ?? ''}
+                      onChange={e => setPicked(prev => ({ ...prev, [b.id]: e.target.value }))} />
+                  </div>
+                ))}
+              </div>
+            )}
+            {showBasket && (
+              <button type="button" onClick={addPicked} disabled={pickedCount === 0}
+                className="w-full py-2.5 text-xs font-semibold disabled:opacity-40"
+                style={{ color: '#34d399', background: '#10b98122' }}>
+                เพิ่ม {pickedCount} รายการที่เลือก
+              </button>
+            )}
+          </div>
+        )}
 
         {unparsed.length > 0 && (
           <div className="rounded-lg p-2.5 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>

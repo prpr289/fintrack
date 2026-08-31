@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api'
+import { bahtText } from '../bahtText'
 
 const FONT = '"Sarabun","Noto Sans Thai",-apple-system,"Segoe UI",Roboto,sans-serif'
 
@@ -17,6 +18,20 @@ function formatThaiDateTime(s) {
       day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Bangkok',
     })
   } catch { return s }
+}
+
+function formatThaiDate(s) {
+  if (!s) return '-'
+  try {
+    const [y, m, d] = String(s).split('-').map(Number)
+    const months = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+    return `${d} ${months[m - 1]} ${y + 543}`
+  } catch { return s }
+}
+
+// บรรทัดที่ไม่มีข้อมูลให้ซ่อนไปเลย ดีกว่าโชว์ป้ายว่าง ๆ — คู่ค้าบางรายกรอกไม่ครบ
+function Line({ children }) {
+  return children ? <div style={{ fontSize: '0.72rem', color: '#6b7280' }}>{children}</div> : null
 }
 
 const STATUS_META = {
@@ -157,6 +172,8 @@ export default function Receipt() {
   const items = Array.isArray(data.lineItems) ? data.lineItems : []
   const statusMeta = STATUS_META[data.status] || STATUS_META.pending
   const title = docTitle(data)
+  const shop = data.shop || {}
+  const vendor = data.vendor || {}
   const ack = data.ack || null
   const canAck = data.kind === 'billing_link' && data.status === 'pending' && !ack?.at
 
@@ -177,51 +194,77 @@ export default function Receipt() {
 
           <div className="receipt-doc" style={{ background: '#fff', color: '#1f2430', borderRadius: '0.75rem', boxShadow: '0 4px 16px rgba(0,0,0,.1)', padding: '1.75rem 1.5rem', lineHeight: 1.6 }}>
 
-            {/* Shop header */}
-            <div style={{ textAlign: 'center', borderBottom: '2px solid #1f2430', paddingBottom: '0.6rem', marginBottom: '0.75rem' }}>
-              <div style={{ fontSize: '1.1rem', fontWeight: 700 }}>{data.shopName}</div>
+            {/* หัวเอกสาร: ร้านเราซ้าย เลขที่/วันที่ขวา */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: '1rem', flexWrap: 'wrap',
+              borderBottom: '2px solid #1f2430', paddingBottom: '0.55rem', marginBottom: '0.7rem' }}>
+              <div style={{ minWidth: '12rem', flex: 1 }}>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700 }}>{shop.name || data.shopName}</div>
+                <Line>{shop.address}</Line>
+                <Line>{shop.taxId && `เลขประจำตัวผู้เสียภาษี ${shop.taxId}`}{shop.taxId && shop.taxBranch ? ` · สาขา ${shop.taxBranch}` : ''}</Line>
+                <Line>{shop.phone && `โทร ${shop.phone}`}</Line>
+              </div>
+              <div style={{ fontSize: '0.72rem', color: '#6b7280', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                <div>เลขที่ <strong style={{ color: '#1f2430' }}>{data.receiptNo}</strong></div>
+                <div>วันที่ <strong style={{ color: '#1f2430' }}>{formatThaiDateTime(data.date)}</strong></div>
+                {data.deliveryDate && <div>ของส่ง <strong style={{ color: '#1f2430' }}>{formatThaiDate(data.deliveryDate)}</strong></div>}
+              </div>
             </div>
 
-            <div style={{ textAlign: 'center', fontSize: '1rem', fontWeight: 700, letterSpacing: '0.02em', margin: '0.1rem 0 0.9rem' }}>
+            <div style={{ textAlign: 'center', fontSize: '1rem', fontWeight: 700, letterSpacing: '0.02em', margin: '0.1rem 0 0.85rem' }}>
               {title.th} / {title.en}
             </div>
 
-            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.82rem', marginBottom: '0.3rem' }}>
-              <span>เลขที่ <strong>{data.receiptNo}</strong></span>
-              <span>วันที่ <strong>{formatThaiDateTime(data.date)}</strong></span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', fontSize: '0.82rem', marginBottom: '0.9rem' }}>
-              <span>ผู้ขาย <strong>{data.vendorName || '-'}</strong></span>
-              {data.payeeAccountMasked && <span>รับเงินเข้า <strong>{data.payeeAccountMasked}</strong></span>}
+            {/* กล่องผู้ขาย — แสดงเท่าที่กรอกไว้ บรรทัดว่างซ่อนเอง */}
+            <div style={{ border: '1px solid #cbd2dc', borderRadius: '0.4rem', padding: '0.5rem 0.65rem', marginBottom: '0.8rem', background: '#f9fbfa' }}>
+              <div style={{ fontSize: '0.68rem', color: '#6b7280' }}>ผู้ขาย</div>
+              <div style={{ fontWeight: 700 }}>
+                {vendor.name || data.vendorName || '-'}
+                {vendor.legalName && vendor.name && vendor.legalName !== vendor.name &&
+                  <span style={{ fontWeight: 400, fontSize: '0.72rem', color: '#6b7280' }}> ({vendor.legalName})</span>}
+              </div>
+              <Line>{vendor.address}</Line>
+              <Line>{vendor.taxId && `เลขผู้เสียภาษี ${vendor.taxId}`}{vendor.taxId && vendor.taxBranch ? ` · สาขา ${vendor.taxBranch}` : ''}</Line>
+              <Line>{[vendor.contactPerson && `ติดต่อ ${vendor.contactPerson}`, vendor.phone].filter(Boolean).join(' · ')}</Line>
+              <Line>{data.payeeAccountMasked && `รับเงินเข้า ${data.payeeAccountMasked}${vendor.accountName ? ` (${vendor.accountName})` : ''}`}</Line>
             </div>
 
             {/* Line items */}
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '0.5rem' }}>
               <thead>
                 <tr>
+                  <th style={th({ width: '1.8rem' })}>#</th>
                   <th style={th()}>รายการ</th>
                   <th style={th({ textAlign: 'right' })}>จำนวน</th>
+                  <th style={th()}>หน่วย</th>
                   <th style={th({ textAlign: 'right' })}>ราคา/หน่วย</th>
                   <th style={th({ textAlign: 'right' })}>จำนวนเงิน</th>
                 </tr>
               </thead>
               <tbody>
                 {items.length === 0 ? (
-                  <tr><td style={td({ textAlign: 'center', color: '#9ca3af' })} colSpan={4}>— ไม่มีรายการ —</td></tr>
+                  <tr><td style={td({ textAlign: 'center', color: '#9ca3af' })} colSpan={6}>— ไม่มีรายการ —</td></tr>
                 ) : items.map((it, idx) => {
                   const amt = Number(it.qty) * Number(it.unitPrice)
                   return (
                     <tr key={idx}>
+                      <td style={td({ textAlign: 'center', color: '#6b7280' })}>{idx + 1}</td>
                       <td style={td()}>{it.name}</td>
-                      <td style={td({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{it.qty}{it.unit ? ` ${it.unit}` : ''}</td>
+                      <td style={td({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{it.qty}</td>
+                      <td style={td()}>{it.unit || ''}</td>
                       <td style={td({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{thb(it.unitPrice)}</td>
                       <td style={td({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{thb(amt)}</td>
                     </tr>
                   )
                 })}
                 <tr style={{ background: '#f7f8fa', fontWeight: 700 }}>
-                  <td style={td()} colSpan={3}>รวมทั้งสิ้น</td>
+                  <td style={td()} colSpan={5}>รวมทั้งสิ้น</td>
                   <td style={td({ textAlign: 'right', fontVariantNumeric: 'tabular-nums' })}>{thb(data.amount)}</td>
+                </tr>
+                {/* จำนวนเงินเป็นตัวอักษร — กันแก้ตัวเลขทีหลัง */}
+                <tr>
+                  <td style={td({ textAlign: 'center', fontSize: '0.72rem', color: '#6b7280' })} colSpan={6}>
+                    ( {bahtText(data.amount)} )
+                  </td>
                 </tr>
               </tbody>
             </table>

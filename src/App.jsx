@@ -9,6 +9,7 @@ import WalletDetail from './pages/WalletDetail'
 import Categories from './pages/Categories'
 import Users from './pages/Users'
 import Profile from './pages/Profile'
+import ShopSettings from './pages/ShopSettings'
 import AuditLog from './pages/AuditLog'
 import Budget from './pages/Budget'
 import Recurring from './pages/Recurring'
@@ -74,6 +75,7 @@ export default function App() {
             <Route path="integrations" element={<RequireAdmin><Integrations /></RequireAdmin>} />
             <Route path="audit-log"    element={<RequireAdmin><AuditLog /></RequireAdmin>} />
             <Route path="profile"      element={<Profile />} />
+            <Route path="shop"         element={<RequireAdmin><ShopSettings /></RequireAdmin>} />
           </Route>
         </Routes>
       </AuthProvider>
