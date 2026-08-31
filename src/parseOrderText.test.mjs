@@ -1,6 +1,6 @@
 // Run: node src/parseOrderText.test.mjs
 import assert from 'node:assert'
-import { parseOrderText, DEFAULT_UNIT } from './parseOrderText.js'
+import { parseOrderText, normalizeUnit, DEFAULT_UNIT } from './parseOrderText.js'
 
 // --- ข้อความจริงจากกลุ่ม "บจก. สดดี | ตำมั้ย" 29 ส.ค. 69 ---
 const real = parseOrderText(`30/8/69
@@ -87,5 +87,15 @@ const order = parseOrderText(`30/8/69
 const prices = { 'มะละกอ': 28, 'แตงร้าน': 22, 'มะเขือเทศ': 35 }
 const total = order.items.reduce((s, it) => s + it.qty * prices[it.name], 0)
 assert.strictEqual(total, 1410)
+
+// --- normalizeUnit: ต้องใช้กับหน่วยที่คนพิมพ์เองในตารางด้วย ---
+// เจอจริง 31 ส.ค. 69: พิมพ์ "กก" มือในตาราง เลยไม่โดนยุบ Dashboard จะนับแยกจาก "กก."
+for (const u of ['กก', 'กก.', 'โล', 'กิโล', 'กิโลกรัม', 'ก.ก.', ' กก ']) {
+  assert.strictEqual(normalizeUnit(u), 'กก.', `ยุบหน่วยไม่ได้: "${u}"`)
+}
+assert.strictEqual(normalizeUnit('ถุง'), 'ถุง')      // หน่วยอื่นคงเดิม ไม่แปลงค่า
+assert.strictEqual(normalizeUnit('ฟอง'), 'ฟอง')
+assert.strictEqual(normalizeUnit(''), DEFAULT_UNIT)  // ว่าง = เดา กก.
+assert.strictEqual(normalizeUnit(null), DEFAULT_UNIT)
 
 console.log('parseOrderText: ผ่านหมด ✓')

@@ -4,6 +4,7 @@ import { api } from '../api'
 import MerchantModal from '../components/MerchantModal'
 import PromptPayQR from '../components/PromptPayQR'
 import DocBadge from '../components/DocBadge'
+import VendorItemsPanel from '../components/VendorItemsPanel'
 import { docTypeMeta, whtTypeMeta, taxpayerLabel } from '../merchantMeta'
 import { ArrowLeft, Store, Loader2, Pencil, Trash2, Landmark, Receipt, Plus } from 'lucide-react'
 
@@ -254,6 +255,8 @@ export default function MerchantDetail() {
           </div>
         )}
       </div>
+
+      <VendorItemsPanel vendorId={m.id} isAdmin />
 
       {editing && <MerchantModal merchant={m} cats={cats} wallets={wallets} onClose={() => setEditing(false)} onDone={load} />}
     </div>

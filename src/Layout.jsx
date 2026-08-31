@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap, Building2 } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
@@ -57,6 +57,7 @@ const NAV_GROUPS = [
     { to: '/category-rules', icon: Wand2,          label: 'กฎหมวดหมู่',     admin: true },
   ] },
   { label: 'ผู้ดูแลระบบ', items: [
+    { to: '/shop',          icon: Building2,       label: 'ข้อมูลร้านค้า',    admin: true },
     { to: '/users',         icon: Users,           label: 'ผู้ใช้งาน',        admin: true },
     { to: '/integrations',  icon: PlugZap,         label: 'เชื่อมระบบ HR OS', admin: true },
     { to: '/audit-log',     icon: ClipboardList,   label: 'ประวัติการใช้งาน', admin: true },
