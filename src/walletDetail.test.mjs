@@ -81,6 +81,8 @@ test('expense list filters by category and Thai search while excluding transfers
     ['5'],
   )
   assert.equal(walletTransactionRecipient(transactions[0]), 'นาง ติหวา หีมละ')
+  assert.equal(walletTransactionRecipient({ name: 'ซื้อวัตถุดิบ', submittedBy: 'ผู้ส่งผ่าน LINE' }), 'ซื้อวัตถุดิบ')
+  assert.equal(walletTransactionRecipient({ name: 'ซื้อของ', vendorName: 'ตลาดสด' }), 'ตลาดสด')
 })
 
 test('wallet date navigation exposes every posted date in newest-first order', () => {
@@ -111,6 +113,6 @@ test('wallet monthly date picker includes every calendar date, including empty d
 
 test('wallet export filename identifies the wallet and selected month', () => {
   const now = new Date(2026, 7, 31, 12)
-  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด/ตำถาด', 'thisMonth', now), 'wallet-ร้านพี่อี๊ด-ตำถาด-2026-08.xls')
-  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด', 'lastMonth', now), 'wallet-ร้านพี่อี๊ด-2026-07.xls')
+  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด/ตำถาด', 'thisMonth', 'pdf', now), 'wallet-ร้านพี่อี๊ด-ตำถาด-2026-08.pdf')
+  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด', 'lastMonth', 'xls', now), 'wallet-ร้านพี่อี๊ด-2026-07.xls')
 })
