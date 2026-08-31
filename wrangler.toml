@@ -12,6 +12,15 @@ database_id = "dd65e542-131c-490f-bb98-9bc618d5d831"
 binding = "SLIPS"
 bucket_name = "fintrack-slips"
 
+# กันยิงเดา public_token ที่ /receipt/* — endpoint พวกนี้เปิดสาธารณะเพราะคู่ค้าไม่มีบัญชี
+# ใช้ binding ของ Worker ไม่ใช่ WAF เพราะ workers.dev ไม่ใช่ zone ของเรา ตั้ง rule ที่ Dashboard ไม่ได้
+# 20 ครั้ง/นาที/IP — คู่ค้าเปิดหน้าซ้ำ ๆ ยังพอ แต่ไล่เดา token ไม่ไหว
+[[unsafe.bindings]]
+name = "RATE_LIMITER"
+type = "ratelimit"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
+
 [[durable_objects.bindings]]
 name = "REALTIME"
 class_name = "WorkspaceRoom"

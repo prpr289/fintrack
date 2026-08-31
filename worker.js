@@ -37,10 +37,26 @@ var worker_default = {
       if (path === "/auth/register" && method === "POST") return cors(await handleRegister(request, env));
       if (path === "/auth/login" && method === "POST") return cors(await handleLogin(request, env));
       if (path === "/health") return cors(json({ ok: true, time: (/* @__PURE__ */ new Date()).toISOString(), version: "v2" }));
+      // ทุก route ใต้ /receipt/* เปิดสาธารณะ (คู่ค้าไม่มีบัญชี) — จำกัดจำนวนครั้งต่อ IP กันไล่เดา token
+      // ponytail: จำกัดที่ IP ไม่ใช่ที่ token เพราะคนเดา token ย่อมเปลี่ยน token ไปเรื่อย ๆ แต่ IP เท่าเดิม
+      // env.RATE_LIMITER ไม่มีตอนรันโลคัลก็ปล่อยผ่าน ไม่ให้ dev พัง
+      if (path.startsWith("/receipt/") && env.RATE_LIMITER) {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const { success } = await env.RATE_LIMITER.limit({ key: ip });
+        if (!success) return cors(json({ error: "เรียกถี่เกินไป กรุณารอสักครู่" }, 429));
+      }
       const rcptMatch = path.match(/^\/receipt\/([a-f0-9]{16,})$/);
       if (rcptMatch && method === "GET") return cors(await getPublicReceipt(rcptMatch[1], env));
       const rcptSigMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/signature$/);
       if (rcptSigMatch && method === "GET") return cors(await getPublicReceiptSignature(rcptSigMatch[1], env));
+      // คู่ค้ายืนยัน/ทักท้วงรายการเอง + ดูสลิปโอน — เปิดสาธารณะด้วย token 64 ตัว
+      // ต้องตั้ง Cloudflare rate limiting ที่ /receipt/* ก่อนเปิดใช้จริง กันยิงเดา token
+      const rcptAckMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/ack$/);
+      if (rcptAckMatch && method === "POST") return cors(await ackPublicReceipt(rcptAckMatch[1], request, env));
+      const rcptDisMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/dispute$/);
+      if (rcptDisMatch && method === "POST") return cors(await disputePublicReceipt(rcptDisMatch[1], request, env));
+      const rcptSlipMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/slip$/);
+      if (rcptSlipMatch && method === "GET") return cors(await getPublicReceiptSlip(rcptSlipMatch[1], env));
       if (path === "/ws") return handleWebSocket(request, env);
       const auth = await requireAuth(request, env);
       if (!auth.ok) return cors(json({ error: auth.error }, auth.status || 401));
@@ -95,6 +111,8 @@ var worker_default = {
       if (path === "/budgets" && method === "GET") return cors(await listBudgets(env, user));
       if (path === "/budgets" && method === "POST") return cors(await createBudget(request, env, user));
       if (path === "/reports/wallets" && method === "GET") return cors(await reportWallets(request, env, user));
+      if (path === "/reports/items" && method === "GET") return cors(await reportItems(request, env, user));
+      if (path === "/reports/last-prices" && method === "GET") return cors(await reportLastPrices(request, env, user));
       const budgetMatch = path.match(/^\/budgets\/([a-zA-Z0-9_-]+)$/);
       if (budgetMatch && method === "PATCH") return cors(await updateBudget(budgetMatch[1], request, env, user));
       if (budgetMatch && method === "DELETE") return cors(await deleteBudget(budgetMatch[1], env, user));
@@ -772,6 +790,130 @@ async function reportWallets(request, env, user) {
   return json({ wallets, totals, range: { from: from || null, to: to || null } });
 }
 __name(reportWallets, "reportWallets");
+
+// ── รายงานวัตถุดิบ ──────────────────────────────────────────────────────────
+// อ่านรายการของจาก pending_bills.line_items (JSON) ตรง ๆ ด้วย json_each
+// ponytail: ไม่มีตาราง bill_items เพราะ D1 query JSON ได้อยู่แล้ว
+//   เพดาน: ถ้าบิลเยอะจน query ช้า ค่อย materialize เป็นตารางจริง — สูตรรวมยอดยังเหมือนเดิม
+// นับเฉพาะบิลที่ status='paid' เพราะบิลที่ยังไม่จ่าย = ยังไม่ใช่รายจ่าย
+
+// เงื่อนไขช่วงวันที่ใช้ร่วมกันทั้งสองรายงาน (paid_at เป็น 'YYYY-MM-DD HH:MM:SS')
+function billDateFilter(prefix, from, to) {
+  const conds = [];
+  const args = [];
+  if (from) { conds.push(`substr(${prefix}paid_at,1,10) >= ?`); args.push(from); }
+  if (to) { conds.push(`substr(${prefix}paid_at,1,10) <= ?`); args.push(to); }
+  return { conds, args };
+}
+__name(billDateFilter, "billDateFilter");
+
+async function reportItems(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const url = new URL(request.url);
+  const from = url.searchParams.get("from");
+  const to = url.searchParams.get("to");
+  const vendorId = url.searchParams.get("vendorId");
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 100, 500);
+  const ws = user.workspace_id;
+
+  const df = billDateFilter("pb.", from, to);
+  const conds = ["pb.workspace_id = ?", "pb.status = 'paid'", "pb.line_items IS NOT NULL", ...df.conds];
+  const args = [ws, ...df.args];
+  if (vendorId) { conds.push("pb.payee_ref_id = ?"); args.push(vendorId); }
+
+  // ฐานของ coverage = บิลที่ผ่านคิวรอจ่ายและจ่ายแล้วเท่านั้น
+  // ไม่ใช่รายจ่ายทั้งร้าน (ค่าไฟ เงินเดือน รายการจาก LINE ไม่ได้ผ่านคิวนี้)
+  // ต้องบอกผู้ใช้ให้ตรงตามนี้ ไม่งั้นอ่านกราฟผิดว่าเห็นครบทั้งร้าน
+  const covDf = billDateFilter("", from, to);
+  const covConds = ["workspace_id = ?", "status = 'paid'", ...covDf.conds];
+  const covArgs = [ws, ...covDf.args];
+  if (vendorId) { covConds.push("payee_ref_id = ?"); covArgs.push(vendorId); }
+
+  const [itemRes, covRes] = await Promise.all([
+    env.DB.prepare(
+      `SELECT json_extract(li.value,'$.name') AS item,
+         ROUND(SUM(json_extract(li.value,'$.qty') * json_extract(li.value,'$.unitPrice')),2) AS baht,
+         COUNT(*) AS times,
+         COUNT(DISTINCT json_extract(li.value,'$.unit')) AS unit_kinds,
+         MAX(json_extract(li.value,'$.unit')) AS unit,
+         CASE WHEN COUNT(DISTINCT json_extract(li.value,'$.unit')) = 1
+              THEN ROUND(SUM(json_extract(li.value,'$.qty')),3) END AS qty
+       FROM pending_bills pb, json_each(pb.line_items) li
+       WHERE ${conds.join(" AND ")}
+       GROUP BY item ORDER BY baht DESC LIMIT ?`
+    ).bind(...args, limit).all(),
+    env.DB.prepare(
+      `SELECT ROUND(SUM(CASE WHEN line_items IS NOT NULL THEN amount ELSE 0 END),2) AS detailed_baht,
+         ROUND(SUM(amount),2) AS total_baht
+       FROM pending_bills WHERE ${covConds.join(" AND ")}`
+    ).bind(...covArgs).all(),
+  ]);
+
+  const cov = (covRes.results || [])[0] || {};
+  const detailed = Number(cov.detailed_baht) || 0;
+  const total = Number(cov.total_baht) || 0;
+
+  return json({
+    items: (itemRes.results || []).map(r => ({
+      name: r.item,
+      baht: Number(r.baht) || 0,
+      times: Number(r.times) || 0,
+      // qty เป็น null เมื่อของชิ้นนี้ถูกซื้อมาหลายหน่วย (กก. กับ ถุง) — บวกกันแล้วไม่มีความหมาย
+      // ตารางแปลงหน่วยเป็นงานของ P2 · จนกว่าจะมี ให้หน้าจอแสดง "—" แทนตัวเลขมั่ว
+      qty: r.qty == null ? null : Number(r.qty),
+      unit: Number(r.unit_kinds) === 1 ? r.unit : null,
+      mixedUnits: Number(r.unit_kinds) > 1,
+    })),
+    coverage: {
+      detailedBaht: detailed,
+      totalBaht: total,
+      pct: total > 0 ? Math.round((detailed / total) * 1000) / 10 : null,
+      basis: "บิลที่ผ่านคิวรอจ่ายและจ่ายแล้ว",
+    },
+    range: { from: from || null, to: to || null, vendorId: vendorId || null },
+  });
+}
+__name(reportItems, "reportItems");
+
+// ราคาล่าสุดต่อชื่อของ — ใช้เติมช่องราคาให้อัตโนมัติตอนออกใบวางบิล
+// ไม่จำกัดเฉพาะ admin เพราะพนักงานที่ออกใบต้องใช้ (และเห็นราคาบนบิลที่ตัวเองออกอยู่แล้ว)
+// ส่ง vendorId มาด้วยจะได้สองชุดในคำขอเดียว: ราคาจากคู่ค้ารายนี้ (isVendor=true) และจากร้านอื่น
+// หน้าจอเลือกใช้ของคู่ค้ารายนี้ก่อน ถ้าไม่มีค่อยตกไปใช้ราคาทั่วไป
+async function reportLastPrices(request, env, user) {
+  const url = new URL(request.url);
+  const vendorId = url.searchParams.get("vendorId") || "";
+  const limit = Math.min(Number(url.searchParams.get("limit")) || 400, 1000);
+
+  // ผูก vendorId สองครั้งตามลำดับที่ ? ปรากฏใน SQL (SELECT CASE, PARTITION CASE) แล้วค่อย workspace
+  const res = await env.DB.prepare(
+    `SELECT item, unit, unit_price, paid_at, is_vendor FROM (
+       SELECT json_extract(li.value,'$.name') AS item,
+              json_extract(li.value,'$.unit') AS unit,
+              json_extract(li.value,'$.unitPrice') AS unit_price,
+              pb.paid_at AS paid_at,
+              CASE WHEN pb.payee_ref_id = ? THEN 1 ELSE 0 END AS is_vendor,
+              ROW_NUMBER() OVER (
+                PARTITION BY json_extract(li.value,'$.name'),
+                             CASE WHEN pb.payee_ref_id = ? THEN 1 ELSE 0 END
+                ORDER BY pb.paid_at DESC) AS rn
+       FROM pending_bills pb, json_each(pb.line_items) li
+       WHERE pb.workspace_id = ? AND pb.status = 'paid' AND pb.line_items IS NOT NULL
+     ) WHERE rn = 1 ORDER BY is_vendor DESC, item LIMIT ?`
+  ).bind(vendorId, vendorId, user.workspace_id, limit).all();
+
+  return json({
+    prices: (res.results || []).map(r => ({
+      name: r.item,
+      unit: r.unit || null,
+      unitPrice: Number(r.unit_price) || 0,
+      lastPaidAt: r.paid_at || null,
+      isVendor: Number(r.is_vendor) === 1,
+    })),
+    vendorId: vendorId || null,
+  });
+}
+__name(reportLastPrices, "reportLastPrices");
+
 async function listCategories(env, user) {
   const result = await env.DB.prepare("SELECT * FROM categories WHERE workspace_id = ? AND is_active = 1 ORDER BY parent_id NULLS FIRST, sort_order, name").bind(user.workspace_id).all();
   const usageRows = await env.DB.prepare(
@@ -2421,6 +2563,8 @@ function formatPendingBill(b) {
     kind: b.kind || "simple",
     lineItems: b.line_items ? (() => { try { return JSON.parse(b.line_items) } catch { return null } })() : null,
     hasSignature: !!b.vendor_signature_key,
+    // null = คู่ค้ายังไม่ยืนยัน · มี at = ยืนยันแล้ว · มี disputeAt = ทักท้วง
+    vendorAck: b.vendor_ack ? (() => { try { return JSON.parse(b.vendor_ack) } catch { return null } })() : null,
     receivedByName: b.received_by_name || null,
     publicToken: b.public_token || null,
     createdAt: b.created_at,
@@ -2448,9 +2592,13 @@ async function createPendingBill(request, env, user) {
   const body = await request.json();
   const { name, amount, scope, note, categoryId, subCategoryId, payeeType, payeeRefId, payeeName, evidenceType, isDeposit, kind, lineItems } = body;
   const isGoods = kind === "goods_receipt";
+  // billing_link = ใบวางบิลที่ส่งลิงก์ให้คู่ค้ายืนยันเอง (คนละโหมดกับรับของที่เซ็นต่อหน้า)
+  // เหมือน goods_receipt ทุกอย่างยกเว้นไม่บังคับรูป/ลายเซ็นตอนสร้าง
+  const isBillingLink = kind === "billing_link";
+  const hasItems = isGoods || isBillingLink;
   let finalAmount = Number(amount);
   let lineItemsJson = null;
-  if (isGoods) {
+  if (hasItems) {
     const lv = validateLineItems(lineItems);
     if (!lv.ok) return json({ error: lv.error }, 400);
     finalAmount = sumLineItems(lineItems);
@@ -2464,10 +2612,10 @@ async function createPendingBill(request, env, user) {
   if (!cap.ok) return json({ error: cap.error }, 400);
   const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
   const id = "pb_" + crypto.randomUUID();
-  const publicToken = isGoods ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : null;
+  const publicToken = hasItems ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : null;
   await env.DB.prepare(
     "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit, kind, line_items, received_by_user_id, received_by_name, public_token) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, user.name || null, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : "simple", lineItemsJson, isGoods ? user.id : null, isGoods ? (user.name || null) : null, publicToken).run();
+  ).bind(id, user.workspace_id, user.id, user.name || null, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : isBillingLink ? "billing_link" : "simple", lineItemsJson, hasItems ? user.id : null, hasItems ? (user.name || null) : null, publicToken).run();
   await logAudit(env, user, "create", "pending_bill", id, { name, amount: finalAmount });
   const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
   return json({ bill: formatPendingBill(b) }, 201);
@@ -2528,7 +2676,9 @@ async function payPendingBill(id, request, env, user) {
   const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);
   if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
-  if (!b.evidence_key) return json({ error: "ต้องแนบหลักฐานก่อน" }, 400);
+  // ใบวางบิลคู่ค้าไม่มีรูปแนบตอนสร้าง — หลักฐานคือตัวใบ + ลายเซ็นคู่ค้า + สลิปที่แนบหลังโอน
+  // เงื่อนไขนี้เป็นจริงเฉพาะ kind='billing_link' ซึ่งไม่มีในบิลเก่าเลย ของเดิมจึงไม่กระทบ
+  if (!b.evidence_key && b.kind !== "billing_link") return json({ error: "ต้องแนบหลักฐานก่อน" }, 400);
   const body = await request.json().catch(() => ({}));
   const { walletId, date } = body;
   if (!walletId || !/^\d{4}-\d{2}-\d{2}$/.test(date || "")) return json({ error: "ต้องระบุกระเป๋าและวันที่" }, 400);
@@ -2544,15 +2694,20 @@ async function payPendingBill(id, request, env, user) {
   ).bind(txId, walletId, user.id, id, user.workspace_id).run();
   if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว" }, 409);
   try {
-    await env.DB.batch([
+    const steps = [
       env.DB.prepare(
         "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'expense', ?, ?, ?, ?, 'manual', 'pending_bill')"
       ).bind(txId, user.workspace_id, user.id, walletId, b.category_id || null, b.sub_category_id || null, b.name, amt, b.scope, date, b.note || null, b.submitted_by_name || null),
       env.DB.prepare("UPDATE wallets SET current_balance = current_balance - ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?").bind(amt, walletId),
-      env.DB.prepare(
+    ];
+    // ย้ายรูปหลักฐานที่แนบตอนสร้างบิลไปเป็นสลิปของ transaction
+    // ใบวางบิลคู่ค้าไม่มีรูปตอนนี้ (พนักงานจะแนบสลิปโอนทีหลังผ่าน /transactions/:id/slips)
+    if (b.evidence_key) {
+      steps.push(env.DB.prepare(
         "INSERT INTO slips (id, workspace_id, transaction_id, file_key, file_name, file_size, mime_type, slip_type, ocr_text, ocr_data) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-      ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null)
-    ]);
+      ).bind(slipId, user.workspace_id, txId, b.evidence_key, "bill_" + id, 0, b.evidence_mime || "image/jpeg", slipType, null, b.evidence_ocr || null));
+    }
+    await env.DB.batch(steps);
   } catch (e) {
     console.error("payPendingBill batch failed:", e);
     // batch failed after the claim committed — revert so the bill isn't stuck as paid-with-no-tx
@@ -2742,14 +2897,27 @@ async function getPublicReceipt(token, env) {
   if (!b) return json({ error: "ไม่พบเอกสาร" }, 404);
   const acc = b.payee_account_no ? ("••" + String(b.payee_account_no).slice(-4)) : null;
   let items = null; try { items = b.line_items ? JSON.parse(b.line_items) : null } catch { /* ignore malformed line_items */ }
+  const kind = b.kind || "simple";
+  // สลิปโอนที่พนักงานแนบหลังจ่าย — ผูกกับ transaction ที่เกิดตอนกดจ่าย
+  let hasPaymentSlip = false;
+  if (b.status === "paid" && b.created_tx_id) {
+    const s = await env.DB.prepare(
+      "SELECT id FROM slips WHERE transaction_id = ? AND slip_type = 'transfer' ORDER BY created_at DESC LIMIT 1"
+    ).bind(b.created_tx_id).first();
+    hasPaymentSlip = !!s;
+  }
   return json({
-    receiptNo: "GR-" + (b.created_at || "").slice(2, 10).replace(/-/g, "") + "-" + b.id.slice(-4),
+    receiptNo: (kind === "billing_link" ? "BL-" : "GR-") + (b.created_at || "").slice(2, 10).replace(/-/g, "") + "-" + b.id.slice(-4),
+    kind,
     shopName: b.shop_name || "ร้านค้า",
     vendorName: b.payee_name || null,
     date: b.created_at,
     lineItems: items,
     amount: Number(b.amount),
     hasSignature: !!b.vendor_signature_key,
+    // เปิดเผยเฉพาะชื่อกับเวลา — IP/เบราว์เซอร์เก็บไว้ฝั่งเราเป็น audit ไม่ต้องโชว์บนหน้าสาธารณะ
+    ack: pickPublicAck(b.vendor_ack),
+    hasPaymentSlip,
     status: b.status,
     paidAt: b.paid_at || null,
     payeeAccountMasked: acc,
@@ -2757,6 +2925,89 @@ async function getPublicReceipt(token, env) {
   });
 }
 __name(getPublicReceipt, "getPublicReceipt");
+
+function parseAck(raw) {
+  if (!raw) return null;
+  try { return JSON.parse(raw) } catch { return null }
+}
+__name(parseAck, "parseAck");
+
+function pickPublicAck(raw) {
+  const a = parseAck(raw);
+  if (!a) return null;
+  return { name: a.name || null, at: a.at || null, disputeReason: a.disputeReason || null, disputeAt: a.disputeAt || null };
+}
+__name(pickPublicAck, "pickPublicAck");
+
+// ค้นบิลจาก token แล้วเช็คว่ายืนยัน/ทักท้วงได้ไหม — ใช้ร่วมกันทั้ง ack และ dispute
+async function loadAckableBill(token, env) {
+  const b = await env.DB.prepare(
+    "SELECT id, workspace_id, kind, status, vendor_ack FROM pending_bills WHERE public_token = ?"
+  ).bind(token).first();
+  if (!b) return { error: json({ error: "ไม่พบเอกสาร" }, 404) };
+  // โหมดรับของเซ็นต่อหน้าไปแล้ว ไม่เปิดให้ยืนยันซ้ำจากลิงก์
+  if (b.kind !== "billing_link") return { error: json({ error: "ใบนี้ไม่ได้เปิดให้ยืนยันผ่านลิงก์" }, 409) };
+  if (b.status !== "pending") return { error: json({ error: "ใบนี้ถูกดำเนินการไปแล้ว" }, 409) };
+  return { bill: b, ack: parseAck(b.vendor_ack) };
+}
+__name(loadAckableBill, "loadAckableBill");
+
+async function ackPublicReceipt(token, request, env) {
+  const found = await loadAckableBill(token, env);
+  if (found.error) return found.error;
+  // ยืนยันได้ครั้งเดียว ทับซ้ำไม่ได้ — ลายเซ็นต้องผูกกับตัวเลขชุดที่คู่ค้าเห็นตอนกด
+  if (found.ack && found.ack.at) return json({ error: "ใบนี้ยืนยันไปแล้ว" }, 409);
+  const body = await request.json().catch(() => ({}));
+  const name = String(body.name || "").trim().slice(0, 120);
+  if (!name) return json({ error: "กรุณาพิมพ์ชื่อผู้ยืนยัน" }, 400);
+  const ack = {
+    name,
+    at: (/* @__PURE__ */ new Date()).toISOString(),
+    ip: request.headers.get("cf-connecting-ip") || null,
+    ua: (request.headers.get("user-agent") || "").slice(0, 200) || null,
+    disputeReason: found.ack?.disputeReason || null,
+    disputeAt: found.ack?.disputeAt || null,
+  };
+  // UPDATE แบบมีเงื่อนไข = กันสองคนกดยืนยันพร้อมกันแล้วทับกัน (คนละคนในกลุ่มไลน์เดียวกันเกิดได้จริง)
+  const claim = await env.DB.prepare("UPDATE pending_bills SET vendor_ack = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND vendor_ack IS ?")
+    .bind(JSON.stringify(ack), found.bill.id, found.bill.vendor_ack ?? null).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "ใบนี้เพิ่งถูกยืนยันไปแล้ว" }, 409);
+  await broadcastChange(env, found.bill.workspace_id, { event: "bill.acked", billId: found.bill.id, by: name });
+  return json({ ok: true, ack: pickPublicAck(JSON.stringify(ack)) });
+}
+__name(ackPublicReceipt, "ackPublicReceipt");
+
+async function disputePublicReceipt(token, request, env) {
+  const found = await loadAckableBill(token, env);
+  if (found.error) return found.error;
+  if (found.ack && found.ack.at) return json({ error: "ใบนี้ยืนยันไปแล้ว ทักท้วงไม่ได้" }, 409);
+  const body = await request.json().catch(() => ({}));
+  const reason = String(body.reason || "").trim().slice(0, 500);
+  if (!reason) return json({ error: "กรุณาบอกด้วยว่ารายการไหนไม่ตรง" }, 400);
+  // ไม่แตะ status — ใบยังอยู่ในคิวรอจ่ายเหมือนเดิม แค่ติดธงให้พนักงานเห็นว่าคู่ค้าทักท้วง
+  const ack = { name: null, at: null, ip: request.headers.get("cf-connecting-ip") || null, ua: null, disputeReason: reason, disputeAt: (/* @__PURE__ */ new Date()).toISOString() };
+  await env.DB.prepare("UPDATE pending_bills SET vendor_ack = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?")
+    .bind(JSON.stringify(ack), found.bill.id).run();
+  await broadcastChange(env, found.bill.workspace_id, { event: "bill.disputed", billId: found.bill.id });
+  return json({ ok: true });
+}
+__name(disputePublicReceipt, "disputePublicReceipt");
+
+// สลิปโอนบนหน้าสาธารณะ — เสิร์ฟเฉพาะใบที่จ่ายแล้ว และเฉพาะสลิปของ transaction ใบนั้นใบเดียว
+async function getPublicReceiptSlip(token, env) {
+  const b = await env.DB.prepare(
+    "SELECT status, created_tx_id FROM pending_bills WHERE public_token = ?"
+  ).bind(token).first();
+  if (!b || b.status !== "paid" || !b.created_tx_id) return json({ error: "not found" }, 404);
+  const s = await env.DB.prepare(
+    "SELECT file_key, mime_type FROM slips WHERE transaction_id = ? AND slip_type = 'transfer' ORDER BY created_at DESC LIMIT 1"
+  ).bind(b.created_tx_id).first();
+  if (!s || !s.file_key) return json({ error: "not found" }, 404);
+  const obj = await env.SLIPS.get(s.file_key);
+  if (!obj) return json({ error: "not found" }, 404);
+  return new Response(obj.body, { headers: { "Content-Type": obj.httpMetadata?.contentType || s.mime_type || "image/jpeg" } });
+}
+__name(getPublicReceiptSlip, "getPublicReceiptSlip");
 
 async function getPublicReceiptSignature(token, env) {
   const b = await env.DB.prepare("SELECT vendor_signature_key FROM pending_bills WHERE public_token = ?").bind(token).first();

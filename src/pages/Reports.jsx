@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { thb, ymd } from '../fmt'
-import { BarChart3, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Loader2, Wallet, PieChart, ChevronDown } from 'lucide-react'
+import { BarChart3, ArrowDownLeft, ArrowUpRight, AlertTriangle, CheckCircle2, Loader2, Wallet, PieChart, ChevronDown, Carrot } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const SUNK = { background: '#0d1120', border: '1px solid #1f2937' }
@@ -143,6 +143,81 @@ function WalletCard({ w }) {
   )
 }
 
+// วัตถุดิบที่ซื้อ เรียงตามยอดเงิน — มาจาก line_items ของบิลที่จ่ายแล้ว
+// จัดอันดับด้วยบาทอย่างเดียว เพราะหน่วยของแต่ละร้านไม่เหมือนกัน (กก./ถุง/ลัง บวกกันไม่ได้)
+function ItemsCard({ from, to }) {
+  const [state, setState] = useState({ loading: true, items: [], coverage: null, error: '' })
+
+  useEffect(() => {
+    let cancelled = false
+    const params = {}
+    if (from) params.from = from
+    if (to) params.to = to
+    api.reportItems(params)
+      .then(d => { if (!cancelled) setState({ loading: false, items: d.items || [], coverage: d.coverage || null, error: '' }) })
+      .catch(e => { if (!cancelled) setState({ loading: false, items: [], coverage: null, error: e.message || 'โหลดไม่สำเร็จ' }) })
+    return () => { cancelled = true }
+  }, [from, to])
+
+  const { loading, items, coverage, error } = state
+  const max = items.length ? items[0].baht : 0
+
+  return (
+    <div className="rounded-2xl p-4 sm:p-5 space-y-3" style={CARD}>
+      <div className="flex items-center gap-2.5">
+        <div className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: 'rgba(16,185,129,0.12)' }}>
+          <Carrot className="w-4 h-4 text-emerald-400" />
+        </div>
+        <div className="min-w-0">
+          <h3 className="text-base font-bold text-white leading-tight">วัตถุดิบที่ซื้อ</h3>
+          <p className="text-xs text-slate-500">เรียงตามยอดเงิน · จากใบที่มีรายการละเอียด</p>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="text-sm text-slate-500 flex items-center gap-2"><Loader2 className="w-4 h-4 animate-spin" />กำลังโหลด...</p>
+      ) : error ? (
+        <p className="text-sm text-slate-500">{error}</p>
+      ) : items.length === 0 ? (
+        <p className="text-sm text-slate-500">ยังไม่มีบิลที่ลงรายการละเอียดในช่วงนี้ — ออกใบวางบิลหรือใบรับของแล้วรายการจะขึ้นที่นี่</p>
+      ) : (
+        <>
+          <div className="space-y-2">
+            {items.map(it => (
+              <div key={it.name} className="space-y-1">
+                <div className="flex items-baseline justify-between gap-2 text-sm">
+                  <span className="text-slate-200 truncate">{it.name}</span>
+                  <span className="text-slate-100 font-semibold tabular-nums shrink-0">{thb(it.baht)}</span>
+                </div>
+                <div className="h-1.5 rounded-full overflow-hidden" style={SUNK}>
+                  <div className="h-full rounded-full" style={{ width: `${max ? (it.baht / max) * 100 : 0}%`, background: 'linear-gradient(90deg,#059669,#34d399)' }} />
+                </div>
+                <div className="text-[11px] text-slate-500 tabular-nums">
+                  {it.times} ครั้ง
+                  {it.qty != null && it.unit ? ` · ${it.qty.toLocaleString('th-TH')} ${it.unit}` : ''}
+                  {it.mixedUnits ? ' · ซื้อหลายหน่วย รวมจำนวนไม่ได้' : ''}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {coverage && coverage.pct != null && (
+            <div className="rounded-xl px-3 py-2.5 text-xs flex items-start gap-2"
+              style={{ background: 'rgba(180,83,9,0.10)', border: '1px solid rgba(180,83,9,0.3)' }}>
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" />
+              <span className="text-slate-300">
+                ตัวเลขข้างบนครอบคลุม <b className="text-amber-400 tabular-nums">{coverage.pct}%</b> ของ{coverage.basis} —
+                <span className="tabular-nums"> {thb(coverage.detailedBaht)} จาก {thb(coverage.totalBaht)}</span>
+                <span className="block text-slate-500 mt-0.5">บิลที่ลงแบบก้อนเดียว (เช่น "ของแห้ง") ไม่มีรายการให้นับ · ไม่รวมรายจ่ายที่ไม่ได้ผ่านคิวบิล</span>
+              </span>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
 export default function Reports() {
   const [period, setPeriod] = useState('thisMonth')
   const [custom, setCustom] = useState({ from: '', to: '' })
@@ -272,6 +347,8 @@ export default function Reports() {
           <div className="grid gap-4 lg:grid-cols-2">
             {wallets.map(w => <WalletCard key={w.id} w={w} />)}
           </div>
+
+          <ItemsCard from={headerRange?.from} to={headerRange?.to} />
         </>
       )}
     </div>
