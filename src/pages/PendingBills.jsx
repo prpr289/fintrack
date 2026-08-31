@@ -7,6 +7,7 @@ import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck 
 import MerchantPicker from '../components/MerchantPicker'
 import PromptPayQR from '../components/PromptPayQR'
 import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems } from '../../pending-bills-logic.mjs'
+import { parseOrderText } from '../parseOrderText.js'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -369,6 +370,240 @@ function StepHeader({ n, children, required }) {
   )
 }
 
+// ออกใบวางบิลให้คู่ค้ายืนยันเองผ่านลิงก์ — คนละโหมดกับ "รับของ" ที่ผู้ขายเซ็นต่อหน้า
+// ต่างกันแค่: ไม่บังคับรูป ไม่บังคับลายเซ็น และเริ่มจากวางข้อความสั่งของแทนพิมพ์ทีละแถว
+function BillingLinkModal({ me, onClose, onDone }) {
+  const [vendors, setVendors] = useState([])
+  const [vendorId, setVendorId] = useState('')
+  const [paste, setPaste] = useState('')
+  const [items, setItems] = useState([])
+  const [unparsed, setUnparsed] = useState([])
+  const [deliveryDate, setDeliveryDate] = useState(null)
+  const [prices, setPrices] = useState([])
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  const [created, setCreated] = useState(null)
+  const [qr, setQr] = useState(null)
+
+  useEffect(() => { api.vendorProfiles().then(d => setVendors(d.vendors || [])).catch(() => {}) }, [])
+
+  // ราคาล่าสุด — API เรียงของคู่ค้ารายนี้มาก่อน จึงหยิบตัวแรกที่เจอต่อชื่อได้เลย
+  useEffect(() => {
+    api.lastPrices(vendorId ? { vendorId } : {}).then(d => setPrices(d.prices || [])).catch(() => setPrices([]))
+  }, [vendorId])
+
+  const priceMap = {}
+  for (const p of prices) if (!(p.name in priceMap)) priceMap[p.name] = p
+  const nameOptions = Object.keys(priceMap)
+
+  const vendor = vendors.find(v => v.id === vendorId)
+  const validItems = items.filter(it => String(it.name || '').trim() && Number(it.qty) > 0 && Number(it.unitPrice) >= 0)
+  const total = sumLineItems(validItems)
+  const missingPrice = items.filter(it => String(it.name || '').trim() && !(Number(it.unitPrice) > 0)).length
+
+  const withLastPrice = (it) => {
+    const p = priceMap[it.name]
+    if (!p) return { ...it, unitPrice: '' }
+    // หน่วยจากราคาเดิมใช้แทนได้เฉพาะตอนที่คนไม่ได้เขียนหน่วยมา
+    return { ...it, unitPrice: p.unitPrice, unit: it.guessedUnit && p.unit ? p.unit : it.unit }
+  }
+
+  const doParse = () => {
+    const r = parseOrderText(paste)
+    setItems(r.items.map(withLastPrice))
+    setUnparsed(r.unparsed)
+    setDeliveryDate(r.deliveryDate)
+    setErr('')
+  }
+
+  const updateItem = (idx, next) => setItems(prev => prev.map((it, i) => i === idx ? next : it))
+  const addItem = () => setItems(prev => [...prev, { name: '', qty: '', unit: 'กก.', unitPrice: '' }])
+  const removeItem = (idx) => setItems(prev => prev.filter((_, i) => i !== idx))
+
+  const submit = async (e) => {
+    e.preventDefault(); setErr('')
+    if (!vendorId) { setErr('เลือกคู่ค้าก่อน'); return }
+    if (validItems.length === 0) { setErr('ต้องมีอย่างน้อย 1 รายการที่กรอกครบ (ชื่อ · จำนวน · ราคา/หน่วย)'); return }
+    setSaving(true)
+    try {
+      let bill = created
+      if (!bill) {
+        const res = await api.createPendingBill({
+          kind: 'billing_link',
+          name: 'วางบิล ' + (vendor?.vendorName || ''),
+          amount: total, scope: 'business', payeeType: 'vendor', payeeRefId: vendorId,
+          evidenceType: 'receipt',
+          note: deliveryDate ? `ของส่งวันที่ ${deliveryDate}` : null,
+          lineItems: validItems.map(it => ({ name: it.name.trim(), qty: Number(it.qty), unit: it.unit || 'กก.', unitPrice: Number(it.unitPrice) })),
+        })
+        bill = res.bill
+        setCreated(bill)
+      }
+      const url = `${window.location.origin}/receipt/${bill.publicToken}`
+      setQr({ url, dataUrl: await QRCode.toDataURL(url, { margin: 1, width: 220 }) })
+    } catch (e2) {
+      setErr(created ? `สร้างใบไว้แล้ว แต่ ${e2.message || 'สร้าง QR ไม่สำเร็จ'} — กดอีกครั้งได้ ไม่สร้างใบซ้ำ` : (e2.message || 'เกิดข้อผิดพลาด กรุณาลองใหม่'))
+    } finally { setSaving(false) }
+  }
+
+  const finish = () => { onDone(); onClose() }
+
+  if (qr) {
+    return (
+      <Overlay onClose={finish}>
+        <div className="flex items-center justify-between p-4 border-b border-slate-700">
+          <h3 className="font-semibold text-slate-100">ออกใบวางบิลแล้ว</h3>
+          <button onClick={finish} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <div className="p-5 flex flex-col items-center gap-3 overflow-y-auto">
+          <p className="text-sm text-slate-200 text-center">
+            <span className="font-semibold">{vendor?.vendorName}</span> · {thb(total)}<br />ส่งลิงก์ให้คู่ค้ายืนยันรายการ
+          </p>
+          <img src={qr.dataUrl} alt="QR ใบวางบิล" className="rounded-lg" style={{ width: 180, height: 180 }} />
+          <div className="w-full flex items-center gap-2 rounded-lg p-2.5" style={{ background: '#0d1120', border: '1px solid #1f2937' }}>
+            <span className="text-xs text-slate-400 truncate flex-1">{qr.url}</span>
+            <CopyBtn text={qr.url} />
+          </div>
+          {navigator.share && (
+            <button onClick={() => navigator.share({ url: qr.url, title: 'ใบวางบิล' }).catch(() => {})}
+              className="w-full rounded-lg py-2.5 text-sm font-semibold border border-slate-600 text-slate-200">
+              แชร์เข้าแชทไลน์
+            </button>
+          )}
+          <p className="text-xs text-slate-400 text-center">คู่ค้ากดยืนยันในลิงก์นี้ · พอโอนเงินแล้วแนบสลิป ลิงก์เดิมจะกลายเป็นใบสำคัญจ่ายเอง</p>
+          <button onClick={finish} className="w-full bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg py-3 text-sm font-semibold mt-1">เสร็จสิ้น</button>
+        </div>
+      </Overlay>
+    )
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <h3 className="font-semibold text-slate-100">ออกใบวางบิลให้คู่ค้า</h3>
+        <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
+      </div>
+      <form onSubmit={submit} className="p-4 space-y-3.5 overflow-y-auto">
+        <MerchantPicker vendors={vendors} value={vendorId} onChange={setVendorId} label="คู่ค้า"
+          canCreate={me?.role === 'admin'} onCreated={v => setVendors(prev => [v, ...prev])} />
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5" htmlFor="paste-order">
+            วางข้อความสั่งของจากแชทไลน์
+          </label>
+          <textarea id="paste-order" rows={4} className={INPUT} style={INPUT_STYLE} value={paste}
+            onChange={e => setPaste(e.target.value)} placeholder={'30/8/69\nมะละกอ30กก.\nแตงร้าน10กก.'} />
+          <button type="button" onClick={doParse} disabled={!paste.trim()}
+            className="w-full mt-1.5 rounded-lg py-2 text-xs font-semibold disabled:opacity-40"
+            style={{ background: '#10b98115', color: '#34d399' }}>
+            แตกเป็นรายการ
+          </button>
+        </div>
+
+        {unparsed.length > 0 && (
+          <div className="rounded-lg p-2.5 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
+            <p className="text-amber-400 font-medium mb-1">แตกไม่ออก {unparsed.length} บรรทัด — กรอกเองด้านล่าง</p>
+            {unparsed.map((l, i) => <p key={i} className="text-slate-400 truncate">{l}</p>)}
+          </div>
+        )}
+
+        {deliveryDate && <p className="text-xs text-slate-400">ของส่งวันที่ {deliveryDate}</p>}
+
+        <datalist id="known-item-names">
+          {nameOptions.map(n => <option key={n} value={n} />)}
+        </datalist>
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">รายการ · ราคาเติมจากครั้งก่อนให้แล้ว แก้ได้</label>
+          <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #2e3349' }}>
+            {items.length === 0 && <p className="p-3 text-xs text-slate-500 text-center">ยังไม่มีรายการ — วางข้อความแล้วกดแตก หรือเพิ่มเอง</p>}
+            {items.map((it, idx) => (
+              <div key={idx} className="p-2.5 border-b" style={{ borderColor: '#1f2937' }}>
+                <div className="flex gap-1.5">
+                  <input list="known-item-names" className="flex-1 min-w-0 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500"
+                    style={INPUT_STYLE} placeholder="ชื่อของ" value={it.name}
+                    onChange={e => updateItem(idx, withLastPriceIfEmpty(it, e.target.value, priceMap))} />
+                  <button type="button" onClick={() => removeItem(idx)} aria-label="ลบรายการ" className="shrink-0 px-1">
+                    <X className="w-3.5 h-3.5 text-slate-500" />
+                  </button>
+                </div>
+                <div className="flex gap-1.5 mt-1.5 items-center">
+                  <input className="w-16 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 text-right focus:outline-none focus:border-emerald-500"
+                    style={INPUT_STYLE} type="number" min="0" step="0.01" inputMode="decimal" placeholder="จำนวน"
+                    value={it.qty} onChange={e => updateItem(idx, { ...it, qty: e.target.value })} />
+                  <input className="w-16 rounded-md px-2 py-1.5 text-xs text-slate-200 border focus:outline-none focus:border-emerald-500"
+                    style={{ ...INPUT_STYLE, borderColor: it.guessedUnit ? '#b45309' : '#475569' }}
+                    placeholder="หน่วย" value={it.unit}
+                    onChange={e => updateItem(idx, { ...it, unit: e.target.value, guessedUnit: false })} />
+                  <span className="text-slate-600 text-xs">×</span>
+                  <input className="flex-1 min-w-0 rounded-md px-2 py-1.5 text-xs text-slate-200 border text-right focus:outline-none focus:border-emerald-500"
+                    style={{ ...INPUT_STYLE, borderColor: Number(it.unitPrice) > 0 ? '#475569' : '#b45309' }}
+                    type="number" min="0" step="0.01" inputMode="decimal" placeholder="ราคา/หน่วย"
+                    value={it.unitPrice} onChange={e => updateItem(idx, { ...it, unitPrice: e.target.value })} />
+                  <span className="text-xs font-semibold text-slate-200 tabular-nums w-16 text-right shrink-0">
+                    {(Number(it.qty) > 0 && Number(it.unitPrice) >= 0) ? thb(Number(it.qty) * Number(it.unitPrice)) : '—'}
+                  </span>
+                </div>
+              </div>
+            ))}
+            <button type="button" onClick={addItem}
+              className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium"
+              style={{ color: '#34d399', background: '#10b98115' }}>
+              <Plus className="w-3.5 h-3.5" />เพิ่มรายการ
+            </button>
+          </div>
+        </div>
+
+        {missingPrice > 0 && (
+          <p className="text-xs text-amber-400">ยังไม่ได้ใส่ราคา {missingPrice} รายการ — ระบบไม่รู้ราคาเก่าของชิ้นนั้น ต้องกรอกเอง</p>
+        )}
+
+        <div className="flex items-baseline justify-between px-0.5">
+          <span className="text-xs text-slate-400">ยอดรวม (ระบบคูณให้)</span>
+          <span className="text-2xl font-bold text-slate-100 tabular-nums">{thb(total)}</span>
+        </div>
+
+        {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
+        <button type="submit" disabled={saving}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
+          {saving ? 'กำลังออกใบ...' : created ? 'ลองอีกครั้ง' : 'ออกใบวางบิล + สร้างลิงก์'}
+        </button>
+      </form>
+    </Overlay>
+  )
+}
+
+// เปลี่ยนชื่อของแล้วเติมราคาล่าสุดให้ทันที เฉพาะตอนที่ช่องราคายังว่าง — ไม่ทับของที่คนพิมพ์เอง
+function withLastPriceIfEmpty(it, nextName, priceMap) {
+  const next = { ...it, name: nextName }
+  if (Number(it.unitPrice) > 0) return next
+  const p = priceMap[nextName]
+  if (p) { next.unitPrice = p.unitPrice; if (it.guessedUnit && p.unit) { next.unit = p.unit; next.guessedUnit = false } }
+  return next
+}
+
+function AttachSlipBtn({ txId, onDone }) {
+  const ref = useRef(null)
+  const [busy, setBusy] = useState(false)
+  const upload = async (e) => {
+    const f = e.target.files?.[0]
+    if (!f) return
+    setBusy(true)
+    try { await api.uploadSlip(txId, f, 'transfer'); onDone?.() }
+    catch (err) { alert(err.message || 'แนบสลิปไม่สำเร็จ') }
+    finally { setBusy(false); if (ref.current) ref.current.value = '' }
+  }
+  return (
+    <>
+      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={upload} />
+      <button type="button" disabled={busy} onClick={() => ref.current?.click()}
+        className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 disabled:opacity-50">
+        <Camera className="w-3.5 h-3.5" />{busy ? 'กำลังอัป...' : 'แนบสลิปโอน'}
+      </button>
+    </>
+  )
+}
+
 function PayModal({ bill, onClose, onDone }) {
   const [wallets, setWallets] = useState([])
   const [walletId, setWalletId] = useState('')
@@ -410,6 +645,17 @@ function PayModal({ bill, onClose, onDone }) {
         <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
       </div>
       <form onSubmit={pay} className="p-4 space-y-3.5 overflow-y-auto">
+        {bill.kind === 'billing_link' && !bill.vendorAck?.at && (
+          <div className="rounded-xl p-3 flex items-start gap-2 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-amber-300">
+              {bill.vendorAck?.disputeAt
+                ? <><b>คู่ค้าทักท้วงรายการนี้</b> — {bill.vendorAck.disputeReason}</>
+                : <b>คู่ค้ายังไม่ยืนยันรายการ</b>}
+              <div className="text-slate-400 mt-0.5">จ่ายได้ แต่ระบบจะติดป้ายไว้บนใบว่าจ่ายก่อนคู่ค้ายืนยัน</div>
+            </div>
+          </div>
+        )}
         <div className="rounded-xl p-3 flex items-center gap-3" style={{ background: '#0d1120', border: '1px solid #1f2937' }}>
           <div className="w-9 h-9 rounded-full flex items-center justify-center font-semibold text-sm shrink-0" style={{ background: '#10b98115', color: '#34d399' }}>
             {(bill.submittedByName || bill.payeeName || '?').slice(0, 1)}
@@ -571,7 +817,7 @@ function RefundModal({ bill, onClose, onDone }) {
   )
 }
 
-function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, onRefund }) {
+function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, onRefund, onDone }) {
   const weak = isWeakEvidence(bill.evidenceType)
   const showCert = bill.status === 'paid' && bill.evidenceType === 'self_declared'
   const depositAwaiting = bill.isDeposit && bill.status === 'paid' && !bill.goodsReceivedAt
@@ -600,13 +846,28 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
                 <PackageCheck className="w-3 h-3" />ใบรับของ{bill.hasSignature ? ' · ผู้ขายเซ็น' : ''}
               </span>
             )}
+            {bill.kind === 'billing_link' && (
+              bill.vendorAck?.at ? (
+                <span className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: '#4338ca22', color: '#a5b4fc' }}>
+                  <FileText className="w-3 h-3" />คู่ค้ายืนยันแล้ว · {bill.vendorAck.name}
+                </span>
+              ) : bill.vendorAck?.disputeAt ? (
+                <span className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: '#b91c1c22', color: '#f87171' }}>
+                  <AlertTriangle className="w-3 h-3" />คู่ค้าทักท้วง
+                </span>
+              ) : (
+                <span className="text-xs px-2 py-0.5 rounded-full inline-flex items-center gap-1" style={{ background: '#b4530922', color: '#f59e0b' }}>
+                  <FileText className="w-3 h-3" />รอคู่ค้ายืนยัน
+                </span>
+              )
+            )}
           </div>
           <div className="text-xs text-slate-400 mt-1 flex gap-2 flex-wrap">
             <span>โดย {bill.submittedByName || '—'}</span>
             {bill.categoryName && <span>· {bill.categoryName}</span>}
             {bill.payeeAccountNo && <span>· โอนไป {bill.payeeBank || ''} ••{String(bill.payeeAccountNo).slice(-4)}</span>}
           </div>
-          {bill.kind === 'goods_receipt' && Array.isArray(bill.lineItems) && bill.lineItems.length > 0 && (
+          {(bill.kind === 'goods_receipt' || bill.kind === 'billing_link') && Array.isArray(bill.lineItems) && bill.lineItems.length > 0 && (
             <ul className="text-xs text-slate-500 mt-1.5 space-y-0.5">
               {bill.lineItems.map((it, idx) => {
                 const amt = Number(it.qty) * Number(it.unitPrice)
@@ -624,10 +885,16 @@ function BillCard({ bill, isAdmin, isDup, onPay, onReject, onView, onReceived, o
         <div className="text-lg font-bold text-slate-100 tabular-nums">{thb(bill.amount)}</div>
       </div>
       <div className="flex gap-2 mt-3">
-        {bill.kind === 'goods_receipt' && bill.publicToken && (
+        {bill.publicToken && (
           <button onClick={() => window.open(`/receipt/${bill.publicToken}`, '_blank')} className="flex items-center gap-1 text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">
-            <PackageCheck className="w-3.5 h-3.5" />ดูใบรับของ
+            <PackageCheck className="w-3.5 h-3.5" />{bill.kind === 'billing_link' ? 'ดูใบวางบิล' : 'ดูใบรับของ'}
           </button>
+        )}
+        {bill.publicToken && bill.status === 'pending' && (
+          <CopyBtn text={`${window.location.origin}/receipt/${bill.publicToken}`} label="คัดลอกลิงก์คู่ค้า" />
+        )}
+        {bill.kind === 'billing_link' && bill.status === 'paid' && bill.createdTxId && (
+          <AttachSlipBtn txId={bill.createdTxId} onDone={onDone} />
         )}
         {bill.hasEvidence && <button onClick={() => onView(bill)} className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300">ดูหลักฐาน</button>}
         {showCert && (
@@ -657,6 +924,7 @@ export default function PendingBills() {
   const [loading, setLoading] = useState(true)
   const [showSubmit, setShowSubmit] = useState(false)
   const [showReceipt, setShowReceipt] = useState(false)
+  const [showBilling, setShowBilling] = useState(false)
   const [payBill, setPayBill] = useState(null)
   const [refundBill, setRefundBill] = useState(null)
   const [adminFilter, setAdminFilter] = useState('pending')
@@ -713,7 +981,10 @@ export default function PendingBills() {
           {depositAwaitingCount > 0 && <p className="text-sm text-blue-400 tabular-nums">มัดจำรอของ {depositAwaitingCount}</p>}
         </div>
         <div className="flex gap-2">
-          <button onClick={() => setShowReceipt(true)} className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold border border-slate-600 text-slate-200 hover:border-emerald-500 transition-colors"><Truck className="w-4 h-4" />รับของ</button>
+          <button onClick={() => setShowBilling(true)} title="ไม่ได้เจอตัวคู่ค้า — ส่งลิงก์ให้เขายืนยันเอง"
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold border border-slate-600 text-slate-200 hover:border-emerald-500 transition-colors"><FileText className="w-4 h-4" />วางบิล</button>
+          <button onClick={() => setShowReceipt(true)} title="เจอตัวคู่ค้า — ให้เซ็นต่อหน้าตอนรับของ"
+            className="flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-semibold border border-slate-600 text-slate-200 hover:border-emerald-500 transition-colors"><Truck className="w-4 h-4" />รับของ</button>
           <button onClick={() => setShowSubmit(true)} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-4 py-2 text-sm font-semibold"><Plus className="w-4 h-4" />แจ้งบิล</button>
         </div>
       </div>
@@ -730,13 +1001,14 @@ export default function PendingBills() {
       )}
       {loading ? <p className="text-slate-500 text-sm">กำลังโหลด...</p>
         : bills.length === 0 ? <div className="text-center text-slate-500 py-12"><Receipt className="w-8 h-8 mx-auto mb-2 opacity-50" /><p>{isAdmin && adminFilter === 'paid' ? 'ยังไม่มีบิลที่จ่ายแล้ว' : 'ยังไม่มีบิลรอจ่าย'}</p></div>
-        : <div className="space-y-3">{bills.map(b => <BillCard key={b.id} bill={b} isAdmin={isAdmin} isDup={dupSet.has(b.id)} onPay={setPayBill} onReject={reject} onView={view} onReceived={received} onRefund={setRefundBill} />)}</div>}
+        : <div className="space-y-3">{bills.map(b => <BillCard key={b.id} bill={b} isAdmin={isAdmin} isDup={dupSet.has(b.id)} onPay={setPayBill} onReject={reject} onView={view} onReceived={received} onRefund={setRefundBill} onDone={load} />)}</div>}
       {isAdmin && Object.entries(ratios).filter(([, r]) => r >= 40).map(([uid, r]) => {
         const nm = bills.find(b => b.submittedByUserId === uid)?.submittedByName || uid
         return <div key={uid} className="flex items-center gap-2 text-xs text-amber-400"><AlertTriangle className="w-4 h-4" />{nm}: บิลไม่มีบิล {r}% ของยอดรอจ่าย — จับตา</div>
       })}
       {showSubmit && <SubmitBillModal me={user} onClose={() => setShowSubmit(false)} onDone={load} />}
       {showReceipt && <GoodsReceiptModal me={user} onClose={() => setShowReceipt(false)} onDone={load} />}
+      {showBilling && <BillingLinkModal me={user} onClose={() => setShowBilling(false)} onDone={load} />}
       {payBill && <PayModal bill={payBill} onClose={() => setPayBill(null)} onDone={load} />}
       {refundBill && <RefundModal bill={refundBill} onClose={() => setRefundBill(null)} onDone={load} />}
     </div>

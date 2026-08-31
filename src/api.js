@@ -67,6 +67,10 @@ export const api = {
   setHrosEnabled: (enabled) => req('PATCH', '/integrations/hros', { enabled }),
 
   reportWallets: (params) => req('GET', '/reports/wallets?' + new URLSearchParams(params || {})),
+  // วัตถุดิบที่ซื้อ เรียงตามยอดเงิน — params: { from, to, vendorId, limit }
+  reportItems: (params) => req('GET', '/reports/items?' + new URLSearchParams(params || {})),
+  // ราคาล่าสุดต่อชื่อของ ไว้เติมช่องราคาตอนออกใบ — ส่ง vendorId เพื่อให้ราคาของคู่ค้ารายนั้นมาก่อน
+  lastPrices: (params) => req('GET', '/reports/last-prices?' + new URLSearchParams(params || {})),
 
   vendorProfiles: (name) => req('GET', '/vendor-profiles' + (name ? `?name=${encodeURIComponent(name)}` : '')),
   learnVendor: (body) => req('POST', '/vendor-profiles', body),
@@ -175,4 +179,12 @@ export const api = {
   },
   publicReceipt: (tokenStr) => fetch(`${BASE}/receipt/${tokenStr}`).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ไม่พบเอกสาร'); return d }),
   publicReceiptSignatureUrl: (tokenStr) => `${BASE}/receipt/${tokenStr}/signature`,
+  // หน้าคู่ค้าเรียกเองโดยไม่ต้องล็อกอิน — token 64 ตัวคือกุญแจ
+  publicReceiptSlipUrl: (tokenStr) => `${BASE}/receipt/${tokenStr}/slip`,
+  ackReceipt: (tokenStr, name) => fetch(`${BASE}/receipt/${tokenStr}/ack`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
+  }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ยืนยันไม่สำเร็จ'); return d }),
+  disputeReceipt: (tokenStr, reason) => fetch(`${BASE}/receipt/${tokenStr}/dispute`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason }),
+  }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ส่งเรื่องทักท้วงไม่สำเร็จ'); return d }),
 }
