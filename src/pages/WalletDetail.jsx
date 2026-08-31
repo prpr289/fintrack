@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
 import { thb } from '../fmt'
@@ -20,8 +20,6 @@ import {
   ArrowUp,
   CalendarDays,
   CheckCircle2,
-  ChevronLeft,
-  ChevronRight,
   CreditCard,
   Filter,
   Loader2,
@@ -32,6 +30,8 @@ import {
   Wallet,
   X,
 } from 'lucide-react'
+import PaginationBar from '../components/PaginationBar'
+import { collectPaginatedItems, getPagination } from '../pagination'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const PERIODS = [
@@ -40,6 +40,15 @@ const PERIODS = [
   { value: 'all', label: 'ทั้งหมด' },
 ]
 const TYPE_LABELS = { cash: 'เงินสด', bank: 'บัญชีธนาคาร', credit: 'บัตรเครดิต' }
+const WALLET_PAGE_SIZE_OPTIONS = [5, 10, 25, 50]
+
+async function fetchAllWalletTransactions(params) {
+  const { items } = await collectPaginatedItems(async ({ limit, offset }) => {
+    const data = await api.transactions({ ...params, limit, offset })
+    return { items: data.transactions, total: data.total }
+  })
+  return items
+}
 
 function formatThaiDate(value) {
   if (!value) return '-'
@@ -95,26 +104,39 @@ export default function WalletDetail() {
   const [categoryId, setCategoryId] = useState('')
   const [expenseOnly, setExpenseOnly] = useState(true)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(WALLET_DETAIL_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const transactionsRef = useRef(null)
+
+  const changePage = nextPage => {
+    setPage(nextPage)
+    transactionsRef.current?.scrollIntoView({ block: 'start' })
+  }
+
+  const changePageSize = nextPageSize => {
+    setPageSize(nextPageSize)
+    setPage(1)
+    transactionsRef.current?.scrollIntoView({ block: 'start' })
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
     setError('')
     try {
       const range = getWalletPeriodRange(period)
-      const params = { walletId, limit: 1000 }
+      const params = { walletId }
       if (range) Object.assign(params, range)
 
-      const [walletData, transactionData] = await Promise.all([
+      const [walletData, walletTransactions] = await Promise.all([
         api.wallets(),
-        api.transactions(params),
+        fetchAllWalletTransactions(params),
       ])
       const selectedWallet = (walletData.wallets || []).find(item => item.id === walletId)
       if (!selectedWallet) throw new Error('ไม่พบกระเป๋าเงินนี้')
 
       setWallet(selectedWallet)
-      setTransactions(transactionData.transactions || [])
+      setTransactions(walletTransactions)
     } catch (err) {
       setError(err.message || 'โหลดข้อมูลกระเป๋าไม่สำเร็จ')
     } finally {
@@ -139,14 +161,11 @@ export default function WalletDetail() {
     () => filterWalletTransactions(transactions, { search, categoryId, expenseOnly }),
     [transactions, search, categoryId, expenseOnly],
   )
-  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / WALLET_DETAIL_PAGE_SIZE))
-  const safePage = Math.min(page, totalPages)
+  const pagination = getPagination({ total: filteredTransactions.length, page, pageSize })
   const visibleTransactions = filteredTransactions.slice(
-    (safePage - 1) * WALLET_DETAIL_PAGE_SIZE,
-    safePage * WALLET_DETAIL_PAGE_SIZE,
+    pagination.offset,
+    pagination.offset + pagination.pageSize,
   )
-  const startRow = filteredTransactions.length ? (safePage - 1) * WALLET_DETAIL_PAGE_SIZE + 1 : 0
-  const endRow = Math.min(safePage * WALLET_DETAIL_PAGE_SIZE, filteredTransactions.length)
   const periodLabel = PERIODS.find(item => item.value === period)?.label || 'ช่วงนี้'
   const scopeLabel = wallet?.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'
   const balanceTone = Number(wallet?.currentBalance || 0) < 0 ? 'negative' : 'neutral'
@@ -235,7 +254,7 @@ export default function WalletDetail() {
         <SummaryCard label={`สุทธิ${periodLabel}`} value={summary.net} icon={Activity} tone={netTone} signed />
       </section>
 
-      <section className="overflow-hidden rounded-xl" style={CARD} aria-labelledby="wallet-expense-title" aria-live="polite">
+      <section ref={transactionsRef} className="scroll-mt-20 overflow-hidden rounded-xl md:scroll-mt-4" style={CARD} aria-labelledby="wallet-expense-title">
         <div className="border-b border-slate-800 px-4 py-5 sm:px-5">
           <div className="flex flex-col gap-1 sm:flex-row sm:items-end sm:justify-between">
             <div>
@@ -279,6 +298,18 @@ export default function WalletDetail() {
             </button>
           </div>
         </div>
+
+        <PaginationBar
+          total={filteredTransactions.length}
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          pageSizeOptions={WALLET_PAGE_SIZE_OPTIONS}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้ารายการกระเป๋าด้านบน"
+          announce
+          className="border-b border-slate-800 bg-white/[0.01]"
+        />
 
         {visibleTransactions.length === 0 ? (
           <div className="flex min-h-56 flex-col items-center justify-center gap-3 px-5 py-10 text-center">
@@ -351,20 +382,16 @@ export default function WalletDetail() {
           </>
         )}
 
-        <footer className="flex flex-col gap-3 border-t border-slate-800 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-          <p className="text-xs tabular-nums text-slate-500">{startRow}–{endRow} จาก {filteredTransactions.length.toLocaleString('th-TH')} รายการ</p>
-          <div className="flex items-center gap-2">
-            <button type="button" aria-label="หน้าก่อนหน้า" disabled={safePage <= 1} onClick={() => setPage(value => Math.max(1, value - 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-400 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-35">
-              <ChevronLeft className="h-4 w-4" />
-            </button>
-            <span className="min-w-20 text-center text-xs tabular-nums text-slate-400">หน้า {safePage} / {totalPages}</span>
-            <button type="button" aria-label="หน้าถัดไป" disabled={safePage >= totalPages} onClick={() => setPage(value => Math.min(totalPages, value + 1))}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-700 text-slate-400 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-35">
-              <ChevronRight className="h-4 w-4" />
-            </button>
-          </div>
-        </footer>
+        <PaginationBar
+          total={filteredTransactions.length}
+          page={pagination.page}
+          pageSize={pagination.pageSize}
+          pageSizeOptions={WALLET_PAGE_SIZE_OPTIONS}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้ารายการกระเป๋าด้านล่าง"
+          className="border-t border-slate-800 bg-white/[0.01]"
+        />
       </section>
     </div>
   )

@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom'
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
 import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap } from 'lucide-react'
 import { useState } from 'react'
@@ -132,6 +132,7 @@ function Sidebar({ mobile = false, user, isAdmin, isStaff, navGroups, notif, clo
 export default function Layout() {
   const { user, logout } = useAuth()
   const nav = useNavigate()
+  const location = useLocation()
   const [open, setOpen] = useState(false)
   const notif = useNotifications(user)
 
@@ -141,6 +142,9 @@ export default function Layout() {
   const isStaff = user?.role === 'staff'
 
   const navGroups = visibleGroups(isAdmin, isStaff)
+  const normalizedPath = location.pathname.replace(/\/+$/, '').toLowerCase() || '/'
+  const hasPrimaryAddAction = normalizedPath === '/transactions'
+    || /^\/wallets\/[^/]+$/.test(normalizedPath)
 
   const sidebarProps = { user, isAdmin, isStaff, navGroups, notif, close, doLogout }
 
@@ -179,7 +183,7 @@ export default function Layout() {
         <Outlet />
       </main>
 
-      <QuickAdd />
+      {!hasPrimaryAddAction && <QuickAdd />}
       <NotificationPopup ctrl={notif} user={user} />
     </div>
   )

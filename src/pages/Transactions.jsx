@@ -6,7 +6,7 @@ import { useWs } from '../useWs'
 import { useAuth } from '../AuthContext'
 import {
   Plus, Pencil, Trash2, X, Download, Upload, FileDown, AlertCircle,
-  CheckCircle2, Check, Search, ChevronLeft, ChevronRight, FileSpreadsheet,
+  CheckCircle2, Check, Search, ChevronRight, FileSpreadsheet,
   Paperclip, Eye, Loader2, ImagePlus, Clock, FileText,
   ArrowUp, ArrowDown, SearchX, Calendar, ChevronDown, Printer,
 } from 'lucide-react'
@@ -20,6 +20,7 @@ import {
   transactionStatus,
   TRANSACTION_SOURCE_LABELS,
 } from '../transactionLedger'
+import PaginationBar from '../components/PaginationBar'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -29,7 +30,7 @@ const EMPTY_FILTERS = {
   type: '', scope: '', walletId: '', categoryId: '', createdByUserId: '',
   sourceChannel: '', status: '', hasSlip: '',
 }
-const PAGE_SIZE = 50
+const DEFAULT_PAGE_SIZE = 50
 
 async function fetchAllTransactions(params) {
   const pageSize = 1000
@@ -1189,6 +1190,7 @@ export default function Transactions() {
   const [creators, setCreators] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
   const [showForm, setShowForm] = useState(false)
   const [editing, setEditing] = useState(null)
@@ -1209,6 +1211,7 @@ export default function Transactions() {
   const [customRange, setCustomRange] = useState({ from: '', to: '' })
   const [collapsedDays, setCollapsedDays] = useState(() => new Set())
   const createLinkHandledRef = useRef(false)
+  const ledgerRef = useRef(null)
 
   const isStaff = user?.role === 'staff'
   const canWrite = user?.role === 'admin' || user?.role === 'staff'
@@ -1232,6 +1235,17 @@ export default function Transactions() {
 
   const setFilterWithReset = (updater) => { setFilter(updater); setPage(1) }
 
+  const changePage = nextPage => {
+    setPage(nextPage)
+    ledgerRef.current?.scrollIntoView({ block: 'start' })
+  }
+
+  const changePageSize = nextPageSize => {
+    setPageSize(nextPageSize)
+    setPage(1)
+    ledgerRef.current?.scrollIntoView({ block: 'start' })
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     const range = txRangeOf(period, customRange)
@@ -1239,21 +1253,28 @@ export default function Transactions() {
       ...filter,
       ...(range || {}),
       search: debouncedSearch,
-      limit: PAGE_SIZE,
-      offset: (page - 1) * PAGE_SIZE,
+      limit: pageSize,
+      offset: (page - 1) * pageSize,
     })
     const [td, wd, cd] = await Promise.all([
       api.transactions(params),
       api.wallets(),
       api.categories(),
     ])
-    setTxs(td.transactions || [])
-    setTotal(td.total || 0)
+    const nextTotal = Number(td.total || 0)
+    const lastPage = Math.max(1, Math.ceil(nextTotal / pageSize))
+    setTotal(nextTotal)
     setWallets(wd.wallets || [])
     setCategories(cd.categories || [])
     setCreators(td.creators || [])
+    if (page > lastPage) {
+      setPage(lastPage)
+      setLoading(false)
+      return
+    }
+    setTxs(td.transactions || [])
     setLoading(false)
-  }, [filter, page, debouncedSearch, period, customRange])
+  }, [filter, page, pageSize, debouncedSearch, period, customRange])
 
   useEffect(() => { load() }, [load])
   useWs((msg) => { if (['tx.created', 'tx.updated', 'tx.deleted'].includes(msg.event)) load() })
@@ -1372,7 +1393,6 @@ export default function Transactions() {
     } catch (e) { alert(e.message) }
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
   const groups = groupTransactionsByDate(txs)
   // Colored dot per category: income → emerald, else the category's own color (or a stable hash).
   const dotColor = (t) => {
@@ -1531,7 +1551,18 @@ export default function Transactions() {
       )}
 
       {/* Transaction list */}
-      <div className="rounded-3xl overflow-hidden" style={{ ...GLASS, boxShadow: '0 34px 70px -40px rgba(0,0,0,0.9),inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+      <div ref={ledgerRef} className="scroll-mt-20 rounded-3xl overflow-hidden md:scroll-mt-4" style={{ ...GLASS, boxShadow: '0 34px 70px -40px rgba(0,0,0,0.9),inset 0 1px 0 rgba(255,255,255,0.06)' }}>
+        <PaginationBar
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้ารายการธุรกรรมด้านบน"
+          announce
+          disabled={loading}
+          className="border-b border-white/[0.07] bg-white/[0.012]"
+        />
         {loading ? (
           <div className="p-12 flex justify-center">
             <div className="w-6 h-6 rounded-full border-2 border-emerald-400 border-t-transparent animate-spin" />
@@ -1773,30 +1804,17 @@ export default function Transactions() {
             </div>
           </>
         )}
+        <PaginationBar
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้ารายการธุรกรรมด้านล่าง"
+          disabled={loading}
+          className="border-t border-white/[0.07] bg-white/[0.012]"
+        />
       </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3 flex-wrap">
-          <span style={{ fontSize: 12.5, color: 'rgba(148,163,184,0.7)' }}>
-            แสดง <span style={{ fontFamily: FONT_MONO, color: '#cbd5e1' }}>{Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)}</span> จาก <span style={{ fontFamily: FONT_MONO, color: '#6ee7c7' }}>{total}</span>
-          </span>
-          <div className="flex items-center gap-1.5">
-            <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-              className="flex items-center justify-center w-9 h-9 rounded-xl disabled:opacity-30 transition-colors"
-              style={{ border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(203,213,225,0.7)' }} title="ก่อนหน้า">
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="flex items-center justify-center min-w-9 h-9 px-3 rounded-xl" style={{ fontFamily: FONT_MONO, fontSize: 12.5, fontWeight: 600, color: '#06231a', background: 'linear-gradient(140deg,#5eead4,#10b981)' }}>{page}</span>
-            <span className="px-1" style={{ fontSize: 12.5, color: 'rgba(148,163,184,0.6)' }}>/ {totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-              className="flex items-center justify-center w-9 h-9 rounded-xl disabled:opacity-30 transition-colors"
-              style={{ border: '1px solid rgba(255,255,255,0.07)', color: 'rgba(203,213,225,0.7)' }} title="ถัดไป">
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
       </div>
 
       {/* Form modal */}

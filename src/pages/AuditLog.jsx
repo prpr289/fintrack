@@ -1,9 +1,10 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { api } from '../api'
-import { ChevronLeft, ChevronRight, ClipboardList } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
+import PaginationBar from '../components/PaginationBar'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
-const PAGE_SIZE = 50
+const DEFAULT_PAGE_SIZE = 50
 
 const ACTION_COLOR = { create: '#34d399', update: '#60a5fa', delete: '#f87171', transfer: '#c084fc', update_password: '#f59e0b', confirm: '#34d399', edit_pending: '#60a5fa', confirm_edit: '#34d399', cancel_edit: '#94a3b8', print: '#a78bfa', hros_on: '#34d399', hros_off: '#f87171' }
 const ACTION_LABEL = { create: 'สร้าง', update: 'แก้ไข', delete: 'ลบ', transfer: 'โอนเงิน', update_password: 'เปลี่ยนรหัส', confirm: 'ยืนยัน', edit_pending: 'แก้ไข (รอยืนยัน)', confirm_edit: 'ยืนยันการแก้ไข', cancel_edit: 'ยกเลิกการแก้ไข', print: 'พิมพ์เอกสาร', hros_on: 'เปิดดึงจาก HR OS', hros_off: 'ปิดดึงจาก HR OS' }
@@ -13,18 +14,37 @@ export default function AuditLog() {
   const [logs, setLogs] = useState([])
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
+  const tableRef = useRef(null)
+
+  const changePage = nextPage => {
+    setPage(nextPage)
+    tableRef.current?.scrollIntoView({ block: 'start' })
+  }
+
+  const changePageSize = nextPageSize => {
+    setPageSize(nextPageSize)
+    setPage(1)
+    tableRef.current?.scrollIntoView({ block: 'start' })
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await api.auditLog({ limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+      const data = await api.auditLog({ limit: pageSize, offset: (page - 1) * pageSize })
+      const nextTotal = Number(data.total || 0)
+      const lastPage = Math.max(1, Math.ceil(nextTotal / pageSize))
+      setTotal(nextTotal)
+      if (page > lastPage) {
+        setPage(lastPage)
+        return
+      }
       setLogs(data.logs || [])
-      setTotal(data.total || 0)
     } finally {
       setLoading(false)
     }
-  }, [page])
+  }, [page, pageSize])
 
   useEffect(() => { load() }, [load])
 
@@ -36,10 +56,8 @@ export default function AuditLog() {
     })
   }
 
-  const totalPages = Math.ceil(total / PAGE_SIZE)
-
   return (
-    <div className="audit-page p-4 sm:p-5 space-y-4">
+    <div className="audit-page space-y-4 p-4 pb-24 sm:p-5 sm:pb-24">
       <style>{`
         .audit-page button:focus-visible, .audit-page input:focus-visible, .audit-page select:focus-visible {
           outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
@@ -61,7 +79,18 @@ export default function AuditLog() {
         </div>
       </div>
 
-      <div className="rounded-xl overflow-hidden" style={CARD}>
+      <div ref={tableRef} className="scroll-mt-20 rounded-xl overflow-hidden md:scroll-mt-4" style={CARD}>
+        <PaginationBar
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้าประวัติการใช้งานด้านบน"
+          announce
+          disabled={loading}
+          className="border-b border-slate-800 bg-white/[0.01]"
+        />
         {loading ? (
           <div className="p-8 text-center">
             <div className="w-5 h-5 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin mx-auto" />
@@ -134,30 +163,17 @@ export default function AuditLog() {
             </div>
           </>
         )}
+        <PaginationBar
+          total={total}
+          page={page}
+          pageSize={pageSize}
+          onPageChange={changePage}
+          onPageSizeChange={changePageSize}
+          ariaLabel="แบ่งหน้าประวัติการใช้งานด้านล่าง"
+          disabled={loading}
+          className="border-t border-slate-800 bg-white/[0.01]"
+        />
       </div>
-
-      {totalPages > 1 && (
-        <div className="flex items-center justify-between">
-          <p className="text-xs sm:text-sm text-slate-500 tabular-nums">
-            {Math.min((page - 1) * PAGE_SIZE + 1, total)}–{Math.min(page * PAGE_SIZE, total)} จาก {total}
-          </p>
-          <div className="flex items-center gap-2">
-            <button disabled={page === 1} onClick={() => setPage(p => p - 1)}
-              aria-label="ก่อนหน้า" title="ก่อนหน้า"
-              className="flex items-center gap-1 px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
-              style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
-              <ChevronLeft className="w-4 h-4" /><span className="hidden sm:inline">ก่อนหน้า</span>
-            </button>
-            <span className="text-sm text-slate-500 tabular-nums">{page}/{totalPages}</span>
-            <button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}
-              aria-label="ถัดไป" title="ถัดไป"
-              className="flex items-center gap-1 px-3 py-2.5 text-sm text-slate-400 hover:text-white disabled:opacity-30 rounded-lg transition-colors"
-              style={{ border: '1px solid #2e3349', background: '#161b2e' }}>
-              <span className="hidden sm:inline">ถัดไป</span><ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
