@@ -37,6 +37,14 @@ var worker_default = {
       if (path === "/auth/register" && method === "POST") return cors(await handleRegister(request, env));
       if (path === "/auth/login" && method === "POST") return cors(await handleLogin(request, env));
       if (path === "/health") return cors(json({ ok: true, time: (/* @__PURE__ */ new Date()).toISOString(), version: "v2" }));
+      // ทุก route ใต้ /receipt/* เปิดสาธารณะ (คู่ค้าไม่มีบัญชี) — จำกัดจำนวนครั้งต่อ IP กันไล่เดา token
+      // ponytail: จำกัดที่ IP ไม่ใช่ที่ token เพราะคนเดา token ย่อมเปลี่ยน token ไปเรื่อย ๆ แต่ IP เท่าเดิม
+      // env.RATE_LIMITER ไม่มีตอนรันโลคัลก็ปล่อยผ่าน ไม่ให้ dev พัง
+      if (path.startsWith("/receipt/") && env.RATE_LIMITER) {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const { success } = await env.RATE_LIMITER.limit({ key: ip });
+        if (!success) return cors(json({ error: "เรียกถี่เกินไป กรุณารอสักครู่" }, 429));
+      }
       const rcptMatch = path.match(/^\/receipt\/([a-f0-9]{16,})$/);
       if (rcptMatch && method === "GET") return cors(await getPublicReceipt(rcptMatch[1], env));
       const rcptSigMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/signature$/);
