@@ -1,0 +1,1659 @@
+<title>ใบวางบิลคู่ค้า FinTrack</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&display=swap">
+
+<style>
+  :root {
+    --ground:      #eaefec;
+    --surface:     #ffffff;
+    --surface-2:   #f3f6f4;
+    --ink:         #131a17;
+    --ink-2:       #3d4a45;
+    --muted:       #6b7a74;
+    --rule:        #d2dcd7;
+    --rule-soft:   #e3eae6;
+    --accent:      #0e7350;
+    --accent-ink:  #0a5a3e;
+    --accent-soft: #d9ece3;
+    --on-accent:   #ffffff;
+    --stamp:       #2e3f8f;
+    --stamp-soft:  #dfe4f7;
+    --warn:        #8f5800;
+    --warn-soft:   #f8ecd4;
+    --danger:      #9d2b2b;
+    --danger-soft: #f7dede;
+    --shadow:      0 1px 2px rgba(19,26,23,.05), 0 8px 24px -12px rgba(19,26,23,.18);
+
+    --serif: "Noto Serif Thai", Georgia, serif;
+    --sans:  "IBM Plex Sans Thai", "Sarabun", -apple-system, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0d1310;
+      --surface:     #141c18;
+      --surface-2:   #1a2420;
+      --ink:         #e4ece8;
+      --ink-2:       #bac6c1;
+      --muted:       #8b9a94;
+      --rule:        #2a3833;
+      --rule-soft:   #212c28;
+      --accent:      #3ddc9a;
+      --accent-ink:  #6fe9b8;
+      --accent-soft: #143329;
+      --on-accent:   #06120d;
+      --stamp:       #96a8ff;
+      --stamp-soft:  #1b2140;
+      --warn:        #e0a955;
+      --warn-soft:   #33280f;
+      --danger:      #f08a8a;
+      --danger-soft: #351a1a;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0d1310;
+    --surface:     #141c18;
+    --surface-2:   #1a2420;
+    --ink:         #e4ece8;
+    --ink-2:       #bac6c1;
+    --muted:       #8b9a94;
+    --rule:        #2a3833;
+    --rule-soft:   #212c28;
+    --accent:      #3ddc9a;
+    --accent-ink:  #6fe9b8;
+    --accent-soft: #143329;
+    --on-accent:   #06120d;
+    --stamp:       #96a8ff;
+    --stamp-soft:  #1b2140;
+    --warn:        #e0a955;
+    --warn-soft:   #33280f;
+    --danger:      #f08a8a;
+    --danger-soft: #351a1a;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 78rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+  .col  { max-width: 44rem; }
+
+  /* ── masthead ─────────────────────────────────────────── */
+  .masthead {
+    display: grid;
+    gap: 1.1rem;
+    padding: 4rem 0 2.25rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(2.1rem, 5.4vw, 3.4rem);
+    line-height: 1.18;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.075rem;
+    color: var(--ink-2);
+    max-width: 46rem;
+    margin: 0;
+  }
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    padding-top: .4rem;
+  }
+  .meta-strip b { color: var(--ink-2); font-weight: 500; }
+
+  /* ── sections ─────────────────────────────────────────── */
+  section { padding-top: 3.5rem; }
+  .sec-head {
+    display: grid;
+    gap: .35rem;
+    margin-bottom: 1.4rem;
+    padding-bottom: .7rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .14em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.35rem, 2.7vw, 1.75rem);
+    line-height: 1.32;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1rem;
+    margin: 0 0 .4rem;
+    letter-spacing: -.005em;
+  }
+  p { margin: 0 0 1rem; }
+  .col > p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: .855em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: .08em .34em;
+    white-space: nowrap;
+  }
+  a { color: var(--accent-ink); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  /* ── decision box ─────────────────────────────────────── */
+  .decision {
+    margin-top: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 1.75rem 1.6rem;
+    display: grid;
+    gap: 1.1rem;
+  }
+  .decision-label {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .verdict {
+    font-family: var(--serif);
+    font-size: clamp(1.2rem, 2.5vw, 1.5rem);
+    font-weight: 600;
+    line-height: 1.42;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .dl { display: grid; gap: .8rem; }
+  .dl-row { display: grid; grid-template-columns: 8.5rem 1fr; gap: .3rem 1rem; }
+  .dl-row dt {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: .28rem;
+  }
+  .dl-row dd { margin: 0; color: var(--ink-2); }
+  .dl-row ol { margin: 0; padding-left: 1.1rem; }
+  .dl-row li { margin-bottom: .15rem; }
+  @media (max-width: 640px) { .dl-row { grid-template-columns: 1fr; } }
+
+  .conf {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-family: var(--mono);
+    font-size: .72rem;
+    padding: .12rem .5rem;
+    border-radius: 2px;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 2px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; min-width: 34rem; }
+  th, td { text-align: left; padding: .7rem .85rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .06em;
+    padding: .1rem .4rem;
+    border-radius: 2px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .tag.have  { background: var(--accent-soft); color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+  .tag.need  { background: var(--warn-soft);   color: var(--warn);       border-color: color-mix(in srgb, var(--warn) 28%, transparent); }
+  .tag.risk  { background: var(--danger-soft); color: var(--danger);     border-color: color-mix(in srgb, var(--danger) 28%, transparent); }
+  .tag.ink   { background: var(--stamp-soft);  color: var(--stamp);      border-color: color-mix(in srgb, var(--stamp) 30%, transparent); }
+
+  /* ── decision cards ───────────────────────────────────── */
+  .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1.1rem 1.15rem;
+    display: grid;
+    gap: .45rem;
+    align-content: start;
+  }
+  .card .q {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card .a { font-weight: 600; font-size: 1.02rem; line-height: 1.4; }
+  .card .why { font-size: .875rem; color: var(--ink-2); line-height: 1.6; }
+
+  /* ── flow ─────────────────────────────────────────────── */
+  .flow { display: grid; gap: 0; counter-reset: step; }
+  .step {
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.15rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .step:last-child { border-bottom: none; }
+  .step-n {
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--accent);
+    padding-top: .18rem;
+    border-right: 1px solid var(--rule);
+    height: 100%;
+  }
+  .step-who {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .1rem;
+  }
+  .step-body { font-size: .95rem; color: var(--ink-2); }
+  .step-body b { color: var(--ink); }
+
+  /* ── document mock ────────────────────────────────────── */
+  .mock-shell {
+    display: grid;
+    gap: 1.2rem;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .mock-shell { grid-template-columns: 1fr; } }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+  .tab {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .04em;
+    padding: .45rem .8rem;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--ink); border-color: var(--ink-2); }
+  .tab[aria-selected="true"] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+
+  .doc {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 1.75rem 1.6rem;
+    font-size: .9rem;
+  }
+  .doc-head { text-align: center; border-bottom: 2px solid var(--ink); padding-bottom: .5rem; margin-bottom: .9rem; }
+  .doc-shop { font-weight: 700; font-size: 1.02rem; }
+  .doc-title {
+    font-family: var(--serif);
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.12rem;
+    letter-spacing: .01em;
+    margin-bottom: .2rem;
+  }
+  .doc-title-en { text-align: center; font-family: var(--mono); font-size: .66rem; letter-spacing: .18em; color: var(--muted); margin-bottom: 1rem; }
+  .doc-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .3rem 1rem; font-size: .8rem; color: var(--ink-2); margin-bottom: .25rem; }
+  .doc-meta b { color: var(--ink); font-weight: 600; }
+
+  .doc-tw { overflow-x: auto; margin: .9rem 0 0; }
+  .doc table { min-width: 20rem; font-size: .82rem; margin: 0; }
+  .doc th, .doc td { padding: .42rem .5rem; border: 1px solid var(--rule); }
+  .doc thead th { background: var(--surface-2); }
+  .doc tfoot td { background: var(--surface-2); font-weight: 700; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .78rem;
+    font-weight: 600;
+    padding: .35rem .75rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    line-height: 1.4;
+  }
+  .pill.wait { background: var(--warn-soft);   color: var(--warn);      border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+  .pill.ack  { background: var(--stamp-soft);  color: var(--stamp);     border-color: color-mix(in srgb, var(--stamp) 32%, transparent); }
+  .pill.paid { background: var(--accent-soft); color: var(--accent-ink);border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+  .ack-form {
+    margin-top: 1.1rem;
+    border: 1px dashed var(--rule);
+    border-radius: 2px;
+    padding: .95rem;
+    background: var(--surface-2);
+    display: grid;
+    gap: .55rem;
+  }
+  .ack-form label { font-size: .78rem; color: var(--muted); }
+  .fake-input {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .5rem .6rem;
+    font-size: .88rem;
+    color: var(--muted);
+  }
+  .fake-btn {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: none;
+    border-radius: 2px;
+    padding: .62rem .9rem;
+    font-family: var(--sans);
+    font-size: .9rem;
+    font-weight: 600;
+    text-align: center;
+  }
+  .ack-alt { font-size: .76rem; color: var(--muted); text-align: center; }
+
+  .ack-stamp {
+    margin-top: 1.1rem;
+    border: 1px solid color-mix(in srgb, var(--stamp) 30%, transparent);
+    background: var(--stamp-soft);
+    border-radius: 2px;
+    padding: .8rem .9rem;
+    display: grid;
+    gap: .18rem;
+  }
+  .ack-stamp .who { font-weight: 700; color: var(--stamp); }
+  .ack-stamp .line { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+
+  .slip {
+    margin-top: 1.1rem;
+    display: grid;
+    gap: .5rem;
+    justify-items: center;
+  }
+  .slip-cap { font-size: .74rem; color: var(--muted); }
+  .slip-card {
+    width: 100%;
+    max-width: 15rem;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--surface-2);
+    padding: .8rem .85rem;
+    display: grid;
+    gap: .3rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    color: var(--ink-2);
+  }
+  .slip-card .amt { font-size: 1.1rem; font-weight: 600; color: var(--ink); text-align: right; }
+  .slip-card .bar { height: 5px; border-radius: 3px; background: var(--rule); }
+  .slip-card .bar.w60 { width: 60%; }
+  .slip-card .bar.w40 { width: 40%; }
+
+  .doc-foot { margin-top: 1.3rem; padding-top: .8rem; border-top: 1px dashed var(--rule); font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.6; }
+
+  .note-rail { display: grid; gap: .9rem; align-content: start; position: sticky; top: 1.25rem; }
+  @media (max-width: 900px) { .note-rail { position: static; } }
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    font-size: .855rem;
+    line-height: 1.62;
+    color: var(--ink-2);
+  }
+  .note h4 {
+    margin: 0 0 .3rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .note.ink-note { border-left-color: var(--stamp); }
+  .note.ink-note h4 { color: var(--stamp); }
+  .note.warn-note { border-left-color: var(--warn); }
+  .note.warn-note h4 { color: var(--warn); }
+
+  /* ── rules list ───────────────────────────────────────── */
+  .rules { display: grid; gap: .75rem; padding: 0; margin: 0; list-style: none; counter-reset: rule; }
+  .rules li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .8rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .9rem 1rem;
+    font-size: .93rem;
+    color: var(--ink-2);
+  }
+  .rules li::before {
+    counter-increment: rule;
+    content: counter(rule);
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: var(--danger-soft);
+    border-radius: 2px;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: grid;
+    place-items: center;
+    margin-top: .12rem;
+  }
+  .rules b { color: var(--ink); }
+
+  /* ── phases ───────────────────────────────────────────── */
+  .phases { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1.1rem 1.15rem;
+    display: grid;
+    gap: .5rem;
+    align-content: start;
+  }
+  .phase-tag {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .phase ul { margin: 0; padding-left: 1.05rem; font-size: .885rem; color: var(--ink-2); display: grid; gap: .28rem; }
+  .phase .dod { font-size: .8rem; color: var(--muted); border-top: 1px solid var(--rule-soft); padding-top: .5rem; }
+
+  .checks { margin: 0; padding-left: 1.15rem; display: grid; gap: .4rem; font-size: .95rem; color: var(--ink-2); }
+  .checks b { color: var(--ink); }
+
+  footer {
+    margin-top: 4.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem 1.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">FinTrack · Famous Star Food OS · สเปกฟีเจอร์</div>
+    <h1>ใบวางบิลคู่ค้า</h1>
+    <p class="standfirst">
+      เปลี่ยนบิลกระดาษจดมือให้เป็นใบวางบิลที่คู่ค้ายืนยันเองในไลน์ —
+      แล้วรายการของ 20 บรรทัดที่เคยหายไปเหลือคำว่า “ของแห้ง” กลายเป็นข้อมูลที่เอาไปทำ Dashboard วัตถุดิบได้
+    </p>
+    <div class="meta-strip">
+      <span>อ่านโค้ดจริงแล้ว <b>worker.js · PendingBills.jsx · Receipt.jsx · migrations/0001–0008</b></span>
+      <span>ระดับความลึก <b>R2 Deep Dive</b></span>
+      <span>29 ส.ค. 2569</span>
+    </div>
+  </header>
+
+  <div class="decision col">
+    <div class="decision-label">Decision Box</div>
+    <p class="verdict">
+      ปัญหาจริงไม่ใช่ลายเซ็น — คือ <b>บิลกระดาษจดมือทำให้รายการ 20 บรรทัดหายไปเหลือบรรทัดเดียว</b>
+      แก้ด้วยการทำให้บิลเกิดในระบบตั้งแต่ตอนสั่งของในไลน์ แล้วทั้งสองอาการหายพร้อมกัน
+    </p>
+    <dl class="dl">
+      <div class="dl-row">
+        <dt>เหตุผลหลัก</dt>
+        <dd>
+          <ol>
+            <li>สองอาการมีรากเดียวกัน — <b>กระดาษจดมือคือสาเหตุที่พนักงานลงย่อเป็น “ของแห้ง” บรรทัดเดียว</b> ไม่ใช่ปัญหาคนละเรื่อง</li>
+            <li>ระบบเก็บ <code>line_items</code> อยู่แล้วแต่<b>ไม่มีรายงานไหนอ่านมันเลย</b> — ชิ้นที่ขาดคือ query กับหน้าจอ ไม่ใช่ตารางใหม่</li>
+            <li>ตัวชี้เป็นตายคือแรงงานพิมพ์ — <b>วางข้อความสั่งของจากแชทไลน์</b> (เห็นตัวอย่างจริงแล้ว แตกด้วย regex ได้) บวก <b>เติมราคาล่าสุดอัตโนมัติ</b> เหลือให้พนักงานแก้แค่ตัวที่เปลี่ยน</li>
+          </ol>
+        </dd>
+      </div>
+      <div class="dl-row">
+        <dt>ขนาดงาน</dt>
+        <dd>SQL 1 บรรทัด · <b>ไม่มีตารางใหม่เลย</b> · endpoint ใหม่ 6 ตัว · parser 1 ไฟล์พร้อมเทสต์ · แก้ 3 ไฟล์หน้าจอ</dd>
+      </div>
+      <div class="dl-row">
+        <dt>คู่ค้าสองแบบ</dt>
+        <dd><b>บจก. มีใบส่งของพิมพ์อยู่แล้ว — ใบของเราจะซ้ำ</b> จึงบันทึกรายการอย่างเดียว ไม่ต้องส่งลิงก์ให้เซ็น · รายเล็กที่จดมือถึงจะออกใบวางบิลเต็มรูป · ตัดสินด้วยคอลัมน์ <code>doc_type</code> ที่มีอยู่แล้วบน <code>vendor_profiles</code></dd>
+      </div>
+      <div class="dl-row">
+        <dt>Confidence</dt>
+        <dd>
+          <span class="conf">สูง</span> สำหรับการวินิจฉัย — ตามรอยในโค้ดจริงแล้วว่าข้อมูลตายตรงไหน ·
+          <span class="conf">สูง</span> สำหรับ parser ด้วย — เห็นข้อความสั่งจริงแล้ว รูปแบบคงที่พอที่ regex จะจับได้
+        </dd>
+      </div>
+      <div class="dl-row">
+        <dt>จะพลิกถ้า</dt>
+        <dd>ร้านเปลี่ยนไปสั่งด้วยเสียงหรือส่งรูปแทนพิมพ์ → วางข้อความใช้ไม่ได้ ต้องถอยไปใช้ OCR ซึ่งรีโปมีอยู่แล้วในสายสลิป</dd>
+      </div>
+      <div class="dl-row">
+        <dt>ทำวันนี้ได้เลย</dt>
+        <dd>เขียน <code>parseOrderText.mjs</code> พร้อมเทสต์จากข้อความจริงในหัวข้อ 05 — ทำได้เลยโดยไม่ต้องรออะไร</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- 01 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">01 — วินิจฉัย</div>
+      <h2>ข้อมูลตายตรงไหน</h2>
+    </div>
+    <p class="col">
+      ตามรอยจากบิลกระดาษถึงหน้ารายงาน ข้อมูลขาดสองจุด และจุดที่สองอยู่ในโค้ดปัจจุบัน
+    </p>
+    <div class="chain col">
+      <div class="chain-row">
+        <span class="lbl">ต้นทาง</span>
+        <span>คู่ค้าจดบิลใส่กระดาษ <b>20 รายการ</b> — มีชื่อของ จำนวน ราคาต่อหน่วย ครบ</span>
+      </div>
+      <div class="chain-arrow">↓ พนักงานตรวจรับ</div>
+      <div class="chain-row dead">
+        <span class="lbl">จุดที่ 1 · หายเพราะแรงงาน</span>
+        <span>พิมพ์ 20 บรรทัดไม่ไหว → ลงเป็น <b>“ของแห้ง ฿8,400”</b> บรรทัดเดียว</span>
+      </div>
+      <div class="chain-arrow">↓ บันทึกลงระบบ</div>
+      <div class="chain-row dead">
+        <span class="lbl">จุดที่ 2 · หายเพราะโค้ด</span>
+        <span>ต่อให้กรอกรายการครบ <code>line_items</code> ก็ <b>ไม่เคยข้ามไปตาราง <code>transactions</code></b> — ตอนกดจ่าย ระบบสร้าง transaction บรรทัดเดียวด้วยชื่อบิล</span>
+      </div>
+      <div class="chain-arrow">↓ รายงาน</div>
+      <div class="chain-row dead">
+        <span class="lbl">ผลลัพธ์</span>
+        <span>รายงานทุกตัวสรุปจาก <code>category_id</code> / <code>sub_category_id</code> เท่านั้น — <b>ละเอียดที่สุดที่เห็นได้คือ “ของแห้ง”</b> ไม่มีทางเห็นมะนาวหรือกระเทียม</span>
+      </div>
+    </div>
+    <p class="col" style="margin-top:1.1rem">
+      <strong>ข้อสรุปที่ต้องบอกตรง ๆ:</strong> ต่อให้สร้างฟีเจอร์ใบวางบิลจนเสร็จ
+      <b>Dashboard วัตถุดิบก็ยังทำไม่ได้อยู่ดี</b> — เพราะ <code>line_items</code> ถูกอ่านแค่สองที่ในทั้งระบบ
+      คือหน้าการ์ดบิลกับหน้าคู่ค้า และอ่านไปเพื่อแสดงผลเฉย ๆ ไม่มีการรวมยอดที่ไหนเลย
+    </p>
+  </section>
+
+  <!-- 02 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">02 — ของเดิม</div>
+      <h2>อะไรมีแล้ว อะไรยังขาด</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>สิ่งที่ต้องการ</th><th>สถานะ</th><th>อยู่ตรงไหน / ขาดอะไร</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>รายการ · จำนวน · ราคา/หน่วย · ยอดรวม</td>
+            <td><span class="tag have">มีแล้ว</span></td>
+            <td><code>line_items</code> (JSON) + <code>sumLineItems()</code> คูณและรวมให้อัตโนมัติ</td>
+          </tr>
+          <tr>
+            <td>ลิงก์ส่งให้คู่ค้าเปิดดู</td>
+            <td><span class="tag have">มีแล้ว</span></td>
+            <td><code>public_token</code> 64 ตัวอักษร → หน้า <code>/receipt/:token</code> เปิดได้โดยไม่ต้องล็อกอิน</td>
+          </tr>
+          <tr>
+            <td>คู่ค้ายืนยันรายการเองจากลิงก์</td>
+            <td><span class="tag need">ยังไม่มี</span></td>
+            <td>เก็บลายเซ็นได้แล้ว แต่หน้าสาธารณะเป็นแบบอ่านอย่างเดียว ไม่มีปุ่มให้กด</td>
+          </tr>
+          <tr>
+            <td>ป้อน 20 รายการโดยไม่ต้องพิมพ์ใหม่</td>
+            <td><span class="tag need">ยังไม่มี</span></td>
+            <td>ต้องมีช่องวางข้อความจากแชทไลน์ + ตัวแตกข้อความเป็นตาราง</td>
+          </tr>
+          <tr>
+            <td>ชื่อของไม่เพี้ยนกันเอง</td>
+            <td><span class="tag need">ยังไม่มี</span></td>
+            <td>ช่องชื่อของเป็น text เปล่า ไม่มี autocomplete — “มะนาว” กับ “มะนาวแป้น” จะนับแยกกัน</td>
+          </tr>
+          <tr>
+            <td>รวมยอดตามวัตถุดิบ</td>
+            <td><span class="tag risk">ไม่มีใครอ่านข้อมูล</span></td>
+            <td><code>line_items</code> ถูกอ่านแค่ที่ <code>worker.js:2422</code> กับ <code>2744</code> เพื่อส่งไปแสดงผล — ไม่มี query ไหนรวมยอดจากมันเลย</td>
+          </tr>
+          <tr>
+            <td>แนบสลิปโอนหลังจ่าย</td>
+            <td><span class="tag need">ยังไม่มี</span></td>
+            <td>สลิปที่ผูกกับรายการตอนนี้คือรูปที่แนบตอนสร้างบิล ไม่ใช่สลิปโอน</td>
+          </tr>
+          <tr>
+            <td>ไม่มี VAT</td>
+            <td><span class="tag have">ตรงอยู่แล้ว</span></td>
+            <td>ทั้งไฟล์ไม่มีการคำนวณ VAT — ยอดรวม = ผลคูณรายการล้วน</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 03 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">03 — ข้อตกลง</div>
+      <h2>8 ข้อที่เคาะแล้ว</h2>
+    </div>
+    <h3 style="margin-bottom:.8rem">เรื่องเอกสารและการยืนยัน</h3>
+    <div class="cards">
+      <div class="card">
+        <div class="q">โหมดใช้งาน</div>
+        <div class="a">เพิ่มโหมดใหม่ ควบคู่ของเดิม</div>
+        <div class="why">เจอตัวคู่ค้า → เซ็นต่อหน้าเหมือนเดิม · ไม่เจอตัว → ส่งลิงก์ · โค้ดเดิมไม่ต้องแตะ</div>
+      </div>
+      <div class="card">
+        <div class="q">วิธีเซ็น</div>
+        <div class="a">พิมพ์ชื่อ + กดยืนยัน</div>
+        <div class="why">เก็บชื่อ · เวลา · IP · เบราว์เซอร์ · เสร็จใน 5 วินาที คนอายุเยอะก็ทำได้</div>
+      </div>
+      <div class="card">
+        <div class="q">ล็อกการจ่าย</div>
+        <div class="a">เตือน แต่จ่ายได้</div>
+        <div class="why">ติดป้ายถาวรบนใบว่า “จ่ายก่อนคู่ค้ายืนยัน” + ลง audit log ว่าใครกดข้าม</div>
+      </div>
+      <div class="card">
+        <div class="q">ชื่อเอกสาร</div>
+        <div class="a">ใบสำคัญจ่าย</div>
+        <div class="why">ใบเสร็จรับเงินต้องออกโดยผู้รับเงิน เราออกแทนคู่ค้าไม่ได้ — แต่ใบสำคัญจ่าย + ลายเซ็น + สลิป ใช้พิสูจน์รายจ่ายได้อยู่แล้ว</div>
+      </div>
+    </div>
+
+    <h3 style="margin:1.6rem 0 .8rem">เรื่องข้อมูลวัตถุดิบ</h3>
+    <div class="cards">
+      <div class="card">
+        <div class="q">คนกรอก 20 รายการ</div>
+        <div class="a">วางข้อความจากแชทไลน์</div>
+        <div class="why">รายการถูกพิมพ์ไว้แล้วครั้งหนึ่งตอนสั่ง — ก๊อปมาวาง ระบบแตกเป็นตาราง พนักงานแค่เติมราคาและแก้น้ำหนักจริงตอนรับของ</div>
+      </div>
+      <div class="card">
+        <div class="q">อันดับใน Dashboard</div>
+        <div class="a">ยอดเงินบาท</div>
+        <div class="why">ไม่ต้องแปลงหน่วย กก./ถุง/ลัง บวกกันเป็นบาทได้อยู่แล้ว · และตอบคำถามธุรกิจตรงที่สุดว่าเงินไหลไปไหน</div>
+      </div>
+      <div class="card">
+        <div class="q">ชื่อวัตถุดิบ</div>
+        <div class="a">Autocomplete จากที่เคยพิมพ์</div>
+        <div class="why">พิมพ์ “มะ” → ขึ้นชื่อที่เคยใช้จริงให้เลือก · มาสเตอร์สร้างตัวเองจากการใช้งาน ไม่ต้องนั่งตั้งลิสต์ 300 รายการก่อนเริ่ม</div>
+      </div>
+      <div class="card">
+        <div class="q">บิลเก่า</div>
+        <div class="a">ปล่อยไว้ นับจากนี้ไป</div>
+        <div class="why">ไม่ย้อนกรอก แต่ Dashboard <b>ต้องบอกเปอร์เซ็นต์ความครอบคลุมเสมอ</b> ไม่งั้นอ่านกราฟผิดคิดว่าเห็นครบ</div>
+      </div>
+    </div>
+
+    <h3 style="margin:1.6rem 0 .8rem">เรื่องราคาและประเภทคู่ค้า</h3>
+    <div class="cards">
+      <div class="card">
+        <div class="q">ช่องราคา</div>
+        <div class="a">เติมราคาล่าสุดให้อัตโนมัติ</div>
+        <div class="why">ดึงราคาครั้งก่อนของของชิ้นนั้นจากคู่ค้ารายนั้น พนักงานแก้เฉพาะตัวที่เปลี่ยน · ใช้ query ชุดเดียวกับ Dashboard ไม่ต้องเขียนเพิ่ม · แถมเป็นตัวจับราคาขึ้นผิดปกติให้ในตัว</div>
+      </div>
+      <div class="card">
+        <div class="q">คู่ค้ามีใบส่งของอยู่แล้ว</div>
+        <div class="a">บันทึกรายการอย่างเดียว ไม่ออกใบซ้ำ</div>
+        <div class="why">บจก. ที่พิมพ์ใบส่งของมาให้ ไม่ต้องส่งลิงก์ให้เซ็น — เอกสารเขาใช้ได้อยู่แล้ว เราต้องการแค่รายการเข้าระบบ · แยกด้วย <code>doc_type</code> บนโปรไฟล์ร้าน ไม่ต้องเพิ่มคอลัมน์</div>
+      </div>
+      <div class="card">
+        <div class="q">รอบจ่าย</div>
+        <div class="a">จ่ายทุกครั้งที่รับของ</div>
+        <div class="why">1 ครั้งที่ส่ง = 1 ใบ = 1 การโอน — ตรงกับสเปกที่เขียนไว้ทั้งหมด ไม่ต้องคิดเรื่องรวมรอบวางบิลสิ้นเดือน</div>
+      </div>
+      <div class="card">
+        <div class="q">PDF ราคารายวัน</div>
+        <div class="a">ยังไม่อ่านอัตโนมัติ</div>
+        <div class="why">คู่ค้าส่ง PDF ราคาทุกวัน แต่ไฟล์ในไลน์หมดอายุ 7 วัน และยังไม่รู้ว่าข้างในเป็นตารางข้อความหรือรูปสแกน · ราคาล่าสุดที่จำไว้ครอบคลุมงานนี้แล้ว ไว้ค่อยทำใน P2</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">04 — ลำดับงาน</div>
+      <h2>6 ขั้น ตั้งแต่สั่งของถึงได้ข้อมูล</h2>
+    </div>
+    <div class="flow col">
+      <div class="step">
+        <div class="step-n">01</div>
+        <div>
+          <div class="step-who">พนักงาน · ในไลน์</div>
+          <div class="step-body">สั่งของกับคู่ค้าทางไลน์ <b>เหมือนเดิมทุกอย่าง</b> ไม่ต้องเปลี่ยนวิธีทำงาน</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-n">02</div>
+        <div>
+          <div class="step-who">พนักงาน · ในแอป</div>
+          <div class="step-body">ก๊อปข้อความสั่งของมา<b>วางในช่องเดียว</b> → ระบบแตกเป็นตาราง ชื่อของ · จำนวน · หน่วย · ช่องราคาว่างไว้</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-n">03</div>
+        <div>
+          <div class="step-who">พนักงาน · ตอนรับของ</div>
+          <div class="step-body">เติมราคาต่อหน่วย แก้น้ำหนักจริงที่ชั่งได้ ระบบคูณและรวมยอดให้ กด <b>ออกใบวางบิล</b> → ได้ลิงก์ + QR แชร์เข้าแชทไลน์ที่คุยกันอยู่ (ไม่ต้องแตะ LINE bot เดิม)</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-n">04</div>
+        <div>
+          <div class="step-who">คู่ค้า · เปิดจากลิงก์</div>
+          <div class="step-body">เห็นรายการทั้งใบแทนกระดาษจดมือ พิมพ์ชื่อ กด <b>ยืนยันรายการถูกต้อง</b> — ไม่ตรงก็กด <b>ทักท้วง</b> พร้อมเหตุผล</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-n">05</div>
+        <div>
+          <div class="step-who">แอดมิน แล้วก็พนักงาน</div>
+          <div class="step-body">แอดมินเลือกกระเป๋าเงินกดจ่าย → พนักงานโอนจริงแล้ว<b>อัปโหลดสลิป</b>เข้าใบเดิม</div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-n">06</div>
+        <div>
+          <div class="step-who">ระบบ · อัตโนมัติ</div>
+          <div class="step-body">ลิงก์เดิมเปลี่ยนหัวเป็น <b>ใบสำคัญจ่าย</b> · และรายการทั้ง 20 บรรทัดเข้าไปนอนรอใน Dashboard วัตถุดิบทันที</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">05 — จุดชี้เป็นตาย</div>
+      <h2>วางข้อความ แล้วได้ตาราง</h2>
+    </div>
+    <p class="col">
+      ถ้าขั้นนี้ไม่มี พนักงานจะกลับไปกรอก “ของแห้ง” บรรทัดเดียวภายในสองสัปดาห์ และงานทั้งหมดจะไม่มีข้อมูล
+    </p>
+    <div class="split">
+      <div class="panel bad">
+        <h4>ข้อความจริงจากกลุ่ม บจก. สดดี | ตำมั้ย</h4>
+        <div class="chat">30/8/69
+มะละกอ30กก.
+แตงร้าน10กก.
+มะเขือเทศ10กก.คะ</div>
+        <div style="font-size:.8rem;color:var(--muted)">อีกข้อความในกลุ่มเดียวกัน — ระบบต้องข้าม<br><span style="color:var(--ink-2)">@MOB มะละกอขอสวยๆ คัดให้หน่อยนะคะ</span></div>
+      </div>
+      <div class="panel good">
+        <h4>ตารางที่ระบบแตกให้ · ราคาเติมมาเอง</h4>
+        <div class="tw">
+          <table>
+            <thead><tr><th>ชื่อของ</th><th style="text-align:right">จำนวน</th><th>หน่วย</th><th style="text-align:right">ราคา/หน่วย</th></tr></thead>
+            <tbody>
+              <tr><td>มะละกอ</td><td class="num">30</td><td>กก.</td><td class="num">28.00</td></tr>
+              <tr><td>แตงร้าน</td><td class="num">10</td><td>กก.</td><td class="num">22.00</td></tr>
+              <tr><td>มะเขือเทศ</td><td class="num">10</td><td>กก.</td><td class="num">35.00</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div style="font-size:.8rem;color:var(--muted)">ราคาคือค่าล่าสุดที่ซื้อจากคู่ค้ารายนี้ · <b style="color:var(--ink-2)">30/8/69 เก็บเป็นวันนัดส่ง</b> ไม่ใช่รายการ</div>
+      </div>
+    </div>
+
+    <h3 style="margin:1.6rem 0 .7rem">กฎที่ parser ต้องผ่านให้ได้ · เอาไปเขียนเป็นเทสต์ตรง ๆ</h3>
+    <div class="tw">
+      <table>
+        <thead><tr><th>บรรทัด</th><th>ระบบต้องทำอะไร</th></tr></thead>
+        <tbody>
+          <tr><td><code>30/8/69</code></td><td>วันที่ล้วน → เก็บเป็นวันนัดส่ง ไม่นับเป็นรายการ</td></tr>
+          <tr><td><code>มะละกอ30กก.</code></td><td><b>ชื่อติดตัวเลข ไม่มีเว้นวรรค</b> → ตัดที่กลุ่มตัวเลขก่อนหน่วยท้ายบรรทัด ได้ “มะละกอ” · 30 · กก.</td></tr>
+          <tr><td><code>มะเขือเทศ10กก.คะ</code></td><td>ตัดคำลงท้าย <code>คะ ค่ะ ครับ คับ นะคะ จ้า</code> ทิ้งก่อน แล้วค่อยแยก</td></tr>
+          <tr><td><code>@MOB มะละกอขอสวยๆ</code></td><td>ขึ้นต้นด้วย <code>@</code> หรือไม่มีตัวเลข → ข้าม ไม่ใช่รายการสั่งของ</td></tr>
+          <tr><td><code>1. มะละกอ 20 กก</code></td><td>รองรับหัวข้อเลขและเว้นวรรคด้วย — คนละคนพิมพ์คนละแบบ</td></tr>
+          <tr><td>แตกไม่ออก</td><td><b>โชว์บรรทัดต้นฉบับให้คนกรอกเอง ห้ามทิ้งเงียบ</b></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn-note col" style="margin-top:1rem">
+      <h4>ตัวแตกข้อความต้องไม่ฉลาดเกินไป</h4>
+      ใช้กฎง่าย ๆ (ตัดหัวข้อเลข → จับตัวเลขท้ายบรรทัดเป็นจำนวน → คำถัดไปเป็นหน่วย → ที่เหลือคือชื่อ) แล้ว<b>โยนตารางให้คนตรวจเสมอ</b> ห้ามบันทึกเงียบ ๆ ·
+      ไม่ใช้ AI เดาในขั้นนี้ เพราะเดาผิดแล้วเงียบ แพงกว่าให้พนักงานแก้เองสองช่อง
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">06 — หน้าที่คู่ค้าเห็น</div>
+      <h2>ใบเดียว โตขึ้นตามสถานะ</h2>
+    </div>
+    <p class="col">ลิงก์เดียวกันตลอด ไม่มีการสร้างเอกสารใหม่ — กดสลับดูได้ว่าคู่ค้าจะเห็นอะไรในแต่ละช่วง</p>
+
+    <div class="mock-shell">
+      <div>
+        <div class="tabs" role="tablist" aria-label="สถานะเอกสาร">
+          <button class="tab" role="tab" aria-selected="true"  aria-controls="doc-panel" data-state="1">1 · ส่งลิงก์แล้ว</button>
+          <button class="tab" role="tab" aria-selected="false" aria-controls="doc-panel" data-state="2">2 · คู่ค้ายืนยันแล้ว</button>
+          <button class="tab" role="tab" aria-selected="false" aria-controls="doc-panel" data-state="3">3 · จ่ายแล้ว</button>
+        </div>
+
+        <div class="doc" id="doc-panel" role="tabpanel">
+          <div class="doc-head"><div class="doc-shop">ร้านตำมั้ย ท่าแพสงขลา</div></div>
+          <div class="doc-title" id="m-title">ใบวางบิล</div>
+          <div class="doc-title-en" id="m-title-en">BILLING NOTE</div>
+
+          <div class="doc-meta">
+            <span>เลขที่ <b>BL-690829-4c1a</b></span>
+            <span>วันที่ <b>29 ส.ค. 2569 09:40</b></span>
+          </div>
+          <div class="doc-meta">
+            <span>ผู้ขาย <b>แผงผักป้าสมทรง ตลาดสดสงขลา</b></span>
+            <span>รับเงินเข้า <b>••4821</b></span>
+          </div>
+
+          <div class="doc-tw">
+          <table>
+            <thead>
+              <tr><th>รายการ</th><th style="text-align:right">จำนวน</th><th style="text-align:right">ราคา/หน่วย</th><th style="text-align:right">จำนวนเงิน</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>มะละกอสับ</td><td class="num">20 กก.</td><td class="num">28.00</td><td class="num">560.00</td></tr>
+              <tr><td>มะนาว</td><td class="num">5 กก.</td><td class="num">65.00</td><td class="num">325.00</td></tr>
+              <tr><td>พริกขี้หนูสวน</td><td class="num">3 กก.</td><td class="num">180.00</td><td class="num">540.00</td></tr>
+              <tr><td>ถั่วฝักยาว</td><td class="num">8 กก.</td><td class="num">42.00</td><td class="num">336.00</td></tr>
+              <tr><td>กระเทียมไทย</td><td class="num">4 กก.</td><td class="num">95.00</td><td class="num">380.00</td></tr>
+            </tbody>
+            <tfoot>
+              <tr><td colspan="3">รวมทั้งสิ้น</td><td class="num">2,141.00</td></tr>
+            </tfoot>
+          </table>
+          </div>
+
+          <div id="m-body"></div>
+
+          <div class="doc-foot" id="m-foot"></div>
+        </div>
+      </div>
+
+      <div class="note-rail">
+        <div class="note" id="n1">
+          <h4>ขั้นนี้เกิดอะไรขึ้น</h4>
+          <span id="n1-body"></span>
+        </div>
+        <div class="note ink-note">
+          <h4>ทำไมไม่ต้อง convert</h4>
+          เอกสารทั้ง 3 สถานะคือ <b>แถวเดียวกันในฐานข้อมูล</b> ที่ค่อย ๆ มีข้อมูลเพิ่ม — หัวเปลี่ยนตามสถานะเท่านั้น ลิงก์ที่คู่ค้าเก็บไว้ตั้งแต่วันแรกใช้ได้ตลอด
+        </div>
+        <div class="note warn-note">
+          <h4>ข้อควรระวัง</h4>
+          ลิงก์นี้ <b>ใครถือก็เปิดได้</b> — และสลิปโอนมีเลขบัญชีร้านเราอยู่ ถ้าไม่อยากให้หลุด ให้แสดงเฉพาะ วันเวลา · ยอด · บัญชีปลายทาง 4 ตัวท้าย แทนรูปสลิปเต็ม
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">07 — ปลายทาง</div>
+      <h2>Dashboard ที่จะได้ และของแถมที่ใหญ่กว่า</h2>
+    </div>
+    <p class="col">
+      หน้าตาแบบนี้ ทำได้ด้วย query เดียวจาก <code>line_items</code> ไม่ต้องมีตารางใหม่
+    </p>
+    <div class="kpi">
+      <div class="kpi-card"><span class="k">อันดับ 1 ตามยอดเงิน</span><span class="v">มะละกอสับ</span><span class="s">฿12,880 · 14 ครั้ง</span></div>
+      <div class="kpi-card"><span class="k">ซื้อบ่อยที่สุด</span><span class="v">มะนาว</span><span class="s">21 ครั้ง · ฿6,240</span></div>
+      <div class="kpi-card"><span class="k">คู่ค้าที่จ่ายมากสุด</span><span class="v">นาย ข.ไข่</span><span class="s">฿41,300 · 9 ใบ</span></div>
+      <div class="kpi-card" style="border-color: color-mix(in srgb, var(--warn) 45%, transparent)">
+        <span class="k" style="color:var(--warn)">ความครอบคลุมข้อมูล</span><span class="v" style="color:var(--warn)">62%</span><span class="s">ของยอดซื้อเดือนนี้มีรายการละเอียด</span>
+      </div>
+    </div>
+
+    <div class="note warn-note col" style="margin-top:1.1rem">
+      <h4>ตัวเลขความครอบคลุมต้องอยู่คู่กราฟเสมอ</h4>
+      บิลเก่าและบิลที่ลงแบบย่อจะไม่มีรายการ — ถ้าไม่บอกเปอร์เซ็นต์ พี่จะอ่านกราฟผิดคิดว่าเห็นครบทั้งร้าน
+      อีกสามเดือนตัวเลขนี้จะเข้าใกล้ 100% เอง แต่ห้ามซ่อนมันตอนที่ยังไม่ถึง
+    </div>
+
+    <h3 style="margin:1.8rem 0 .6rem">ของแถมที่ได้ฟรีเมื่อเก็บราคาต่อหน่วย</h3>
+    <p class="col" style="margin-bottom:.9rem">
+      สามอย่างนี้แทบไม่ต้องเขียนเพิ่ม เพราะข้อมูลชุดเดียวกันตอบได้หมด — และมันคือเงินจริง ไม่ใช่แค่รายงานสวย
+    </p>
+    <div class="split">
+      <div class="panel good">
+        <h4>ราคาขึ้นผิดปกติ</h4>
+        “มะนาวเดือนนี้ ฿95/กก. เดือนก่อน ฿65” — จับได้ตอนออกใบ ไม่ใช่มารู้ตอนปิดเดือน
+      </div>
+      <div class="panel good">
+        <h4>เทียบราคาข้ามคู่ค้า</h4>
+        ของอย่างเดียวกัน นาย ข.ไข่ ฿28 · อีกเจ้า ฿24 — ต่อรองด้วยตัวเลขได้ ไม่ใช่ด้วยความรู้สึก
+      </div>
+      <div class="panel good">
+        <h4>ฐานของต้นทุนต่อจาน</h4>
+        ราคาวัตถุดิบจริงรายเดือนคือครึ่งแรกของสูตรคิด food cost — อีกครึ่งคือสูตรอาหาร ซึ่งเป็นงานคนละก้อน ยังไม่ต้องทำตอนนี้
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">08 — สำหรับ dev</div>
+      <h2>ของที่ต้องสร้างจริง</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>ที่</th><th>ทำอะไร</th><th>ประเภท</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>migrations/0009_vendor_ack.sql</code></td>
+            <td><code>ALTER TABLE pending_bills ADD COLUMN vendor_ack TEXT;</code> — เก็บ JSON <code>{name, at, ip, ua, disputeReason, disputeAt}</code> ช่องเดียวจบ · <b>ไม่มีตาราง items ใหม่</b></td>
+            <td><span class="tag have">additive</span></td>
+          </tr>
+          <tr>
+            <td><code>src/parseOrderText.mjs</code> + <code>.test.mjs</code></td>
+            <td>แตกข้อความสั่งของเป็นรายการ — regex ล้วน ไม่ใช้ AI · วางคู่กับ <code>pending-bills-logic.mjs</code> ตามแบบที่รีโปทำอยู่ พร้อมเทสต์คู่ไฟล์</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>GET /reports/items</code></td>
+            <td>รวมยอดตามวัตถุดิบด้วย <code>json_each(line_items)</code> — group by ชื่อ, sum(qty × unitPrice), เฉพาะ <code>status='paid'</code> · คืนเปอร์เซ็นต์ความครอบคลุมมาในคำตอบเดียวกัน</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>GET /reports/last-prices</code></td>
+            <td>ราคาล่าสุดต่อ (ชื่อของ × คู่ค้า) — <code>json_each</code> ชุดเดิม เรียงตาม <code>paid_at</code> เอาแถวล่าสุด · ใช้เติมช่องราคาให้อัตโนมัติ</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>GET /reports/item-names</code></td>
+            <td>ชื่อของที่เคยใช้ เรียงตามความถี่ · ดึงครั้งเดียวตอนเปิดโมดัลแล้ว filter ฝั่งเบราว์เซอร์ — ไม่ยิง query ทุกครั้งที่พิมพ์</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>POST /receipt/:token/ack</code></td>
+            <td>คู่ค้ายืนยัน — รับ <code>{name}</code> เขียนครั้งเดียว ปฏิเสธถ้าใบไม่ใช่ billing_link / ยืนยันแล้ว / จ่ายแล้ว</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>POST /receipt/:token/dispute</code></td>
+            <td>คู่ค้าทักท้วง — รับ <code>{reason}</code> ใบเด้งกลับหาพนักงาน</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>GET /receipt/:token/slip</code></td>
+            <td>ส่งรูปสลิปโอนออกทางลิงก์สาธารณะ — เขียนตามแบบ <code>getPublicReceiptSignature</code> ที่มีอยู่</td>
+            <td><span class="tag need">ใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>worker.js</code> · <code>payPendingBill</code></td>
+            <td><b>จุดที่จะพังถ้าไม่แก้:</b> บังคับ <code>evidence_key</code> ก่อนจ่าย แต่โหมดใหม่ไม่มีรูปแนบ → ต้องยกเว้นให้ <code>kind='billing_link'</code> และข้าม INSERT ตาราง slips เมื่อไม่มีรูป</td>
+            <td><span class="tag need">แก้ path เดิม</span></td>
+          </tr>
+          <tr>
+            <td><code>worker.js</code> · <code>createPendingBill</code></td>
+            <td>รับ <code>kind='billing_link'</code> → สร้าง <code>public_token</code> เหมือน goods_receipt แต่ไม่บังคับรูป/ลายเซ็น</td>
+            <td><span class="tag have">เพิ่มค่าใหม่</span></td>
+          </tr>
+          <tr>
+            <td><code>src/pages/PendingBills.jsx</code></td>
+            <td>โมดัลใหม่: ช่องวางข้อความ → ตารางแก้ได้ → autocomplete ชื่อของ → ราคาเติมเอง → ออกใบ + QR · ป้ายสถานะยืนยัน · เตือนตอนกดจ่าย · ปุ่มแนบสลิป · <b>ถ้า <code>doc_type</code> ของคู่ค้าไม่ใช่ <code>none</code> ให้ซ่อนขั้นส่งลิงก์ไปเลย</b></td>
+            <td><span class="tag need">เพิ่มส่วน</span></td>
+          </tr>
+          <tr>
+            <td><code>src/pages/Receipt.jsx</code></td>
+            <td>3 สถานะ + ฟอร์มพิมพ์ชื่อยืนยัน + บล็อกสลิป — เขียนใหม่เกือบทั้งหน้า</td>
+            <td><span class="tag need">แก้ใหญ่</span></td>
+          </tr>
+          <tr>
+            <td><code>src/pages/Reports.jsx</code></td>
+            <td>เพิ่มส่วน “วัตถุดิบที่ซื้อ” — ตาราง Top N ตามยอดเงิน + แถบความครอบคลุม · หน้านี้<b>ไม่มีระบบแท็บ</b> มีแค่ตัวกรอง <code>period</code>/<code>scope</code> จึงเป็นการเพิ่มบล็อกใหม่ใต้ตัวกรองเดิม</td>
+            <td><span class="tag need">เพิ่มส่วน</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <h3 style="margin:1.8rem 0 .7rem">ข้อมูลของแต่ละชิ้นเก็บไว้ที่ไหน — จุดที่พลาดกันได้ง่าย</h3>
+    <div class="split">
+      <div class="panel bad">
+        <h4>อย่าทำ · สร้างลิสต์สินค้าต่อคู่ค้า</h4>
+        ไม่ต้องเพิ่มตาราง “สินค้าของร้านนี้” และไม่ต้องให้ใครนั่งกรอกรายการของแต่ละคู่ค้าไว้ล่วงหน้า ·
+        ลิสต์ที่คนกรอกเองจะล้าสมัยภายในเดือนเดียว และกลายเป็นงานที่ไม่มีใครอยากดูแล
+      </div>
+      <div class="panel good">
+        <h4>ทำแบบนี้ · คำนวณจากประวัติที่ซื้อจริง</h4>
+        ของแต่ละชิ้นถูกเก็บใน <code>line_items</code> <b>ของบิลใบนั้น ๆ</b> เท่านั้น ·
+        “ของที่คู่ค้ารายนี้เคยขายเรา” เป็น<b>มุมมองที่คำนวณสด</b>จากบิลเก่า ไม่ใช่ข้อมูลที่เก็บซ้ำ — แม่นกว่าเสมอ เพราะมาจากของที่ซื้อจริง
+      </div>
+    </div>
+    <div class="note col" style="margin-top:1rem">
+      <h4>Autocomplete ควรจัดลำดับแบบนี้</h4>
+      พิมพ์ “มะ” ในบิลของ บจก. สดดี → ขึ้น<b>ของที่เคยซื้อจากสดดีก่อน</b> แล้วต่อด้วยของที่เคยซื้อจากร้านอื่น ·
+      ของที่ไม่เคยซื้อจะไม่ขึ้น ครั้งแรกต้องพิมพ์เอง ซึ่งยอมรับได้ เพราะครั้งที่สองเป็นต้นไปมันจำให้แล้ว
+    </div>
+    <div class="note warn-note col" style="margin-top:.8rem">
+      <h4>อย่าเอาไปปนกับ <code>keywords</code> ที่มีอยู่แล้ว</h4>
+      <code>vendor_profiles.keywords</code> จาก Merchants 3.0 มีไว้<b>ค้นหาร้าน</b> (“ร้านไหนขายถุงมือ”) เป็นข้อความอิสระที่คนกรอกเอง —
+      คนละแกนกับรายการของในบิล ปล่อยไว้อย่างเดิม อย่าเอามารวมกัน
+    </div>
+    <div class="note ink-note col" style="margin-top:.8rem">
+      <h4>จะต้องมีตารางสินค้าจริง ๆ เมื่อไหร่</h4>
+      ตอนที่จะอ่าน PDF ราคารายวันใน P2 — เพราะ PDF มีของที่ร้านขาย<b>ทั้งหมด</b> ไม่ใช่แค่ที่เราเคยซื้อ ตอนนั้นถึงจะมีเหตุผลให้เก็บแยก ·
+      ก่อนหน้านั้นการเก็บซ้ำมีแต่จะทำให้ข้อมูลสองชุดไม่ตรงกัน
+    </div>
+
+    <p class="col" style="margin-top:1.4rem">
+      <strong>Rollback:</strong> ซ่อนปุ่ม “ออกใบวางบิล” และแท็บวัตถุดิบ แล้วปล่อยคอลัมน์ <code>vendor_ack</code> ว่างไว้ —
+      โหมดรับของเดิมและ LINE bot ไม่ถูกแตะ ยกเว้นเงื่อนไข <code>evidence_key</code> ที่ไม่มีวันเป็นจริงกับบิลเดิม
+    </p>
+  </section>
+
+  <!-- 09 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">09 — กฎที่ห้ามยืดหยุ่น</div>
+      <h2>6 ข้อที่ทำให้ข้อมูลและหลักฐานยังใช้ได้จริง</h2>
+    </div>
+    <ol class="rules col">
+      <li><span><b>ตัวแตกข้อความห้ามบันทึกเงียบ ๆ</b> ต้องโยนตารางให้คนตรวจและกดยืนยันทุกครั้ง — ข้อมูลผิดที่ไหลเข้าเงียบ ๆ แพงกว่าไม่มีข้อมูล</span></li>
+      <li><span><b>Dashboard ต้องแสดงเปอร์เซ็นต์ความครอบคลุมคู่กันเสมอ</b> ห้ามโชว์กราฟลอย ๆ ที่ทำให้เข้าใจว่าเห็นครบทั้งร้าน</span></li>
+      <li><span><b>คู่ค้ายืนยันแล้ว = ล็อกรายการ</b> แก้ยอดไม่ได้อีก ถ้าต้องแก้ให้ยกเลิกใบแล้วออกใหม่ — ไม่งั้นลายเซ็นผูกกับตัวเลขที่เปลี่ยนไปแล้ว</span></li>
+      <li><span><b>ยืนยันได้ครั้งเดียว</b> ทับซ้ำไม่ได้ ลบไม่ได้ · ใบที่จ่ายแล้วห้ามยืนยันย้อนหลัง</span></li>
+      <li><span><b>เอกสารห้ามเรียกว่าใบเสร็จรับเงิน</b> เราเป็นผู้จ่าย ไม่ใช่ผู้รับเงิน — ใบวางบิล / ใบตรวจรับ / ใบสำคัญจ่ายเท่านั้น</span></li>
+      <li><span><b>ลิงก์สาธารณะต้องมี rate limit</b> ตั้ง Cloudflare rate limiting ที่ <code>/receipt/*</code> ก่อนเปิดใช้จริง ไม่งั้นยิงเดา token ได้เรื่อย ๆ</span></li>
+    </ol>
+  </section>
+
+  <!-- 10 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">10 — ความเสี่ยง</div>
+      <h2>จุดที่พังง่ายที่สุด และวิธีกัน</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>ความเสี่ยง</th><th>โอกาส</th><th>ความแรง</th><th>วิธีกัน</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><b>พนักงานเลิกกรอกรายการ</b> กลับไปลง “ของแห้ง” บรรทัดเดียว — งานทั้งหมดเสียเปล่า</td>
+            <td><span class="tag risk">สูง</span></td>
+            <td><span class="tag risk">สูง</span></td>
+            <td>วางข้อความจากแชทต้องอยู่ใน MVP ไม่ใช่ P2 · วัดทุกสัปดาห์ว่ากี่ % ของยอดซื้อมีรายการละเอียด ถ้าตัวเลขตก แปลว่าการกรอกยังหนักเกินไป</td>
+          </tr>
+          <tr>
+            <td><b>ชื่อของเพี้ยนสะสม</b> — หกเดือนผ่านไปมีชื่อซ้ำเป็นร้อย Dashboard อ่านไม่ออก</td>
+            <td>สูง</td>
+            <td>กลาง</td>
+            <td>autocomplete ทำให้ทางที่ถูกเป็นทางที่ง่ายที่สุด · เพิ่มเครื่องมือรวมชื่อซ้ำใน P1 ก่อนที่จะสาย ห้ามรอถึงปีหน้า</td>
+          </tr>
+          <tr>
+            <td><b>ข้อความสั่งของไม่ได้เป็นรายการ</b> — สั่งด้วยเสียง ส่งรูป หรือโทรบอก</td>
+            <td>กลาง</td>
+            <td><span class="tag risk">สูง</span></td>
+            <td>ยังไม่รู้จนกว่าจะเห็นข้อความจริง — <b>เช็คก่อนเขียนโค้ด</b> · ถ้าเป็นรูป ทางออกคือ OCR ซึ่งรีโปนี้มีอยู่แล้วในสาย slip</td>
+          </tr>
+          <tr>
+            <td><b>ราคาไม่มีในข้อความสั่ง</b> พนักงานไม่เติม ยอดเป็นศูนย์</td>
+            <td>สูง</td>
+            <td>กลาง</td>
+            <td>เตือนก่อนออกใบถ้ามีบรรทัดราคา 0 แต่ไม่บล็อก (ของแถมมีจริง) · ยอดรวมแสดงตัวใหญ่ให้เห็นชัดว่าผิดปกติ</td>
+          </tr>
+          <tr>
+            <td><b>ของที่ส่งจริงไม่ตรงกับที่สั่ง</b> — สั่งมะละกอ 30 กก. ชั่งได้ 28.5 กก.</td>
+            <td>สูง</td>
+            <td>กลาง</td>
+            <td>ข้อความที่วางเป็นแค่ตัวตั้งต้น · พนักงาน<b>ต้องแก้เป็นจำนวนที่ชั่งได้จริงตอนรับของ</b> ก่อนออกใบ — Dashboard นับของที่รับจริง ไม่ใช่ที่สั่ง</td>
+          </tr>
+          <tr>
+            <td><b>ลิงก์ไปโผล่ในกลุ่ม 10 คน</b> — คนของเราเองก็กดยืนยันแทนคู่ค้าได้</td>
+            <td>กลาง</td>
+            <td>กลาง</td>
+            <td>เขียนบนหน้าให้ชัดว่า “สำหรับผู้ขายเท่านั้น” · บันทึกชื่อคนกดและแสดงบนใบทั้งสองฝั่ง ใครกดแทนกันจะเห็นทันที · เป็นเหตุผลเสริมว่าทำไมลายเซ็นถึงไม่ควรเป็นเงื่อนไขปล่อยเงิน</td>
+          </tr>
+          <tr>
+            <td><b>คู่ค้าไม่กดยืนยันสักที</b></td>
+            <td>กลาง</td>
+            <td>ต่ำ</td>
+            <td>เตือนแต่จ่ายได้ เงินจึงไม่ค้าง · ลิงก์วางในแชทที่สั่งของกันอยู่แล้ว ไม่ใช่ช่องทางใหม่ · ไม่กดเกิน 3 ใบ ให้ถอยกลับไปเซ็นต่อหน้ากับรายนั้น</td>
+          </tr>
+          <tr>
+            <td><b>พนักงานแก้ยอดหลังคู่ค้าเซ็น</b> แล้วโอนตามยอดใหม่</td>
+            <td>ต่ำ</td>
+            <td><span class="tag risk">สูง</span></td>
+            <td>กฎข้อ 3 — ล็อกรายการหลังยืนยัน บังคับในโค้ด ไม่ใช่ในระเบียบ</td>
+          </tr>
+          <tr>
+            <td><b>ลิงก์ถูกส่งต่อ</b> คนนอกเห็นรายการ ยอด และสลิป</td>
+            <td>กลาง</td>
+            <td>กลาง</td>
+            <td>token 64 ตัวเดาไม่ได้ + rate limit · เลขบัญชีปิดเหลือ 4 ตัวท้าย · ถ้ากังวลสลิป ให้แสดงข้อมูลการโอนแทนรูปเต็ม</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 11 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">11 — แผนสร้าง</div>
+      <h2>สามเฟส และเกณฑ์จบแต่ละเฟส</h2>
+    </div>
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-tag">MVP</div>
+        <h3>เก็บข้อมูลให้ได้ก่อน</h3>
+        <ul>
+          <li>migration 0009 (1 บรรทัด)</li>
+          <li>วางข้อความ → ตาราง (<b>ขาดไม่ได้</b>)</li>
+          <li>autocomplete ชื่อของ</li>
+          <li>ออกใบ + QR + หน้าคู่ค้า 3 สถานะ + ปุ่มยืนยัน</li>
+          <li>ยกเว้น <code>evidence_key</code> ตอนจ่าย + แนบสลิป</li>
+          <li>ตาราง Top 10 วัตถุดิบตามยอดเงิน (ยังไม่มีกราฟ)</li>
+        </ul>
+        <div class="dod">จบเมื่อ: ออกใบจริง 10 ใบ โดย <b>ไม่มีใบไหนที่พนักงานพิมพ์รายการเองทั้งหมด</b> และคู่ค้าอย่างน้อย 1 รายกดยืนยัน</div>
+      </div>
+      <div class="phase">
+        <div class="phase-tag">P1</div>
+        <h3>ทำให้ข้อมูลสะอาดและอ่านออก</h3>
+        <ul>
+          <li>เครื่องมือรวมชื่อซ้ำสำหรับแอดมิน</li>
+          <li>Dashboard เต็ม + แถบความครอบคลุม</li>
+          <li>เตือนราคาขึ้นผิดปกติตอนออกใบ</li>
+          <li>ปุ่มทักท้วง + ล็อกใบหลังยืนยัน</li>
+        </ul>
+        <div class="dod">จบเมื่อ: ความครอบคลุมเกิน 80% ของยอดซื้อ และชื่อซ้ำถูกรวมจนเหลือน้อยกว่า 5% ของรายการ</div>
+      </div>
+      <div class="phase">
+        <div class="phase-tag">P2</div>
+        <h3>ต่อยอดเมื่อข้อมูลนิ่งแล้ว</h3>
+        <ul>
+          <li>ตารางแปลงหน่วย (ถุง → กก.) เพื่อจัดอันดับตามน้ำหนัก</li>
+          <li>เทียบราคาข้ามคู่ค้า</li>
+          <li>สั่งซ้ำจากใบก่อนหน้าในคลิกเดียว</li>
+          <li>LINE bot เตือนคู่ค้าที่ยังไม่ยืนยันเกิน 24 ชม.</li>
+        </ul>
+        <div class="dod">อย่าเริ่มจนกว่าจะมีข้อมูลรายการจริงครบ 3 เดือน</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 12 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">12 — สมมติฐาน</div>
+      <h2>สิ่งที่ยังไม่ได้เช็ค</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead>
+          <tr><th>#</th><th>สมมติฐาน</th><th>ถ้าผิด</th><th>เช็คเร็วสุด</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="num">1</td>
+            <td><b>ข้อความสั่งของในไลน์อยู่ในรูปรายการที่แตกได้</b></td>
+            <td><span class="tag have">ยืนยันแล้ว 29 ส.ค. 69</span> — เห็นข้อความจริงแล้ว รูปแบบคงที่พอ (ดูกฎในหัวข้อ 05)</td>
+            <td>เช็คแล้ว ไม่ต้องทำอีก</td>
+          </tr>
+          <tr>
+            <td class="num">2</td>
+            <td>ของแห้งชุดเดิมถูกสั่งซ้ำจากคู่ค้าเดิมบ่อย ๆ</td>
+            <td>autocomplete ช่วยน้อยลง และ “สั่งซ้ำจากใบก่อน” ใน P2 ไม่คุ้มทำ</td>
+            <td>ดูบิลย้อนหลัง 1 เดือน ว่ารายการซ้ำกันกี่ %</td>
+          </tr>
+          <tr>
+            <td class="num">3</td>
+            <td><code>json_each()</code> ใช้ได้บน Cloudflare D1</td>
+            <td>ต้องสร้างตาราง <code>bill_items</code> จริงและเขียนตอนออกใบ — งานเพิ่มราวครึ่งวัน ไม่ถึงกับพลิกแผน</td>
+            <td>ยิง query เดียวบน D1 จริง ใช้เวลา 5 นาที <b>ทำก่อนเริ่มเขียน</b></td>
+          </tr>
+          <tr>
+            <td class="num">4</td>
+            <td>ราคาต่อหน่วยถูกตกลงตอนรับของ ไม่ใช่หลังจากนั้น</td>
+            <td>ต้องให้แก้ราคาได้หลังออกใบ ซึ่งชนกับกฎล็อกใบ ต้องออกแบบทางยกเลิก/ออกใหม่ตั้งแต่ MVP</td>
+            <td>ถามพนักงานที่รับของว่ารู้ราคาตอนไหน</td>
+          </tr>
+          <tr>
+            <td class="num">6</td>
+            <td><code>doc_type</code> บน <code>vendor_profiles</code> ถูกกรอกไว้ครบพอที่จะใช้แยกคู่ค้าสองแบบ</td>
+            <td>ต้องไล่กรอกก่อน ไม่งั้นระบบจะสั่งส่งลิงก์ให้ บจก. ที่มีใบส่งของอยู่แล้ว</td>
+            <td>เปิดหน้าร้านค้า ดูว่ากี่รายที่ยังว่าง ใช้เวลา 5 นาที</td>
+          </tr>
+          <tr>
+            <td class="num">5</td>
+            <td>ข้อโต้แย้งเรื่องยอดกับคู่ค้าเกิดจริงพอที่จะคุ้มทำปุ่มยืนยัน</td>
+            <td>ตัดปุ่มยืนยันทิ้ง เหลือแค่ส่งลิงก์ให้ดู — <b>แต่ส่วนเก็บข้อมูลรายการยังคุ้มอยู่ดี</b> เพราะคนละเป้าหมาย</td>
+            <td>นับย้อนหลัง 3 เดือน มีกี่ครั้งที่ยอดไม่ตรงกับที่ตกลง</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note col" style="margin-top:1rem">
+      <h4>ยืนยันแล้ว 29 ส.ค. 69</h4>
+      คู่ค้าใช้ไลน์ทุกราย และร้านสั่งของทางไลน์อยู่แล้ว — ลิงก์จึงไม่ใช่ช่องทางใหม่ที่ต้องสอนให้ใช้ และข้อความสั่งของมีอยู่จริงให้ก๊อปมาวาง
+    </div>
+  </section>
+
+  <!-- 13 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">13 — เริ่มยังไง</div>
+      <h2>7 วันแรก</h2>
+    </div>
+    <ol class="checks col">
+      <li><s>ก๊อปข้อความสั่งของจริงมาดู</s> — <b>เช็คแล้ว 29 ส.ค.</b> รูปแบบชัดพอ กฎทั้งหมดอยู่ในหัวข้อ 05 พร้อมเขียนเทสต์</li>
+      <li><b>วันนี้ · 5 นาที</b> — เปิดหน้าร้านค้า ไล่กรอก <code>doc_type</code> ให้คู่ค้าที่ซื้อประจำ (บจก. = มีใบส่งของ · แผงตลาด = <code>none</code>) นี่คือสวิตช์ที่ตัดสินว่าใบไหนต้องส่งลิงก์</li>
+      <li><b>วันนี้</b> — นับย้อนหลัง 3 เดือน มีกี่ครั้งที่ยอดกับคู่ค้าไม่ตรง (ตัดสินว่าปุ่มยืนยันคุ้มไหม ไม่กระทบส่วนเก็บข้อมูล)</li>
+      <li><b>วัน 2 · 5 นาที</b> — ยิง <code>json_each()</code> หนึ่ง query บน D1 จริง เช็คว่าใช้ได้ก่อนเขียนอะไร</li>
+      <li><b>วัน 2</b> — รัน migration 0009 (1 บรรทัด ปลอดภัย รันก่อน deploy worker ได้)</li>
+      <li><b>วัน 3–5</b> — สร้าง MVP โดยเรียงจาก parser ก่อน แล้วค่อยหน้าจอ — <b>ถ้า parser ใช้ไม่ได้ ให้หยุดทั้งงาน อย่าสร้างต่อ</b></li>
+      <li><b>วัน 6</b> — <b>เทียบโค้ด prod ปัจจุบันก่อน deploy worker เสมอ</b> (worker.js เป็น hand-maintained ตาม CLAUDE.md) แล้วทดสอบว่า LINE bot ยังทำงานปกติ</li>
+      <li><b>วัน 7</b> — ใช้จริงกับคู่ค้า 2 ราย เก็บตัวเลขเดียวที่สำคัญ: <b>กี่ % ของยอดซื้อสัปดาห์นี้มีรายการละเอียด</b></li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>FinTrack · Famous Star Food OS</span>
+    <span>สเปกจากการอ่านโค้ดจริง ไม่ใช่จากคำอธิบาย</span>
+    <span>29 ส.ค. 2569</span>
+  </footer>
+</div>
+
+<script>
+  (function () {
+    var STATES = {
+      1: {
+        title: 'ใบวางบิล', en: 'BILLING NOTE',
+        body:
+          '<div style="margin-top:1.1rem"><span class="pill wait">รอคู่ค้ายืนยันรายการ</span></div>' +
+          '<div class="ack-form">' +
+            '<label>ตรวจรายการแล้ว พิมพ์ชื่อผู้ยืนยัน</label>' +
+            '<div class="fake-input">ชื่อ–นามสกุล</div>' +
+            '<div class="fake-btn">ยืนยันรายการถูกต้อง</div>' +
+            '<div class="ack-alt">รายการไม่ตรง — แจ้งทักท้วง</div>' +
+          '</div>',
+        foot: 'ยืนยันได้ครั้งเดียว · ระบบบันทึกชื่อ เวลา และหมายเลขเครื่องที่ใช้ยืนยันไว้เป็นหลักฐาน',
+        note: 'พนักงานวางข้อความสั่งของจากแชท เติมราคา แล้วส่งลิงก์กลับเข้าแชทเดิม · ยังไม่มีการตัดเงินใด ๆ'
+      },
+      2: {
+        title: 'ใบตรวจรับ', en: 'GOODS RECEIPT',
+        body:
+          '<div class="ack-stamp">' +
+            '<div class="who">สมทรง แก้วมณี · ยืนยันรายการถูกต้อง</div>' +
+            '<div class="line">29 ส.ค. 2569 10:14 น. · 183.88.xx.xx · Chrome / Android</div>' +
+          '</div>' +
+          '<div style="margin-top:1rem"><span class="pill wait">รอร้านโอนเงิน</span></div>',
+        foot: 'รายการในใบนี้ถูกล็อกแล้ว แก้ไม่ได้ · ถ้ายอดเปลี่ยน ต้องยกเลิกใบนี้และออกใบใหม่',
+        note: 'คู่ค้ากดยืนยันแล้ว ป้าย “ยืนยันแล้ว” ขึ้นในคิวรอจ่ายของแอดมิน · ตั้งแต่วินาทีนี้รายการแก้ไม่ได้อีก'
+      },
+      3: {
+        title: 'ใบสำคัญจ่าย', en: 'PAYMENT VOUCHER',
+        body:
+          '<div class="ack-stamp">' +
+            '<div class="who">สมทรง แก้วมณี · ยืนยันรายการถูกต้อง</div>' +
+            '<div class="line">29 ส.ค. 2569 10:14 น. · 183.88.xx.xx · Chrome / Android</div>' +
+          '</div>' +
+          '<div style="margin-top:1rem"><span class="pill paid">จ่ายแล้ว · 29 ส.ค. 2569 16:05 · โอนเข้า ••4821</span></div>' +
+          '<div class="slip">' +
+            '<div class="slip-cap">สลิปโอนที่พนักงานแนบ (ตัวอย่าง)</div>' +
+            '<div class="slip-card">' +
+              '<div>โอนเงินสำเร็จ</div>' +
+              '<div class="bar w60"></div>' +
+              '<div class="bar w40"></div>' +
+              '<div class="amt">฿2,141.00</div>' +
+              '<div>29/08/69 16:05 · REF 4821XXXX</div>' +
+            '</div>' +
+          '</div>',
+        foot: 'เอกสารนี้ออกโดยผู้จ่ายเงิน ใช้เป็นหลักฐานประกอบรายจ่าย · ไม่ใช่ใบเสร็จรับเงินและไม่มีภาษีมูลค่าเพิ่ม',
+        note: 'แนบสลิปแล้ว ลิงก์เดิมเปลี่ยนหัวเอง · และรายการทั้ง 5 บรรทัดเข้าไปรวมยอดใน Dashboard วัตถุดิบทันที'
+      }
+    };
+
+    var tabs = document.querySelectorAll('.tab');
+    var elTitle = document.getElementById('m-title');
+    var elEn    = document.getElementById('m-title-en');
+    var elBody  = document.getElementById('m-body');
+    var elFoot  = document.getElementById('m-foot');
+    var elNote  = document.getElementById('n1-body');
+
+    function render(n) {
+      var s = STATES[n];
+      elTitle.textContent = s.title;
+      elEn.textContent = s.en;
+      elBody.innerHTML = s.body;
+      elFoot.textContent = s.foot;
+      elNote.textContent = s.note;
+    }
+
+    tabs.forEach(function (t) {
+      t.addEventListener('click', function () {
+        tabs.forEach(function (o) { o.setAttribute('aria-selected', String(o === t)); });
+        render(t.dataset.state);
+      });
+    });
+
+    render(1);
+  })();
+</script>
