@@ -2,6 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   filterWalletTransactions,
+  getWalletPageSizeOptions,
   getWalletPeriodRange,
   summarizeWalletTransactions,
   summarizeWalletTransactionsByDate,
@@ -13,6 +14,12 @@ test('wallet detail month ranges use local calendar boundaries', () => {
   assert.deepEqual(getWalletPeriodRange('thisMonth', now), { from: '2026-08-01', to: '2026-08-31' })
   assert.deepEqual(getWalletPeriodRange('lastMonth', now), { from: '2026-07-01', to: '2026-07-31' })
   assert.equal(getWalletPeriodRange('all', now), null)
+})
+
+test('wallet page-size options always include every filtered transaction in the month', () => {
+  assert.deepEqual(getWalletPageSizeOptions(268, 50), [5, 10, 25, 50, 100, 200, 268])
+  assert.deepEqual(getWalletPageSizeOptions(50, 50), [5, 10, 25, 50])
+  assert.deepEqual(getWalletPageSizeOptions(3, 50), [3, 50])
 })
 
 test('wallet summaries exclude drafts and every internal transfer', () => {

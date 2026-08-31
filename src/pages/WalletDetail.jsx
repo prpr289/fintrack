@@ -4,6 +4,7 @@ import { api } from '../api'
 import { thb } from '../fmt'
 import {
   filterWalletTransactions,
+  getWalletPageSizeOptions,
   getWalletPeriodRange,
   isPostedWalletActivity,
   summarizeWalletTransactions,
@@ -41,7 +42,6 @@ const PERIODS = [
   { value: 'all', label: 'ทั้งหมด' },
 ]
 const TYPE_LABELS = { cash: 'เงินสด', bank: 'บัญชีธนาคาร', credit: 'บัตรเครดิต' }
-const WALLET_PAGE_SIZE_OPTIONS = [5, 10, 25, 50]
 
 async function fetchAllWalletTransactions(params) {
   const { items } = await collectPaginatedItems(async ({ limit, offset }) => {
@@ -198,6 +198,10 @@ export default function WalletDetail() {
     () => filterWalletTransactions(transactions, { search, categoryId, expenseOnly }),
     [transactions, search, categoryId, expenseOnly],
   )
+  const walletPageSizeOptions = useMemo(
+    () => getWalletPageSizeOptions(filteredTransactions.length, pageSize),
+    [filteredTransactions.length, pageSize],
+  )
   const pagination = getPagination({ total: filteredTransactions.length, page, pageSize })
   const visibleTransactions = useMemo(
     () => filteredTransactions.slice(
@@ -258,6 +262,13 @@ export default function WalletDetail() {
         .wallet-detail-page select:focus-visible {
           outline: 2px solid rgba(16,185,129,0.65);
           outline-offset: 2px;
+        }
+        .wallet-detail-page select {
+          color-scheme: dark;
+        }
+        .wallet-detail-page select option {
+          background: #111827;
+          color: #e2e8f0;
         }
         @media (prefers-reduced-motion: reduce) {
           .wallet-detail-page *, .wallet-detail-page *::before, .wallet-detail-page *::after {
@@ -351,7 +362,7 @@ export default function WalletDetail() {
           total={filteredTransactions.length}
           page={pagination.page}
           pageSize={pagination.pageSize}
-          pageSizeOptions={WALLET_PAGE_SIZE_OPTIONS}
+          pageSizeOptions={walletPageSizeOptions}
           onPageChange={changePage}
           onPageSizeChange={changePageSize}
           ariaLabel="แบ่งหน้ารายการกระเป๋าด้านบน"
@@ -450,7 +461,7 @@ export default function WalletDetail() {
           total={filteredTransactions.length}
           page={pagination.page}
           pageSize={pagination.pageSize}
-          pageSizeOptions={WALLET_PAGE_SIZE_OPTIONS}
+          pageSizeOptions={walletPageSizeOptions}
           onPageChange={changePage}
           onPageSizeChange={changePageSize}
           ariaLabel="แบ่งหน้ารายการกระเป๋าด้านล่าง"

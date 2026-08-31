@@ -1,6 +1,16 @@
 import { ymd } from './fmt.js'
 
 export const WALLET_DETAIL_PAGE_SIZE = 5
+const WALLET_DETAIL_PAGE_SIZE_STEPS = [5, 10, 25, 50, 100, 200]
+
+export function getWalletPageSizeOptions(total = 0, currentPageSize = WALLET_DETAIL_PAGE_SIZE) {
+  const normalizedTotal = Math.max(0, Number(total) || 0)
+  const normalizedCurrent = Math.max(1, Number(currentPageSize) || WALLET_DETAIL_PAGE_SIZE)
+  const options = WALLET_DETAIL_PAGE_SIZE_STEPS.filter(option => option <= normalizedTotal)
+  options.push(normalizedCurrent)
+  if (normalizedTotal > 0) options.push(normalizedTotal)
+  return [...new Set(options)].sort((a, b) => a - b)
+}
 
 export function getWalletPeriodRange(period = 'thisMonth', now = new Date()) {
   if (period === 'all') return null
