@@ -95,3 +95,27 @@ export function getWalletTransactionDates(transactions = [], filters = {}) {
 
   return [...new Set(dates)].sort((a, b) => b.localeCompare(a))
 }
+
+export function getWalletSelectableDates(period = 'thisMonth', transactionDates = [], now = new Date()) {
+  const range = getWalletPeriodRange(period, now)
+  if (!range) return [...new Set(transactionDates.filter(Boolean))].sort((a, b) => b.localeCompare(a))
+
+  const dates = []
+  const first = new Date(`${range.from}T12:00:00`)
+  const cursor = new Date(`${range.to}T12:00:00`)
+  while (cursor >= first) {
+    dates.push(ymd(cursor))
+    cursor.setDate(cursor.getDate() - 1)
+  }
+  return dates
+}
+
+export function getWalletExportFilename(walletName = 'wallet', period = 'thisMonth', now = new Date()) {
+  const safeWalletName = String(walletName || 'wallet')
+    .trim()
+    .replace(/[<>:"/\\|?*]/g, '-')
+    .replace(/\s+/g, '-')
+  const range = getWalletPeriodRange(period, now)
+  const periodName = range ? range.from.slice(0, 7) : 'all'
+  return `wallet-${safeWalletName || 'wallet'}-${periodName}.xls`
+}

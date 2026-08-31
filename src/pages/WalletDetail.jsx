@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
+import { exportTransactionsXls } from '../csvUtils'
 import { thb } from '../fmt'
 import {
   filterWalletTransactions,
+  getWalletExportFilename,
   getWalletPageSizeOptions,
   getWalletPeriodRange,
+  getWalletSelectableDates,
   getWalletTransactionDates,
   isPostedWalletActivity,
   summarizeWalletTransactions,
@@ -24,6 +27,7 @@ import {
   CalendarDays,
   CheckCircle2,
   CreditCard,
+  Download,
   Filter,
   Loader2,
   Plus,
@@ -200,9 +204,18 @@ export default function WalletDetail() {
     () => filterWalletTransactions(transactions, { search, categoryId, date: dateFilter, expenseOnly }),
     [transactions, search, categoryId, dateFilter, expenseOnly],
   )
-  const availableDates = useMemo(
+  const transactionDates = useMemo(
     () => getWalletTransactionDates(transactions, { expenseOnly }),
     [transactions, expenseOnly],
+  )
+  const selectableDates = useMemo(
+    () => getWalletSelectableDates(period, transactionDates),
+    [period, transactionDates],
+  )
+  const transactionDateSet = useMemo(() => new Set(transactionDates), [transactionDates])
+  const exportableTransactions = useMemo(
+    () => transactions.filter(isPostedWalletActivity),
+    [transactions],
   )
   const walletPageSizeOptions = useMemo(
     () => getWalletPageSizeOptions(filteredTransactions.length, pageSize),
@@ -228,6 +241,14 @@ export default function WalletDetail() {
   const scopeLabel = wallet?.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'
   const balanceTone = Number(wallet?.currentBalance || 0) < 0 ? 'negative' : 'neutral'
   const netTone = summary.net < 0 ? 'negative' : 'positive'
+
+  const exportWalletPeriod = () => {
+    if (!wallet || exportableTransactions.length === 0) return
+    exportTransactionsXls(
+      exportableTransactions,
+      getWalletExportFilename(wallet.name, period),
+    )
+  }
 
   if (loading) {
     return (
@@ -301,6 +322,11 @@ export default function WalletDetail() {
           <p className="mt-1.5 pl-7 text-sm text-slate-500 sm:text-base">{scopeLabel} · {TYPE_LABELS[wallet.type] || wallet.type}</p>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={exportWalletPeriod} disabled={exportableTransactions.length === 0}
+            title={`ส่งออกทุกรายการของกระเป๋า${periodLabel}`}
+            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-[#161b2e] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
+            <Download className="h-4 w-4" /> Export {periodLabel}
+          </button>
           <Link to={`/wallets?transferFrom=${encodeURIComponent(wallet.id)}`}
             className="flex items-center gap-2 rounded-lg border border-slate-700 bg-[#161b2e] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white">
             <ArrowRightLeft className="h-4 w-4" /> โอนเงิน
@@ -331,7 +357,7 @@ export default function WalletDetail() {
             <p className="text-xs text-slate-500">
               {filteredTransactions.length.toLocaleString('th-TH')} รายการ
               <span aria-hidden="true"> · </span>
-              {dateFilter ? '1 วันที่เลือก' : `${availableDates.length.toLocaleString('th-TH')} วัน`}
+              {dateFilter ? formatThaiDate(dateFilter) : `มีรายการ ${transactionDates.length.toLocaleString('th-TH')} วัน`}
             </p>
           </div>
 
@@ -349,8 +375,12 @@ export default function WalletDetail() {
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
               <select value={dateFilter} onChange={event => { setDateFilter(event.target.value); setPage(1) }}
                 className="h-11 w-full appearance-none rounded-lg border border-slate-700 bg-[#0d1120] pl-10 pr-8 text-sm text-slate-200 transition-colors hover:border-slate-600">
-                <option value="">ทุกวันที่ ({availableDates.length.toLocaleString('th-TH')} วัน)</option>
-                {availableDates.map(date => <option key={date} value={date}>{formatThaiDate(date)}</option>)}
+                <option value="">ทุกวันที่</option>
+                {selectableDates.map(date => (
+                  <option key={date} value={date}>
+                    {formatThaiDate(date)}{transactionDateSet.has(date) ? '' : ' · ไม่มีรายการ'}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="relative block">

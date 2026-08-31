@@ -2,8 +2,10 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import {
   filterWalletTransactions,
+  getWalletExportFilename,
   getWalletPageSizeOptions,
   getWalletPeriodRange,
+  getWalletSelectableDates,
   getWalletTransactionDates,
   summarizeWalletTransactions,
   summarizeWalletTransactionsByDate,
@@ -92,4 +94,23 @@ test('wallet date navigation exposes every posted date in newest-first order', (
 
   assert.deepEqual(getWalletTransactionDates(transactions), ['2026-08-25', '2026-08-24'])
   assert.deepEqual(getWalletTransactionDates(transactions, { expenseOnly: false }), ['2026-08-26', '2026-08-25', '2026-08-24'])
+})
+
+test('wallet monthly date picker includes every calendar date, including empty dates', () => {
+  const now = new Date(2026, 7, 31, 12)
+  const dates = getWalletSelectableDates('thisMonth', ['2026-08-31', '2026-08-28'], now)
+
+  assert.equal(dates.length, 31)
+  assert.equal(dates[0], '2026-08-31')
+  assert.equal(dates.at(-1), '2026-08-01')
+  assert.deepEqual(
+    getWalletSelectableDates('all', ['2026-08-24', '2026-08-25', '2026-08-24'], now),
+    ['2026-08-25', '2026-08-24'],
+  )
+})
+
+test('wallet export filename identifies the wallet and selected month', () => {
+  const now = new Date(2026, 7, 31, 12)
+  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด/ตำถาด', 'thisMonth', now), 'wallet-ร้านพี่อี๊ด-ตำถาด-2026-08.xls')
+  assert.equal(getWalletExportFilename('ร้านพี่อี๊ด', 'lastMonth', now), 'wallet-ร้านพี่อี๊ด-2026-07.xls')
 })
