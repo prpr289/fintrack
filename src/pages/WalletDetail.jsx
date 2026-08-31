@@ -141,7 +141,7 @@ export default function WalletDetail() {
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
   const [dateFilter, setDateFilter] = useState('')
-  const [expenseOnly, setExpenseOnly] = useState(true)
+  const [expenseOnly, setExpenseOnly] = useState(false)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(WALLET_DETAIL_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
