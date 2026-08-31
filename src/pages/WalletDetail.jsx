@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { api } from '../api'
-import { exportTransactionsXls } from '../csvUtils'
 import { thb } from '../fmt'
 import {
   filterWalletTransactions,
@@ -149,8 +148,13 @@ export default function WalletDetail() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(WALLET_DETAIL_PAGE_SIZE)
   const [loading, setLoading] = useState(true)
+  const [exportingExcel, setExportingExcel] = useState(false)
+  const [exportingPdf, setExportingPdf] = useState(false)
+  const [loadedQueryKey, setLoadedQueryKey] = useState('')
   const [error, setError] = useState('')
   const transactionsRef = useRef(null)
+  const loadRequestRef = useRef(0)
+  const queryKey = `${walletId}:${period}`
 
   const changePage = nextPage => {
     setPage(nextPage)
@@ -164,7 +168,10 @@ export default function WalletDetail() {
   }
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestRef.current
+    const nextQueryKey = `${walletId}:${period}`
     setLoading(true)
+    setLoadedQueryKey('')
     setError('')
     try {
       const range = getWalletPeriodRange(period)
@@ -177,19 +184,25 @@ export default function WalletDetail() {
       ])
       const selectedWallet = (walletData.wallets || []).find(item => item.id === walletId)
       if (!selectedWallet) throw new Error('ไม่พบกระเป๋าเงินนี้')
+      if (requestId !== loadRequestRef.current) return
 
       setWallet(selectedWallet)
       setTransactions(walletTransactions)
+      setLoadedQueryKey(nextQueryKey)
     } catch (err) {
+      if (requestId !== loadRequestRef.current) return
       setError(err.message || 'โหลดข้อมูลกระเป๋าไม่สำเร็จ')
     } finally {
-      setLoading(false)
+      if (requestId === loadRequestRef.current) setLoading(false)
     }
   }, [period, walletId])
 
-  // The API-backed load intentionally synchronizes the page with its route and period.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    // The API-backed load intentionally synchronizes the page with its route and period.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    load()
+    return () => { loadRequestRef.current += 1 }
+  }, [load])
 
   const summary = useMemo(() => summarizeWalletTransactions(transactions), [transactions])
   const categoryOptions = useMemo(() => {
@@ -238,16 +251,48 @@ export default function WalletDetail() {
     [visibleTransactions],
   )
   const periodLabel = PERIODS.find(item => item.value === period)?.label || 'ช่วงนี้'
+  const selectedPeriodRange = getWalletPeriodRange(period)
   const scopeLabel = wallet?.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'
   const balanceTone = Number(wallet?.currentBalance || 0) < 0 ? 'negative' : 'neutral'
   const netTone = summary.net < 0 ? 'negative' : 'positive'
+  const exportReady = !loading && loadedQueryKey === queryKey && Boolean(wallet)
 
-  const exportWalletPeriod = () => {
-    if (!wallet || exportableTransactions.length === 0) return
-    exportTransactionsXls(
-      exportableTransactions,
-      getWalletExportFilename(wallet.name, period),
-    )
+  const exportWalletExcel = async () => {
+    if (!exportReady || exportingExcel) return
+    setExportingExcel(true)
+    try {
+      const { exportWalletTransactionsXls } = await import('../walletExcel')
+      exportWalletTransactionsXls({
+        wallet,
+        transactions: exportableTransactions,
+        periodLabel,
+        range: selectedPeriodRange,
+        filename: getWalletExportFilename(wallet.name, period, 'xls'),
+      })
+    } catch (err) {
+      window.alert(err.message || 'สร้างไฟล์ Excel ไม่สำเร็จ')
+    } finally {
+      setExportingExcel(false)
+    }
+  }
+
+  const exportWalletPdf = async () => {
+    if (!exportReady || exportingPdf) return
+    setExportingPdf(true)
+    try {
+      const { exportWalletTransactionsPdf } = await import('../walletExport')
+      await exportWalletTransactionsPdf({
+        wallet,
+        transactions: exportableTransactions,
+        periodLabel,
+        range: selectedPeriodRange,
+        filename: getWalletExportFilename(wallet.name, period, 'pdf'),
+      })
+    } catch (err) {
+      window.alert(err.message || 'สร้างไฟล์ PDF ไม่สำเร็จ')
+    } finally {
+      setExportingPdf(false)
+    }
   }
 
   if (loading) {
@@ -322,10 +367,17 @@ export default function WalletDetail() {
           <p className="mt-1.5 pl-7 text-sm text-slate-500 sm:text-base">{scopeLabel} · {TYPE_LABELS[wallet.type] || wallet.type}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <button type="button" onClick={exportWalletPeriod} disabled={exportableTransactions.length === 0}
-            title={`ส่งออกทุกรายการของกระเป๋า${periodLabel}`}
-            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-[#161b2e] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40">
-            <Download className="h-4 w-4" /> Export {periodLabel}
+          <button type="button" onClick={exportWalletExcel} disabled={!exportReady || exportingExcel}
+            title={`ส่งออก Excel ทุกรายการของกระเป๋า${periodLabel}`}
+            className="flex items-center gap-2 rounded-lg border border-slate-700 bg-[#161b2e] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white disabled:cursor-wait disabled:opacity-40">
+            {exportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {exportingExcel ? 'กำลังสร้าง Excel...' : `Excel ${periodLabel}`}
+          </button>
+          <button type="button" onClick={exportWalletPdf} disabled={!exportReady || exportingPdf}
+            title={`ส่งออก PDF ทุกรายการของกระเป๋า${periodLabel}`}
+            className="flex items-center gap-2 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-semibold text-emerald-300 transition-colors hover:border-emerald-400 hover:bg-emerald-500/15 hover:text-emerald-200 disabled:cursor-wait disabled:opacity-50">
+            {exportingPdf ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+            {exportingPdf ? 'กำลังสร้าง PDF...' : `PDF ${periodLabel}`}
           </button>
           <Link to={`/wallets?transferFrom=${encodeURIComponent(wallet.id)}`}
             className="flex items-center gap-2 rounded-lg border border-slate-700 bg-[#161b2e] px-4 py-2.5 text-sm font-semibold text-slate-200 transition-colors hover:border-slate-600 hover:text-white">

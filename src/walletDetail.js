@@ -60,8 +60,14 @@ export function walletTransactionCategory(transaction) {
 
 export function walletTransactionRecipient(transaction) {
   if (!transaction) return '-'
+  const explicitRecipient = transaction.recipientName
+    || transaction.vendorName
+    || transaction.merchantName
+    || transaction.payeeName
+    || transaction.counterpartyName
+  if (String(explicitRecipient || '').trim()) return String(explicitRecipient).trim()
   if (transaction.name?.startsWith('โอนให้ ')) return transaction.name.slice('โอนให้ '.length)
-  return transaction.submittedBy || transaction.name || '-'
+  return transaction.name || '-'
 }
 
 export function filterWalletTransactions(transactions = [], filters = {}) {
@@ -110,12 +116,13 @@ export function getWalletSelectableDates(period = 'thisMonth', transactionDates 
   return dates
 }
 
-export function getWalletExportFilename(walletName = 'wallet', period = 'thisMonth', now = new Date()) {
+export function getWalletExportFilename(walletName = 'wallet', period = 'thisMonth', extension = 'xls', now = new Date()) {
   const safeWalletName = String(walletName || 'wallet')
     .trim()
     .replace(/[<>:"/\\|?*]/g, '-')
     .replace(/\s+/g, '-')
   const range = getWalletPeriodRange(period, now)
   const periodName = range ? range.from.slice(0, 7) : 'all'
-  return `wallet-${safeWalletName || 'wallet'}-${periodName}.xls`
+  const safeExtension = String(extension || 'xls').replace(/[^a-z0-9]/gi, '').toLowerCase() || 'xls'
+  return `wallet-${safeWalletName || 'wallet'}-${periodName}.${safeExtension}`
 }
