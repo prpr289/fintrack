@@ -7,7 +7,7 @@ import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck 
 import MerchantPicker from '../components/MerchantPicker'
 import PromptPayQR from '../components/PromptPayQR'
 import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems } from '../../pending-bills-logic.mjs'
-import { parseOrderText } from '../parseOrderText.js'
+import { parseOrderText, normalizeUnit } from '../parseOrderText.js'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -434,7 +434,8 @@ function BillingLinkModal({ me, onClose, onDone }) {
           amount: total, scope: 'business', payeeType: 'vendor', payeeRefId: vendorId,
           evidenceType: 'receipt',
           note: deliveryDate ? `ของส่งวันที่ ${deliveryDate}` : null,
-          lineItems: validItems.map(it => ({ name: it.name.trim(), qty: Number(it.qty), unit: it.unit || 'กก.', unitPrice: Number(it.unitPrice) })),
+          // ยุบหน่วยตอนบันทึก กันคนพิมพ์ "กก" มือแล้ว Dashboard นับแยกจาก "กก."
+          lineItems: validItems.map(it => ({ name: it.name.trim(), qty: Number(it.qty), unit: normalizeUnit(it.unit), unitPrice: Number(it.unitPrice) })),
         })
         bill = res.bill
         setCreated(bill)

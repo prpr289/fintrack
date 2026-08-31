@@ -21,6 +21,14 @@ const UNITS = [
 const UNIT_ALIASES = { 'กก': 'กก.', 'ก.ก.': 'กก.', 'โล': 'กก.', 'กิโล': 'กก.', 'กิโลกรัม': 'กก.' }
 export const DEFAULT_UNIT = 'กก.'
 
+// ยุบชื่อหน่วยพ้องกันให้เหลือแบบเดียว — ต้องเรียกกับหน่วยที่คนพิมพ์เองในตารางด้วย
+// ไม่งั้น "กก" ที่พิมพ์มือ กับ "กก." ที่ parser แปลงให้ จะถูกนับเป็นคนละหน่วยใน Dashboard
+export function normalizeUnit(unit) {
+  const u = String(unit || '').trim()
+  if (!u) return DEFAULT_UNIT
+  return UNIT_ALIASES[u] || UNIT_ALIASES[u.replace(/\.$/, '')] || u
+}
+
 const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 const UNIT_ALT = UNITS.map(esc).join('|')
 
@@ -82,7 +90,7 @@ export function parseOrderText(text) {
     items.push({
       name,
       qty,
-      unit: typed ? (UNIT_ALIASES[typed] || typed) : DEFAULT_UNIT,
+      unit: typed ? normalizeUnit(typed) : DEFAULT_UNIT,
       guessedUnit: !typed,
     })
   }
