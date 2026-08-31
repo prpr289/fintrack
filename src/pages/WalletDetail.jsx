@@ -7,6 +7,7 @@ import {
   getWalletPeriodRange,
   isPostedWalletActivity,
   summarizeWalletTransactions,
+  summarizeWalletTransactionsByDate,
   WALLET_DETAIL_PAGE_SIZE,
   walletTransactionCategory,
   walletTransactionRecipient,
@@ -95,6 +96,42 @@ function TransactionAmount({ transaction }) {
   )
 }
 
+function groupTransactionsByDate(transactions = []) {
+  const groups = new Map()
+  transactions.forEach(transaction => {
+    const key = transaction.date || 'unknown'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key).push(transaction)
+  })
+  return [...groups.entries()].map(([dateValue, rows]) => ({ dateValue, rows }))
+}
+
+function DailySummaryStrip({ dateValue, summary }) {
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <div>
+        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-500">สรุปประจำวัน</p>
+        <p className="mt-1 text-sm font-bold text-slate-200">{formatThaiDate(dateValue)}</p>
+        <p className="mt-0.5 text-[11px] text-slate-600">ยอดรวมทุกธุรกรรมของกระเป๋าในวันนี้</p>
+      </div>
+      <dl className="grid grid-cols-2 gap-2 sm:min-w-[330px]">
+        <div className="min-w-0 rounded-lg border border-emerald-400/10 bg-emerald-400/[0.055] px-3 py-2 text-right">
+          <dt className="text-[10px] text-slate-500">รวมรายรับ</dt>
+          <dd className="mt-0.5 truncate text-sm font-bold tabular-nums text-emerald-400" title={`+${thb(summary?.income || 0)}`}>
+            +{thb(summary?.income || 0)}
+          </dd>
+        </div>
+        <div className="min-w-0 rounded-lg border border-red-400/10 bg-red-400/[0.055] px-3 py-2 text-right">
+          <dt className="text-[10px] text-slate-500">รวมค่าใช้จ่าย</dt>
+          <dd className="mt-0.5 truncate text-sm font-bold tabular-nums text-red-400" title={`-${thb(summary?.expense || 0)}`}>
+            -{thb(summary?.expense || 0)}
+          </dd>
+        </div>
+      </dl>
+    </div>
+  )
+}
+
 export default function WalletDetail() {
   const { walletId } = useParams()
   const [wallet, setWallet] = useState(null)
@@ -162,9 +199,20 @@ export default function WalletDetail() {
     [transactions, search, categoryId, expenseOnly],
   )
   const pagination = getPagination({ total: filteredTransactions.length, page, pageSize })
-  const visibleTransactions = filteredTransactions.slice(
-    pagination.offset,
-    pagination.offset + pagination.pageSize,
+  const visibleTransactions = useMemo(
+    () => filteredTransactions.slice(
+      pagination.offset,
+      pagination.offset + pagination.pageSize,
+    ),
+    [filteredTransactions, pagination.offset, pagination.pageSize],
+  )
+  const dailySummaries = useMemo(
+    () => summarizeWalletTransactionsByDate(transactions),
+    [transactions],
+  )
+  const visibleTransactionGroups = useMemo(
+    () => groupTransactionsByDate(visibleTransactions),
+    [visibleTransactions],
   )
   const periodLabel = PERIODS.find(item => item.value === period)?.label || 'ช่วงนี้'
   const scopeLabel = wallet?.scope === 'business' ? 'ธุรกิจ' : 'ส่วนตัว'
@@ -335,48 +383,64 @@ export default function WalletDetail() {
                     <th className="w-[12%] px-5 py-3 text-center">สถานะ</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
-                  {visibleTransactions.map(transaction => (
-                    <tr key={transaction.id} className="text-sm transition-colors hover:bg-white/[0.025]">
-                      <td className="px-5 py-4 text-slate-400">{formatThaiDate(transaction.date)}</td>
-                      <td className="px-4 py-4 font-medium text-slate-200"><span className="block truncate" title={transaction.name}>{transaction.name}</span></td>
-                      <td className="px-4 py-4 text-slate-400">
-                        <span className="flex min-w-0 items-center gap-2">
-                          <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: transaction.subCategoryColor || transaction.categoryColor || '#64748b' }} />
-                          <span className="truncate" title={walletTransactionCategory(transaction)}>{walletTransactionCategory(transaction)}</span>
-                        </span>
-                      </td>
-                      <td className="px-4 py-4 text-slate-400"><span className="block truncate" title={walletTransactionRecipient(transaction)}>{walletTransactionRecipient(transaction)}</span></td>
-                      <td className="px-4 py-4 text-right"><TransactionAmount transaction={transaction} /></td>
-                      <td className="px-5 py-4 text-center">
-                        <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
-                          <CheckCircle2 className="h-3.5 w-3.5" /> สำเร็จ
-                        </span>
+                {visibleTransactionGroups.map(group => (
+                  <tbody key={group.dateValue} className="divide-y divide-slate-800">
+                    <tr className="bg-[#111827]/80">
+                      <td colSpan="6" className="px-5 py-3">
+                        <DailySummaryStrip dateValue={group.dateValue} summary={dailySummaries[group.dateValue]} />
                       </td>
                     </tr>
-                  ))}
-                </tbody>
+                    {group.rows.map(transaction => (
+                      <tr key={transaction.id} className="text-sm transition-colors hover:bg-white/[0.025]">
+                        <td className="px-5 py-4 text-slate-400">{formatThaiDate(transaction.date)}</td>
+                        <td className="px-4 py-4 font-medium text-slate-200"><span className="block truncate" title={transaction.name}>{transaction.name}</span></td>
+                        <td className="px-4 py-4 text-slate-400">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: transaction.subCategoryColor || transaction.categoryColor || '#64748b' }} />
+                            <span className="truncate" title={walletTransactionCategory(transaction)}>{walletTransactionCategory(transaction)}</span>
+                          </span>
+                        </td>
+                        <td className="px-4 py-4 text-slate-400"><span className="block truncate" title={walletTransactionRecipient(transaction)}>{walletTransactionRecipient(transaction)}</span></td>
+                        <td className="px-4 py-4 text-right"><TransactionAmount transaction={transaction} /></td>
+                        <td className="px-5 py-4 text-center">
+                          <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2.5 py-1 text-xs font-medium text-emerald-400">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> สำเร็จ
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                ))}
               </table>
             </div>
 
-            <div className="divide-y divide-slate-800 md:hidden">
-              {visibleTransactions.map(transaction => (
-                <article key={transaction.id} className="space-y-3 px-4 py-4">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <h3 className="truncate text-sm font-semibold text-slate-200">{transaction.name}</h3>
-                      <p className="mt-1 text-xs text-slate-500">{formatThaiDate(transaction.date)}</p>
-                    </div>
-                    <TransactionAmount transaction={transaction} />
+            <div className="md:hidden">
+              {visibleTransactionGroups.map(group => (
+                <section key={group.dateValue} className="border-b border-slate-800 last:border-b-0">
+                  <div className="border-b border-slate-800 bg-[#111827]/80 px-4 py-3">
+                    <DailySummaryStrip dateValue={group.dateValue} summary={dailySummaries[group.dateValue]} />
                   </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
-                    <span className="flex min-w-0 items-center gap-1.5">
-                      <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: transaction.subCategoryColor || transaction.categoryColor || '#64748b' }} />
-                      <span className="truncate">{walletTransactionCategory(transaction)} · {walletTransactionRecipient(transaction)}</span>
-                    </span>
-                    <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> สำเร็จ</span>
+                  <div className="divide-y divide-slate-800">
+                    {group.rows.map(transaction => (
+                      <article key={transaction.id} className="space-y-3 px-4 py-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <h3 className="truncate text-sm font-semibold text-slate-200">{transaction.name}</h3>
+                            <p className="mt-1 text-xs text-slate-500">{formatThaiDate(transaction.date)}</p>
+                          </div>
+                          <TransactionAmount transaction={transaction} />
+                        </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
+                          <span className="flex min-w-0 items-center gap-1.5">
+                            <span className="h-2 w-2 flex-shrink-0 rounded-full" style={{ backgroundColor: transaction.subCategoryColor || transaction.categoryColor || '#64748b' }} />
+                            <span className="truncate">{walletTransactionCategory(transaction)} · {walletTransactionRecipient(transaction)}</span>
+                          </span>
+                          <span className="flex items-center gap-1 text-emerald-400"><CheckCircle2 className="h-3.5 w-3.5" /> สำเร็จ</span>
+                        </div>
+                      </article>
+                    ))}
                   </div>
-                </article>
+                </section>
               ))}
             </div>
           </>

@@ -4,6 +4,7 @@ import {
   filterWalletTransactions,
   getWalletPeriodRange,
   summarizeWalletTransactions,
+  summarizeWalletTransactionsByDate,
   walletTransactionRecipient,
 } from './walletDetail.js'
 
@@ -27,6 +28,21 @@ test('wallet summaries exclude drafts and every internal transfer', () => {
     income: 12000,
     expense: 4200,
     net: 7800,
+  })
+})
+
+test('wallet daily summaries include all posted income and expense for each date', () => {
+  const transactions = [
+    { date: '2026-08-25', type: 'income', amount: 12500 },
+    { date: '2026-08-25', type: 'expense', amount: 850 },
+    { date: '2026-08-25', type: 'expense', amount: 400, isDraft: true },
+    { date: '2026-08-25', type: 'expense', amount: 3000, transferPairId: 'pair-1' },
+    { date: '2026-08-24', type: 'expense', amount: 1200 },
+  ]
+
+  assert.deepEqual(summarizeWalletTransactionsByDate(transactions), {
+    '2026-08-25': { income: 12500, expense: 850, net: 11650 },
+    '2026-08-24': { income: 0, expense: 1200, net: -1200 },
   })
 })
 

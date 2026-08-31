@@ -30,6 +30,20 @@ export function summarizeWalletTransactions(transactions = []) {
   }, { income: 0, expense: 0, net: 0 })
 }
 
+export function summarizeWalletTransactionsByDate(transactions = []) {
+  return transactions.reduce((summaries, transaction) => {
+    if (!isPostedWalletActivity(transaction) || !transaction?.date) return summaries
+
+    const day = summaries[transaction.date] || { income: 0, expense: 0, net: 0 }
+    const amount = Number(transaction.amount || 0)
+    if (transaction.type === 'income') day.income += amount
+    if (transaction.type === 'expense') day.expense += amount
+    day.net = day.income - day.expense
+    summaries[transaction.date] = day
+    return summaries
+  }, {})
+}
+
 export function walletTransactionCategory(transaction) {
   return transaction?.subCategoryName || transaction?.categoryName || 'ไม่ระบุหมวดหมู่'
 }
