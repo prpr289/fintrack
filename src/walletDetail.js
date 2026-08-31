@@ -67,11 +67,13 @@ export function walletTransactionRecipient(transaction) {
 export function filterWalletTransactions(transactions = [], filters = {}) {
   const search = String(filters.search || '').trim().toLocaleLowerCase('th-TH')
   const categoryId = filters.categoryId || ''
+  const date = filters.date || ''
   const expenseOnly = filters.expenseOnly !== false
 
   return transactions.filter(transaction => {
     if (!isPostedWalletActivity(transaction)) return false
     if (expenseOnly && transaction.type !== 'expense') return false
+    if (date && transaction.date !== date) return false
     if (categoryId && transaction.categoryId !== categoryId && transaction.subCategoryId !== categoryId) return false
     if (!search) return true
 
@@ -84,4 +86,12 @@ export function filterWalletTransactions(transactions = [], filters = {}) {
       transaction.createdByName,
     ].some(value => String(value || '').toLocaleLowerCase('th-TH').includes(search))
   })
+}
+
+export function getWalletTransactionDates(transactions = [], filters = {}) {
+  const dates = filterWalletTransactions(transactions, { ...filters, date: '' })
+    .map(transaction => transaction.date)
+    .filter(Boolean)
+
+  return [...new Set(dates)].sort((a, b) => b.localeCompare(a))
 }

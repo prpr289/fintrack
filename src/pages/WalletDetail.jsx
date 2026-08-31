@@ -6,6 +6,7 @@ import {
   filterWalletTransactions,
   getWalletPageSizeOptions,
   getWalletPeriodRange,
+  getWalletTransactionDates,
   isPostedWalletActivity,
   summarizeWalletTransactions,
   summarizeWalletTransactionsByDate,
@@ -139,6 +140,7 @@ export default function WalletDetail() {
   const [period, setPeriod] = useState('thisMonth')
   const [search, setSearch] = useState('')
   const [categoryId, setCategoryId] = useState('')
+  const [dateFilter, setDateFilter] = useState('')
   const [expenseOnly, setExpenseOnly] = useState(true)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(WALLET_DETAIL_PAGE_SIZE)
@@ -195,8 +197,12 @@ export default function WalletDetail() {
     return [...options.entries()].sort((a, b) => a[1].localeCompare(b[1], 'th'))
   }, [transactions])
   const filteredTransactions = useMemo(
-    () => filterWalletTransactions(transactions, { search, categoryId, expenseOnly }),
-    [transactions, search, categoryId, expenseOnly],
+    () => filterWalletTransactions(transactions, { search, categoryId, date: dateFilter, expenseOnly }),
+    [transactions, search, categoryId, dateFilter, expenseOnly],
+  )
+  const availableDates = useMemo(
+    () => getWalletTransactionDates(transactions, { expenseOnly }),
+    [transactions, expenseOnly],
   )
   const walletPageSizeOptions = useMemo(
     () => getWalletPageSizeOptions(filteredTransactions.length, pageSize),
@@ -322,16 +328,29 @@ export default function WalletDetail() {
               </h2>
               <p className="mt-1 text-xs text-slate-500">ไม่นับรายการโอนเงินภายในและการจ่ายบัตรเครดิตเป็นรายรับหรือรายจ่าย</p>
             </div>
-            <p className="text-xs text-slate-500">{filteredTransactions.length.toLocaleString('th-TH')} รายการ</p>
+            <p className="text-xs text-slate-500">
+              {filteredTransactions.length.toLocaleString('th-TH')} รายการ
+              <span aria-hidden="true"> · </span>
+              {dateFilter ? '1 วันที่เลือก' : `${availableDates.length.toLocaleString('th-TH')} วัน`}
+            </p>
           </div>
 
-          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-[0.8fr_1.15fr_1.05fr_auto]">
+          <div className="mt-4 grid gap-2 md:grid-cols-2 xl:grid-cols-[0.72fr_0.9fr_1.1fr_1fr_auto]">
             <label className="relative block">
               <span className="sr-only">ช่วงเวลา</span>
               <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-500" />
-              <select value={period} onChange={event => { setPeriod(event.target.value); setPage(1) }}
+              <select value={period} onChange={event => { setPeriod(event.target.value); setDateFilter(''); setPage(1) }}
                 className="h-11 w-full appearance-none rounded-lg border border-slate-700 bg-[#0d1120] pl-10 pr-8 text-sm text-slate-200 transition-colors hover:border-slate-600">
                 {PERIODS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}
+              </select>
+            </label>
+            <label className="relative block">
+              <span className="sr-only">ไปวันที่</span>
+              <CalendarDays className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-emerald-500" />
+              <select value={dateFilter} onChange={event => { setDateFilter(event.target.value); setPage(1) }}
+                className="h-11 w-full appearance-none rounded-lg border border-slate-700 bg-[#0d1120] pl-10 pr-8 text-sm text-slate-200 transition-colors hover:border-slate-600">
+                <option value="">ทุกวันที่ ({availableDates.length.toLocaleString('th-TH')} วัน)</option>
+                {availableDates.map(date => <option key={date} value={date}>{formatThaiDate(date)}</option>)}
               </select>
             </label>
             <label className="relative block">
@@ -349,7 +368,7 @@ export default function WalletDetail() {
                 {categoryOptions.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
               </select>
             </label>
-            <button type="button" aria-pressed={expenseOnly} onClick={() => { setExpenseOnly(value => !value); setPage(1) }}
+            <button type="button" aria-pressed={expenseOnly} onClick={() => { setExpenseOnly(value => !value); setDateFilter(''); setPage(1) }}
               className={`flex h-11 items-center justify-center gap-2 rounded-lg border px-4 text-sm font-semibold transition-colors ${expenseOnly ? 'border-emerald-500 bg-emerald-500/10 text-emerald-400' : 'border-slate-700 bg-[#0d1120] text-slate-400 hover:border-slate-600 hover:text-slate-200'}`}>
               <Filter className="h-4 w-4" />
               <span className="whitespace-nowrap">{expenseOnly ? 'แสดงเฉพาะค่าใช้จ่าย' : 'กรองเฉพาะค่าใช้จ่าย'}</span>

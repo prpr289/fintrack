@@ -4,6 +4,7 @@ import {
   filterWalletTransactions,
   getWalletPageSizeOptions,
   getWalletPeriodRange,
+  getWalletTransactionDates,
   summarizeWalletTransactions,
   summarizeWalletTransactionsByDate,
   walletTransactionRecipient,
@@ -69,5 +70,26 @@ test('expense list filters by category and Thai search while excluding transfers
     filterWalletTransactions(transactions, { expenseOnly: false }).map(row => row.id),
     ['1', '2', '4'],
   )
+  assert.deepEqual(
+    filterWalletTransactions([
+      ...transactions,
+      { id: '5', date: '2026-08-24', type: 'expense', name: 'ซื้อของ' },
+      { id: '6', date: '2026-08-25', type: 'expense', name: 'ซื้อของเพิ่ม' },
+    ], { date: '2026-08-24' }).map(row => row.id),
+    ['5'],
+  )
   assert.equal(walletTransactionRecipient(transactions[0]), 'นาง ติหวา หีมละ')
+})
+
+test('wallet date navigation exposes every posted date in newest-first order', () => {
+  const transactions = [
+    { id: '1', date: '2026-08-24', type: 'expense' },
+    { id: '2', date: '2026-08-25', type: 'expense' },
+    { id: '3', date: '2026-08-25', type: 'income' },
+    { id: '4', date: '2026-08-23', type: 'expense', isDraft: true },
+    { id: '5', date: '2026-08-26', type: 'income' },
+  ]
+
+  assert.deepEqual(getWalletTransactionDates(transactions), ['2026-08-25', '2026-08-24'])
+  assert.deepEqual(getWalletTransactionDates(transactions, { expenseOnly: false }), ['2026-08-26', '2026-08-25', '2026-08-24'])
 })
