@@ -45,18 +45,19 @@ export default function MergeSuggestions({ onMerged }) {
   if (!visible.length && !err) return null
 
   return (
-    <div className="rounded-xl overflow-hidden" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
-      <button onClick={() => setOpen(v => !v)} className="w-full flex items-center gap-2 px-4 py-3 text-left">
-        <GitMerge className="w-4 h-4 text-amber-400 flex-shrink-0" />
-        <span className="text-sm text-amber-300 flex-1">
-          พบชื่อที่น่าจะเป็นร้านเดียวกัน <b className="tabular-nums">{visible.length}</b> คู่
-          <span className="text-slate-500"> · จาก {scanned} ร้าน</span>
-        </span>
-        <span className="text-xs text-slate-400">{open ? 'ซ่อน' : 'ตรวจและรวม'}</span>
+    <div className="card card--dupe">
+      <h2>ชื่อที่น่าจะเป็นร้านเดียวกัน</h2>
+      <div className="ratio">
+        <b>{visible.length}</b>
+        <span>คู่ · จาก {scanned} ร้าน</span>
+      </div>
+      <p className="mute">ระบบสร้างร้านอัตโนมัติตอนอ่านสลิป สะกดต่างนิดเดียวก็กลายเป็นคนละร้าน</p>
+      <button onClick={() => setOpen(v => !v)} className="cta">
+        <GitMerge className="w-4 h-4" />{open ? 'ซ่อนรายการ' : 'ตรวจและรวมร้าน'}
       </button>
 
       {open && (
-        <div className="px-4 pb-4 space-y-2">
+        <div className="space-y-2 mt-3">
           {err && <p className="text-xs text-red-400" role="alert">{err}</p>}
           {visible.slice(0, 20).map(p => (
             <div key={p.drop.id + p.keep.id} className="rounded-lg p-3" style={PANEL}>
