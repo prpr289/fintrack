@@ -5,6 +5,7 @@ import { api } from '../api'
 import { useAuth } from '../AuthContext'
 import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck } from 'lucide-react'
 import MerchantPicker from '../components/MerchantPicker'
+import SignaturePad from '../components/SignaturePad'
 import PromptPayQR from '../components/PromptPayQR'
 import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems } from '../../pending-bills-logic.mjs'
 import { parseOrderText, normalizeUnit } from '../parseOrderText.js'
@@ -146,21 +147,6 @@ function SubmitBillModal({ me, onClose, onDone }) {
   )
 }
 
-function SignaturePad({ onChange }) {
-  const ref = useRef(null); const drawing = useRef(false)
-  const pos = (e) => { const c = ref.current, r = c.getBoundingClientRect(); const t = e.touches?.[0] || e; return [t.clientX - r.left, t.clientY - r.top] }
-  const start = (e) => { e.preventDefault(); drawing.current = true; const ctx = ref.current.getContext('2d'); ctx.beginPath(); ctx.moveTo(...pos(e)) }
-  const move = (e) => { if (!drawing.current) return; e.preventDefault(); const ctx = ref.current.getContext('2d'); ctx.lineTo(...pos(e)); ctx.strokeStyle = '#e2e8f0'; ctx.lineWidth = 2.5; ctx.lineCap = 'round'; ctx.stroke() }
-  const end = () => { if (!drawing.current) return; drawing.current = false; ref.current.toBlob(b => onChange(b), 'image/png') }
-  const clear = () => { const c = ref.current; c.getContext('2d').clearRect(0, 0, c.width, c.height); onChange(null) }
-  return (
-    <div>
-      <canvas ref={ref} width={300} height={90} onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerLeave={end}
-        style={{ width: '100%', height: 90, background: '#0d1120', border: '1px solid #2e3349', borderRadius: 8, touchAction: 'none' }} />
-      <button type="button" onClick={clear} className="text-xs text-slate-500 mt-1">ล้าง เซ็นใหม่</button>
-    </div>
-  )
-}
 
 function emptyLineItem() { return { name: '', qty: '', unit: 'กก.', unitPrice: '' } }
 

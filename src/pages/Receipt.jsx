@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api'
 import { bahtText } from '../bahtText'
+import SignaturePad from '../components/SignaturePad'
 
 const FONT = '"Sarabun","Noto Sans Thai",-apple-system,"Segoe UI",Roboto,sans-serif'
 
@@ -82,6 +83,7 @@ const inputStyle = {
 // ฟอร์มให้คู่ค้ายืนยันรายการ — โผล่เฉพาะใบวางบิลที่ยังไม่ยืนยันและยังไม่จ่าย
 function AckForm({ token, onDone }) {
   const [name, setName] = useState('')
+  const [sig, setSig] = useState(null)
   const [reason, setReason] = useState('')
   const [mode, setMode] = useState('ack')   // ack | dispute
   const [busy, setBusy] = useState(false)
@@ -90,12 +92,22 @@ function AckForm({ token, onDone }) {
   const submit = async (e) => {
     e.preventDefault()
     setErr('')
-    if (mode === 'ack' && !name.trim()) { setErr('กรุณาพิมพ์ชื่อผู้ยืนยัน'); return }
-    if (mode === 'dispute' && !reason.trim()) { setErr('กรุณาบอกด้วยว่ารายการไหนไม่ตรง'); return }
+    if (mode === 'dispute') {
+      if (!reason.trim()) { setErr('กรุณาบอกด้วยว่ารายการไหนไม่ตรง'); return }
+    } else {
+      if (!name.trim()) { setErr('กรุณาพิมพ์ชื่อผู้ยืนยัน'); return }
+      if (!sig) { setErr('กรุณาเซ็นชื่อในกรอบก่อน'); return }
+    }
     setBusy(true)
     try {
-      if (mode === 'ack') await api.ackReceipt(token, name.trim())
-      else await api.disputeReceipt(token, reason.trim())
+      if (mode === 'dispute') {
+        await api.disputeReceipt(token, reason.trim())
+      } else {
+        // ส่งลายเซ็นก่อนเสมอ — ถ้าตรงนี้พลาดคือยังไม่มีอะไรเกิดขึ้น กดใหม่ได้
+        // ถ้ายืนยันพลาดหลังส่งลายเซ็นแล้ว กดซ้ำได้เหมือนกัน ลายเซ็นถูกทับด้วยของใหม่
+        await api.signReceipt(token, sig)
+        await api.ackReceipt(token, name.trim())
+      }
       await onDone()
     } catch (e2) {
       setErr(e2.message || 'ส่งไม่สำเร็จ ลองใหม่อีกครั้ง')
@@ -112,6 +124,14 @@ function AckForm({ token, onDone }) {
           </label>
           <input id="ack-name" style={inputStyle} value={name} onChange={e => setName(e.target.value)}
             placeholder="ชื่อ–นามสกุล" autoComplete="name" maxLength={120} />
+
+          <div style={{ display: 'block', fontSize: '0.8rem', color: '#6b7280', margin: '0.7rem 0 0.35rem' }}>
+            เซ็นชื่อในกรอบ
+          </div>
+          {/* หมึกสีเข้มบนพื้นขาว — หน้านี้คนละโทนกับจอพนักงานที่พื้นเข้ม */}
+          <SignaturePad onChange={setSig} ink="#1f2430" bg="#ffffff" border="#cbd2dc" height={110}
+            clearLabel="ล้าง เซ็นใหม่" clearClass="" />
+          {sig && <p style={{ fontSize: '0.75rem', color: '#15803d', margin: '0.3rem 0 0' }}>✓ มีลายเซ็นแล้ว</p>}
         </>
       ) : (
         <>
@@ -139,7 +159,7 @@ function AckForm({ token, onDone }) {
       </button>
 
       <p style={{ fontSize: '0.72rem', color: '#8a93a3', textAlign: 'center', margin: '0.7rem 0 0', lineHeight: 1.6 }}>
-        สำหรับผู้ขายเท่านั้น · ยืนยันได้ครั้งเดียว แก้ไม่ได้<br />
+        สำหรับผู้ขายเท่านั้น · ต้องพิมพ์ชื่อและเซ็นชื่อ · ยืนยันได้ครั้งเดียว แก้ไม่ได้<br />
         ระบบบันทึกชื่อ เวลา และหมายเลขเครื่องที่ใช้ยืนยันไว้เป็นหลักฐาน
       </p>
     </form>

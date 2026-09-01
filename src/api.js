@@ -191,6 +191,9 @@ export const api = {
   publicReceiptSignatureUrl: (tokenStr) => `${BASE}/receipt/${tokenStr}/signature`,
   // หน้าคู่ค้าเรียกเองโดยไม่ต้องล็อกอิน — token 64 ตัวคือกุญแจ
   publicReceiptSlipUrl: (tokenStr) => `${BASE}/receipt/${tokenStr}/slip`,
+  signReceipt: (tokenStr, blob) => fetch(`${BASE}/receipt/${tokenStr}/signature`, {
+    method: 'POST', headers: { 'Content-Type': 'image/png' }, body: blob,
+  }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ส่งลายเซ็นไม่สำเร็จ'); return d }),
   ackReceipt: (tokenStr, name) => fetch(`${BASE}/receipt/${tokenStr}/ack`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }),
   }).then(async r => { const d = await r.json(); if (!r.ok) throw new Error(d.error || 'ยืนยันไม่สำเร็จ'); return d }),
