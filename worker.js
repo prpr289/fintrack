@@ -4,6 +4,7 @@ import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
 import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
 import { findDuplicatePairs } from "./vendor-dedupe.mjs";
+import { diffFields } from "./audit-diff.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -2076,8 +2077,9 @@ __name(buildVendorFields, "buildVendorFields");
 // Create a merchant by hand (admin) — the directory can no longer depend on the bot
 // happening to see a slip first. Name is the bot's matching key, so a duplicate name
 // is rejected rather than silently creating a second profile that splits the history.
+// staff เพิ่มร้านได้ — คนที่เจอร้านใหม่หน้างานคือ staff ไม่ใช่แอดมิน
 async function createVendorProfile(request, env, user) {
-  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
   const body = await request.json();
   const vendorName = String(body.vendorName || '').trim();
   if (!vendorName) return json({ error: "ต้องมีชื่อร้านค้า" }, 400);
@@ -2325,8 +2327,12 @@ __name(cleanPromptPay, "cleanPromptPay");
 
 // Manage a learned vendor profile (admin) — correct the category/wallet the AI
 // stored, fix details, or rename. Empty string clears a field; undefined leaves it.
+// staff แก้ข้อมูลร้านได้ รวมถึงเลขบัญชี (เจ้าของเคาะเมื่อ 1 ก.ย. 69)
+// แลกกับการเก็บประวัติละเอียด: ใครแก้ ช่องไหน จากอะไรเป็นอะไร และติดธงถ้าแตะทางเดินเงิน
+// เหตุผลที่ต้องมีธง: เปลี่ยนเลขบัญชี = เปลี่ยนปลายทางการโอน ตอนกดจ่าย PayModal
+// เทียบเลขบัญชีในบิลกับของร้านปัจจุบันอยู่แล้ว ประวัตินี้คือส่วนที่บอกได้ว่าใครเป็นคนเปลี่ยน
 async function updateVendorProfile(id, request, env, user) {
-  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (!requireRole(user, "admin", "staff")) return json({ error: "ไม่มีสิทธิ์" }, 403);
   const v = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!v) return json({ error: "ไม่พบ vendor" }, 404);
   const body = await request.json();
@@ -2340,8 +2346,17 @@ async function updateVendorProfile(id, request, env, user) {
   if (updates.length === 0) return json({ error: "no fields" }, 400);
   updates.push("updated_at = datetime('now')");
   args.push(id);
+  // เทียบก่อนเขียน ใช้แถวเดิม (v) ที่ดึงมาแล้วข้างบน — args ตัวท้ายเป็น id ไม่ใช่ค่าของช่อง
+  const pairs = [...f.cols.map((c, i) => [c, f.vals[i]])];
+  if (body.vendorName !== void 0) pairs.push(["vendor_name", String(body.vendorName).trim()]);
+  const audit = diffFields(v, pairs);
   await env.DB.prepare(`UPDATE vendor_profiles SET ${updates.join(", ")} WHERE id = ?`).bind(...args).run();
-  await logAudit(env, user, "update", "vendor", id, body);
+  await logAudit(env, user, "update", "vendor", id, {
+    vendorName: v.vendor_name,
+    changes: audit.changes,
+    moneyChanged: audit.moneyChanged,
+    byRole: user.role || null,
+  });
   const updated = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ?").bind(id).first();
   return json({ vendor: formatVendor(updated) });
 }

@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../AuthContext'
 import MerchantModal from '../components/MerchantModal'
 import PromptPayQR from '../components/PromptPayQR'
 import DocBadge from '../components/DocBadge'
@@ -40,6 +41,9 @@ function Row({ label, children }) {
 }
 
 export default function MerchantDetail() {
+  // staff แก้ข้อมูลร้านได้ แต่ลบไม่ได้ — ลบแล้วบอทลืมการจับคู่ ย้อนกลับยาก
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const { id } = useParams()
   const nav = useNavigate()
   const [data, setData] = useState(null)
@@ -124,8 +128,8 @@ export default function MerchantDetail() {
         <div className="flex gap-2 flex-shrink-0">
           <button onClick={() => setEditing(true)} aria-label="แก้ไขร้านค้า" title="แก้ไขร้านค้า"
             className="p-2 text-slate-500 hover:text-blue-400 hover:bg-blue-500/10 rounded-lg transition-colors"><Pencil className="w-4 h-4" /></button>
-          <button onClick={del} aria-label="ลบร้านค้า" title="ลบร้านค้า"
-            className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>
+          {isAdmin && <button onClick={del} aria-label="ลบร้านค้า" title="ลบร้านค้า"
+            className="p-2 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg transition-colors"><Trash2 className="w-4 h-4" /></button>}
         </div>
       </div>
 
@@ -256,7 +260,7 @@ export default function MerchantDetail() {
         )}
       </div>
 
-      <VendorItemsPanel vendorId={m.id} isAdmin />
+      <VendorItemsPanel vendorId={m.id} isAdmin={isAdmin} />
 
       {editing && <MerchantModal merchant={m} cats={cats} wallets={wallets} onClose={() => setEditing(false)} onDone={load} />}
     </div>
