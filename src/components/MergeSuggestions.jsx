@@ -21,7 +21,7 @@ export default function MergeSuggestions({ onMerged }) {
   const [dismissed, setDismissed] = useState([])
 
   const load = useCallback(() => {
-    return api.vendorDuplicates(50)
+    return api.vendorDuplicates(200)
       .then(d => { setPairs(d.pairs || []); setScanned(d.scanned || 0); setErr('') })
       .catch(e => setErr(e.message || 'ตรวจชื่อซ้ำไม่สำเร็จ'))
       .finally(() => setLoading(false))

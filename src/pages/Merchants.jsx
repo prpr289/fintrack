@@ -12,7 +12,7 @@ const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const SUNK = { background: '#0d1120', border: '1px solid #1f2937' }
 const PAGE = 100
 
-// แท็บแทนแถวชิป 11 อัน — ชิปหมวดธุรกิจใช้ไม่ได้จริงเพราะ 353 จาก 354 ร้านไม่ระบุหมวด
+// แท็บแทนแถวชิป 11 อัน — ชิปหมวดธุรกิจใช้ไม่ได้จริงเพราะแทบทุกร้านไม่ระบุหมวด
 // เกณฑ์ "ประจำ" อิงการใช้งานจริง (เจอตั้งแต่ 5 ครั้ง) ไม่ใช่ความครบของข้อมูล
 // ถ้าอิงความครบ แท็บแรกจะว่างเปล่าเพราะแทบไม่มีร้านไหนกรอกข้อมูลไว้
 const TABS = [
@@ -27,14 +27,29 @@ const SORTS = [
   { key: 'name', label: 'ชื่อ ก–ฮ' },
 ]
 
-// รวมสถานะข้อมูลเป็นป้ายเดียว — ของเดิมเขียน "ยังไม่ระบุหมวดธุรกิจ" ซ้ำทุกแถว
-// ซึ่งกินที่ 353 บรรทัดโดยไม่บอกอะไรที่ต่างกันเลย
-function completeness(m) {
-  const missing = []
-  if (!m.businessType) missing.push('หมวด')
-  if (!m.docType) missing.push('เอกสาร')
-  if (!m.bankAccountNo) missing.push('บัญชี')
-  return missing
+// ความครบของข้อมูลเป็นจุดสามจุด ไม่ใช่ข้อความ
+// รอบก่อนใช้ป้ายสีส้มเขียนว่า "ยังไม่มีหมวด · เอกสาร · บัญชี" ซึ่งโผล่แทบทุกแถว
+// กลายเป็นเสียงรบกวนที่ดังกว่าข้อความเดิมที่ตั้งใจจะแก้ — สามจุดอ่านออกในพริบตา
+// และไม่แย่งสายตาไปจากชื่อร้าน ซึ่งเป็นสิ่งที่คนมาหาจริง ๆ
+const DATA_SLOTS = [
+  { key: 'businessType', label: 'หมวดธุรกิจ' },
+  { key: 'docType', label: 'ชนิดเอกสาร' },
+  { key: 'bankAccountNo', label: 'เลขบัญชี' },
+]
+
+function DataDots({ m }) {
+  const filled = DATA_SLOTS.filter(s => m[s.key])
+  const title = filled.length === DATA_SLOTS.length
+    ? 'ข้อมูลครบ'
+    : 'ยังไม่มี: ' + DATA_SLOTS.filter(s => !m[s.key]).map(s => s.label).join(' · ')
+  return (
+    <span className="flex items-center gap-1 flex-shrink-0" title={title} aria-label={title}>
+      {DATA_SLOTS.map(s => (
+        <span key={s.key} className="w-1.5 h-1.5 rounded-full"
+          style={{ background: m[s.key] ? '#10b981' : '#334155' }} />
+      ))}
+    </span>
+  )
 }
 
 export default function Merchants() {
@@ -56,8 +71,11 @@ export default function Merchants() {
   const [bulkBusy, setBulkBusy] = useState(false)
   const [err, setErr] = useState('')
 
+  // รีเซ็ตหน้าและที่เลือกตรงจุดที่เปลี่ยนจริง ไม่ sync ผ่าน effect
+  const resetPaging = () => { setPage(0); setPicked([]) }
+
   useEffect(() => {
-    const t = setTimeout(() => setDebounced(search), 350)
+    const t = setTimeout(() => { setDebounced(search); resetPaging() }, 350)
     return () => clearTimeout(t)
   }, [search])
 
@@ -82,9 +100,10 @@ export default function Merchants() {
   }, [debounced, searching, tab, sort, page])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(0); setPicked([]) }, [tab, sort, debounced])
 
   const toggle = (id) => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+  const allPicked = merchants.length > 0 && picked.length === merchants.length
+  const toggleAll = () => setPicked(allPicked ? [] : merchants.map(m => m.id))
 
   const bulk = async (body, confirmMsg) => {
     if (confirmMsg && !confirm(confirmMsg)) return
@@ -96,9 +115,10 @@ export default function Merchants() {
     } catch (e) { setErr(e.message || 'แก้ไม่สำเร็จ') } finally { setBulkBusy(false) }
   }
 
-  const fmtDate = (s) => s ? new Date(s).toLocaleDateString('th-TH', { year: '2-digit', month: 'short', day: 'numeric' }) : '-'
+  const fmtDate = (s) => s ? new Date(s).toLocaleDateString('th-TH', { year: '2-digit', month: 'short', day: 'numeric' }) : '—'
   const tabCount = (t) => counts ? counts[t.countKey] : null
   const activeTab = TABS.find(t => t.key === tab)
+  const completeOnPage = merchants.filter(m => DATA_SLOTS.every(s => m[s.key])).length
 
   return (
     <div className="merchants-page p-4 sm:p-5 space-y-4">
@@ -106,6 +126,9 @@ export default function Merchants() {
         .merchants-page a:focus-visible, .merchants-page button:focus-visible, .merchants-page input:focus-visible, .merchants-page select:focus-visible {
           outline: 2px solid rgba(16,185,129,0.55); outline-offset: 2px; border-radius: 0.5rem;
         }
+        .m-row { border-left: 2px solid transparent; }
+        .m-row:hover { background: rgba(255,255,255,0.025); }
+        .m-row[data-picked="true"] { background: rgba(16,185,129,0.06); border-left-color: #10b981; }
         @media (prefers-reduced-motion: reduce) {
           .merchants-page *, .merchants-page *::before, .merchants-page *::after {
             animation-duration: 0.01ms !important; transition-duration: 0.01ms !important;
@@ -113,6 +136,8 @@ export default function Merchants() {
         }
       `}</style>
 
+      {/* หัวหน้า — เลิกอ้างว่า "ใช้เติมข้อมูลอัตโนมัติ" เพราะยังไม่มีร้านไหนมีเลขบัญชีให้เติม
+          เปลี่ยนเป็นบอกสถานะจริงว่ามีกี่ร้าน และข้อมูลครบกี่ร้านในหน้านี้ */}
       <div className="flex items-center gap-3 min-w-0">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 shadow-lg shadow-emerald-900/30"
           style={{ background: 'linear-gradient(135deg,#059669,#10b981)' }}>
@@ -120,9 +145,15 @@ export default function Merchants() {
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-bold text-white leading-tight">ร้านค้า / ซัพพลายเออร์</h2>
-          <p className="text-sm text-slate-500 mt-0.5">
-            {counts ? <>ทั้งหมด <span className="tabular-nums">{counts.total}</span> ร้าน · ใช้เติมข้อมูลอัตโนมัติตอนออกบิล</> : 'ทะเบียนคู่ค้า'}
-          </p>
+          {counts && (
+            <p className="text-sm text-slate-500 mt-0.5 tabular-nums">
+              {counts.total} ร้าน
+              <span className="text-slate-700"> · </span>
+              <span className={completeOnPage === 0 ? 'text-amber-500/80' : 'text-slate-500'}>
+                ข้อมูลครบ {completeOnPage}/{merchants.length} ในหน้านี้
+              </span>
+            </p>
+          )}
         </div>
         <button onClick={() => setAdding(true)}
           className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors flex-shrink-0">
@@ -141,10 +172,11 @@ export default function Merchants() {
       </div>
 
       {!searching && (
-        <div>
-          <div className="flex flex-wrap gap-1.5" role="tablist">
+        <div className="flex items-center gap-1.5 flex-wrap">
+          <div className="flex gap-1.5 flex-wrap" role="tablist">
             {TABS.filter(t => isAdmin || t.key !== 'hidden').map(t => (
-              <button key={t.key} onClick={() => setTab(t.key)} role="tab" aria-selected={tab === t.key}
+              <button key={t.key} onClick={() => { setTab(t.key); resetPaging() }} role="tab" aria-selected={tab === t.key}
+                title={t.hint}
                 className="text-xs px-3 py-1.5 rounded-full border transition-colors whitespace-nowrap"
                 style={{
                   background: tab === t.key ? 'rgba(16,185,129,0.12)' : '#0d1120',
@@ -152,18 +184,18 @@ export default function Merchants() {
                   color: tab === t.key ? '#34d399' : '#94a3b8',
                   fontWeight: tab === t.key ? 600 : 400,
                 }}>
-                {t.label}{tabCount(t) != null && <span className="tabular-nums"> {tabCount(t)}</span>}
+                {t.label}
+                {tabCount(t) != null && <span className="tabular-nums opacity-70"> {tabCount(t)}</span>}
               </button>
             ))}
-            <div className="ml-auto flex items-center gap-1.5">
-              <span className="text-xs text-slate-600">เรียง</span>
-              <select value={sort} onChange={e => setSort(e.target.value)} aria-label="เรียงลำดับ"
-                className="text-xs rounded-lg px-2 py-1.5 text-slate-300 border border-slate-700" style={{ background: '#0d1120' }}>
-                {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
-              </select>
-            </div>
           </div>
-          {activeTab?.hint && <p className="text-[11px] text-slate-600 mt-1.5">{activeTab.hint}</p>}
+          <div className="ml-auto flex items-center gap-1.5">
+            <span className="text-xs text-slate-600">เรียง</span>
+            <select value={sort} onChange={e => { setSort(e.target.value); resetPaging() }} aria-label="เรียงลำดับ"
+              className="text-xs rounded-lg px-2 py-1.5 text-slate-300 border border-slate-700" style={{ background: '#0d1120' }}>
+              {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+            </select>
+          </div>
         </div>
       )}
 
@@ -189,6 +221,22 @@ export default function Merchants() {
       {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
 
       <div className="rounded-xl overflow-hidden" style={CARD}>
+        {/* หัวคอลัมน์ — ของเดิมมีตัวเลข 62 กับวันที่ลอย ๆ โดยไม่บอกว่าคืออะไร */}
+        {!loading && merchants.length > 0 && (
+          <div className="flex items-center gap-2.5 px-3 py-2 text-[11px] text-slate-600 uppercase tracking-wide"
+            style={{ background: '#0d1120', borderBottom: '1px solid #1f2937' }}>
+            {isAdmin && (
+              <input type="checkbox" checked={allPicked} onChange={toggleAll}
+                aria-label="เลือกทั้งหน้า" className="flex-shrink-0 accent-emerald-500" />
+            )}
+            <span className="flex-1">ร้านค้า</span>
+            <span className="w-12 text-center hidden sm:inline" title="หมวดธุรกิจ · ชนิดเอกสาร · เลขบัญชี">ข้อมูล</span>
+            <span className="w-10 text-right">ครั้ง</span>
+            <span className="w-16 text-right hidden sm:inline">ล่าสุด</span>
+            <span className="w-4" />
+          </div>
+        )}
+
         {loading ? (
           <div className="p-8 text-center"><Loader2 className="w-5 h-5 text-emerald-500 animate-spin mx-auto" /></div>
         ) : merchants.length === 0 ? (
@@ -207,36 +255,33 @@ export default function Merchants() {
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: '#1a2035' }}>
-            {merchants.map(m => {
-              const missing = completeness(m)
-              return (
-                <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-white/[0.02] transition-colors">
-                  {isAdmin && (
-                    <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)}
-                      aria-label={`เลือก ${m.vendorName}`} className="flex-shrink-0 accent-emerald-500" />
-                  )}
-                  <Link to={`/merchants/${m.id}`} className="flex items-center gap-2.5 min-w-0 flex-1">
-                    <span className={`text-sm truncate flex-1 ${m.isActive === false ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
+            {merchants.map(m => (
+              <div key={m.id} data-picked={picked.includes(m.id)}
+                className="m-row flex items-center gap-2.5 px-3 py-2.5 transition-colors">
+                {isAdmin && (
+                  <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)}
+                    aria-label={`เลือก ${m.vendorName}`} className="flex-shrink-0 accent-emerald-500" />
+                )}
+                <Link to={`/merchants/${m.id}`} className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <span className="min-w-0 flex-1 flex items-center gap-2">
+                    <span className={`text-sm truncate ${m.isActive === false ? 'text-slate-500 line-through' : 'text-slate-100'}`}>
                       {m.vendorName}
                     </span>
                     {m.docType && <DocBadge docType={m.docType} short />}
-                    {missing.length > 0 && (
-                      <span className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:inline"
-                        style={{ background: '#b4530922', color: '#f59e0b' }}>ยังไม่มี{missing.join(' · ')}</span>
-                    )}
                     {m.isActive === false && <EyeOff className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />}
-                    <span className="text-xs text-slate-400 tabular-nums w-12 text-right flex-shrink-0">{m.occurrenceCount || 0}</span>
-                    <span className="text-xs text-slate-600 tabular-nums w-16 text-right flex-shrink-0 hidden sm:inline">{fmtDate(m.lastSeen)}</span>
-                    <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
-                  </Link>
-                </div>
-              )
-            })}
+                  </span>
+                  <span className="w-12 hidden sm:flex justify-center"><DataDots m={m} /></span>
+                  <span className="w-10 text-right text-xs text-slate-400 tabular-nums flex-shrink-0">{m.occurrenceCount || 0}</span>
+                  <span className="w-16 text-right text-xs text-slate-600 tabular-nums flex-shrink-0 hidden sm:inline">{fmtDate(m.lastSeen)}</span>
+                  <ChevronRight className="w-4 h-4 text-slate-700 flex-shrink-0" />
+                </Link>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
-      {/* หน้าถัดไป — ของเดิมตัดที่ 200 เงียบ ๆ ทั้งที่มี 354 ร้าน */}
+      {/* หน้าถัดไป — ของเดิมตัดที่ 200 เงียบ ๆ ทั้งที่มีมากกว่านั้น */}
       {!loading && !searching && (merchants.length === PAGE || page > 0) && (
         <div className="flex items-center justify-between">
           <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}
