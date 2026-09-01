@@ -1,0 +1,635 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ร้านค้า / ซัพพลายเออร์</title>
+<style>
+  :root{
+    --bg:#0d1120;
+    --card:#161b2e;
+    --line:#1f2937;
+    --line-soft:#1c2438;
+    --green:#10b981;
+    --amber:#f59e0b;
+
+    --ink-1:#eef2f9;   /* 13.1:1 บนการ์ด — ข้อความหลัก / ของที่ยังไม่ตั้งค่า */
+    --ink-2:#b9c3d6;   /*  9.4:1 — ข้อความรอง */
+    --ink-3:#93a0b8;   /*  6.5:1 — ข้อความเงียบ (ยังผ่าน 4.5:1) */
+    --ctl:#64748b;     /*  3.6:1 — ขอบคอนโทรล ผ่านเกณฑ์กราฟิก 3:1 */
+    --bar:#27805f;     /*  3.5:1 บนการ์ด — แท่งวัดความถี่ */
+    --bar-hi:#39a67c;
+    --rule:#2a3448;
+
+    --hover:#1b2237;
+    --sel:#16223d;
+
+    --lead:44px;       /* ช่องติ๊ก */
+    --num:72px;        /* คอลัมน์ค่าที่กำลังเรียง */
+    --gutter:116px;    /* = lead + num */
+    --pad:12px;
+
+    --thai:"Noto Sans Thai","IBM Plex Sans Thai","Sarabun",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg);
+    color:var(--ink-1);
+    font-family:var(--thai);
+    font-size:16px;
+    line-height:1.5;
+    -webkit-font-smoothing:antialiased;
+  }
+  a{color:inherit;text-decoration:none}
+  button,input,label{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--green);outline-offset:2px;border-radius:8px}
+  .tnum{font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+  .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+  .shell{max-width:1280px;margin:0 auto;padding:40px 28px 96px}
+
+  /* ============ หัวหน้า ============ */
+  .head{margin-bottom:26px}
+  .head h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-0.01em;line-height:1.3}
+  .head .sub{margin:7px 0 0;font-size:13.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .head .sub b{color:var(--ink-2);font-weight:500}
+
+  /* ============ โครงสองคอลัมน์ ============ */
+  .cols{display:flex;align-items:flex-start;gap:32px}
+  .main{flex:1 1 auto;min-width:0}
+  .rail{flex:0 0 320px;position:sticky;top:24px}
+
+  /* ============ แท็บ ============ */
+  .tabs{
+    display:flex;gap:2px;border-bottom:1px solid var(--line);
+    overflow-x:auto;scrollbar-width:none;
+  }
+  .tabs::-webkit-scrollbar{display:none}
+  .tab{
+    flex:none;display:inline-flex;align-items:center;gap:8px;
+    height:46px;padding:0 14px;margin-bottom:-1px;
+    background:none;border:0;border-bottom:2px solid transparent;
+    font-size:14.5px;color:var(--ink-3);cursor:pointer;white-space:nowrap;
+  }
+  .tab:hover{color:var(--ink-1)}
+  .tab .c{font-size:13px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+  .tab[aria-current="page"]{color:var(--ink-1);font-weight:600;border-bottom-color:var(--green)}
+  .tab[aria-current="page"] .c{color:var(--ink-2)}
+
+  /* ============ ค้นหา ============ */
+  .search{position:relative;margin:14px 0 2px}
+  .search svg{position:absolute;left:2px;top:50%;transform:translateY(-50%);color:var(--ink-3);pointer-events:none}
+  .search input{
+    width:100%;height:50px;padding:0 0 0 30px;
+    background:transparent;border:0;border-bottom:1px solid var(--line);font-size:16px;
+  }
+  .search input::placeholder{color:var(--ink-3)}
+  .search input:focus{outline:none;border-bottom-color:var(--green)}
+
+  /* ============ แถวเครื่องมือ ============ */
+  .tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:10px 0 4px}
+  .tlabel{font-size:12.5px;color:var(--ink-3);padding-right:2px}
+  .seg{display:inline-flex;gap:2px;padding:3px;border-radius:10px;background:#121729;box-shadow:inset 0 0 0 1px var(--line)}
+  .seg-b{
+    display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:8px;
+    font-size:13.5px;color:var(--ink-3);cursor:pointer;white-space:nowrap;
+  }
+  .seg-b:hover{color:var(--ink-1)}
+  .seg-b .tick{width:0;overflow:hidden;transition:width .12s ease}
+  .seg input:checked + .seg-b{background:var(--hover);color:var(--ink-1);font-weight:600;box-shadow:inset 0 0 0 1px var(--rule)}
+  .seg input:checked + .seg-b .tick{width:12px}
+  .seg input:focus-visible + .seg-b{outline:2px solid var(--green);outline-offset:2px}
+  .tbtn{
+    display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 12px;
+    border:0;border-radius:9px;background:transparent;color:var(--ink-3);
+    font-size:13.5px;cursor:pointer;font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  .tbtn:hover{background:var(--hover);color:var(--ink-1)}
+  .spacer{flex:1 1 auto;min-width:6px}
+  .sr:focus-visible + .tbtn{outline:2px solid var(--green);outline-offset:2px}
+  .shell:has(#selmode:checked) .tbtn--sel,
+  .shell:has(#onlyempty:checked) .tbtn--filter{color:var(--ink-1);background:var(--hover);font-weight:600}
+
+  /* ============ แถบเมื่อเลือกแถว ============ */
+  .selbar{display:none;align-items:center;gap:14px;flex-wrap:wrap;padding:6px 0 2px;font-size:13.5px;color:var(--ink-2)}
+  .shell:has(.pick:checked) .selbar{display:flex}
+  .selbar .n{color:var(--green);font-weight:600;font-variant-numeric:tabular-nums}
+  .selbar button{
+    background:none;border:0;padding:0 2px;height:44px;cursor:pointer;color:var(--ink-1);font-size:13.5px;
+    text-decoration:underline;text-decoration-color:#55637f;text-underline-offset:4px;
+  }
+  .selbar button:hover{text-decoration-color:var(--green)}
+
+  /* ============ แผงรายการ ============ */
+  .panel{
+    margin-top:10px;
+    background:var(--card);
+    border:1px solid var(--line);
+    border-radius:14px;
+    padding:0 14px 14px;
+  }
+  .colhead{
+    display:grid;grid-template-columns:var(--lead) var(--num) minmax(0,1fr);
+    align-items:end;padding:16px 0 9px;margin:0 -2px;
+    border-bottom:1px solid var(--line);
+    font-size:11.5px;letter-spacing:.06em;color:var(--ink-3);
+  }
+  .colhead .ch-n{grid-column:2;text-align:right;padding-right:16px}
+  .colhead .ch-b{grid-column:3;padding-left:0}
+
+  /* ============ รายการ (flex + order = สลับการเรียงได้โดยไม่ใช้ JS) ============ */
+  .list{display:flex;flex-direction:column;margin:0;padding:0;list-style:none}
+
+  .gh{
+    position:sticky;top:0;z-index:4;
+    order:var(--of,0);
+    margin:0 -14px;
+    padding:22px 14px 7px calc(var(--gutter) + 14px);
+    background:var(--card);
+    font-size:11.5px;font-weight:600;letter-spacing:.07em;color:var(--ink-3);
+    display:flex;gap:10px;align-items:baseline;
+  }
+  .gh .gc{font-weight:400;letter-spacing:0;font-variant-numeric:tabular-nums;color:var(--ink-3)}
+
+  .row{
+    order:var(--of,0);
+    position:relative;
+    display:grid;grid-template-columns:var(--lead) var(--num) minmax(0,1fr);
+    align-items:center;
+    min-height:66px;
+    margin:0 -12px;padding:11px var(--pad);
+    border-radius:10px;
+    content-visibility:auto;
+    contain-intrinsic-size:auto 66px;
+  }
+  /* เส้นคั่น: ไม่ขึ้นกับลำดับใน DOM จึงถูกต้องเสมอแม้สลับการเรียง */
+  .row::before{content:"";position:absolute;left:0;right:0;top:0;height:1px;background:var(--line-soft)}
+  /* แท่งวัด: ยาวตามสัดส่วนของค่าที่กำลังเรียง เริ่มที่เส้นเดียวกับชื่อร้าน */
+  .row::after{
+    content:"";position:absolute;bottom:0;height:2px;border-radius:1px;
+    left:calc(var(--pad) + var(--gutter));
+    width:calc((100% - var(--pad) * 2 - var(--gutter)) * var(--wf, 0));
+    min-width:10px;background:var(--bar);
+  }
+  .row:hover{background:var(--hover)}
+  .row:hover::after{background:var(--bar-hi)}
+  .row:has(.pick:checked),.row.is-sel{background:var(--sel);box-shadow:inset 2px 0 0 var(--green)}
+
+  .lead{position:relative;z-index:3;display:flex;align-items:center;width:44px;height:44px;margin-left:-6px;cursor:pointer}
+  .pick{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:pointer}
+  .box{
+    width:18px;height:18px;flex:none;border:1.5px solid var(--ctl);border-radius:5px;
+    display:flex;align-items:center;justify-content:center;opacity:0;
+    transition:opacity .12s ease,background-color .12s ease,border-color .12s ease;
+  }
+  .box svg{opacity:0;color:#06120d}
+  .row:hover .box,.row:focus-within .box,.shell:has(#selmode:checked) .box{opacity:1}
+  .pick:checked + .box{background:var(--green);border-color:var(--green);opacity:1}
+  .pick:checked + .box svg{opacity:1}
+  .pick:focus-visible + .box{opacity:1;outline:2px solid var(--green);outline-offset:2px}
+
+  /* คอลัมน์ค่าที่กำลังเรียง — สมอตาและไม้บรรทัด */
+  .num{
+    text-align:right;padding-right:16px;
+    font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1;letter-spacing:-0.01em;
+  }
+  .t1{font-size:22px;font-weight:600;color:var(--ink-1)}
+  .t2{font-size:18px;font-weight:500;color:var(--ink-2)}
+  .t3{font-size:16px;font-weight:400;color:var(--ink-3)}
+  .kd{font-size:16px;font-weight:500;color:var(--ink-2);white-space:nowrap}
+
+  /* ก้อนเนื้อหา — ลิงก์กินพื้นที่ทั้งแถวจริง ๆ ผ่าน ::after inset:0 */
+  .body{display:block;min-width:0}
+  .body::after{content:"";position:absolute;inset:0;z-index:1;border-radius:10px}
+  .name{
+    display:flex;align-items:center;gap:6px;
+    font-size:16px;font-weight:500;color:var(--ink-1);line-height:1.35;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .row:hover .name{color:#fff}
+  /* เครื่องหมาย "ตั้งค่าครบทั้ง 3 ช่อง" — โผล่เฉพาะร้านที่ครบ ตอนนี้ 0 ร้านจึงไม่มีให้เห็น */
+  .ok{flex:none;color:var(--green)}
+  .meta{
+    display:flex;align-items:baseline;gap:7px;margin-top:3px;
+    font-size:12.5px;color:var(--ink-3);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
+  }
+  .meta .sep{color:#55637f}
+  .seen,.md{font-variant-numeric:tabular-nums}
+  .doc{display:inline-flex;align-items:center;gap:5px;flex:none}
+  .doc svg{flex:none;opacity:.85}
+  .doc--none{color:var(--ink-2)}           /* มีเอกสารไหม = เรื่องภาษี จึงสว่างกว่าชนิดที่หักได้ */
+  .doc--full{color:var(--ink-3)}
+  .doc--unset{color:var(--ink-1)}          /* ของที่ยังไม่กรอก = สว่างที่สุดบนแถว โดยไม่ใช้สีเลย */
+  .doc--unset .t{text-decoration:underline dotted;text-decoration-color:#7b8aa6;text-underline-offset:3px}
+
+  .foot{margin:18px 0 0;padding-left:calc(var(--gutter) + 14px);font-size:12.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
+
+  /* ============ สลับการเรียง: ค่าที่เรียงย้ายเข้าคอลัมน์ซ้าย ============ */
+  .kd,.md,.gh--r,.ch-d{display:none}
+  .shell:has(#sort-date:checked) .kf,
+  .shell:has(#sort-date:checked) .mf,
+  .shell:has(#sort-date:checked) .gh--f,
+  .shell:has(#sort-date:checked) .ch-f{display:none}
+  .shell:has(#sort-date:checked) .kd,
+  .shell:has(#sort-date:checked) .md,
+  .shell:has(#sort-date:checked) .ch-d{display:inline}
+  .shell:has(#sort-date:checked) .gh--r{display:flex}
+  .shell:has(#sort-date:checked) .row,
+  .shell:has(#sort-date:checked) .gh{order:var(--or,0)}
+  .shell:has(#sort-date:checked) .row::after{width:calc((100% - var(--pad) * 2 - var(--gutter)) * var(--wd, 0))}
+
+  /* ============ แถบขวา ============ */
+  .card{
+    background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:18px 18px 16px;margin-bottom:14px;
+  }
+  .card--todo{border-left:2px solid var(--amber)}
+  .card h2{margin:0;font-size:12px;font-weight:600;letter-spacing:.07em;color:var(--ink-3)}
+  .ratio{display:flex;align-items:baseline;gap:8px;margin:10px 0 0;font-variant-numeric:tabular-nums}
+  .ratio b{font-size:30px;font-weight:600;color:var(--ink-1);line-height:1.1}
+  .ratio span{font-size:14px;color:var(--ink-3)}
+  .track{position:relative;height:6px;border-radius:3px;background:#0f1425;box-shadow:inset 0 0 0 1px var(--rule);margin:12px 0 0;overflow:hidden}
+  .track i{position:absolute;left:0;top:0;bottom:0;width:var(--p,0%);min-width:3px;background:var(--amber);border-radius:3px}
+  .card p{margin:11px 0 0;font-size:13px;color:var(--ink-2);line-height:1.6}
+  .card p.mute{color:var(--ink-3);font-size:12.5px}
+  .fields{margin:10px 0 0;padding:0;list-style:none;font-size:12.5px;color:var(--ink-3)}
+  .fields li{display:flex;align-items:center;gap:7px;padding:3px 0}
+  .fields li svg{flex:none;color:var(--ctl)}
+  .cta{
+    display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    width:100%;height:44px;margin-top:14px;border-radius:9px;cursor:pointer;
+    background:#1a2136;box-shadow:inset 0 0 0 1px var(--rule);color:var(--ink-1);font-size:13.5px;font-weight:600;
+  }
+  .cta:hover{background:#202942}
+  .card--dupe{border-left:2px solid var(--amber)}
+  .dupe-n{display:flex;align-items:baseline;gap:8px;margin-top:10px}
+  .dupe-n b{font-size:26px;font-weight:600;color:var(--ink-1);font-variant-numeric:tabular-nums;line-height:1.1}
+  .dupe-n span{font-size:14px;color:var(--ink-3)}
+  .card a.link{
+    display:inline-flex;align-items:center;height:44px;font-size:13.5px;color:var(--ink-1);
+    text-decoration:underline;text-decoration-color:#55637f;text-underline-offset:4px;
+  }
+  .card a.link:hover{text-decoration-color:var(--amber)}
+  .legend{display:flex;align-items:center;gap:7px;margin-top:12px;font-size:12.5px;color:var(--ink-3)}
+  .legend svg{flex:none;color:var(--green)}
+
+  /* ============ 1040px: แถบขวาขึ้นไปอยู่บน ============ */
+  @media (max-width:1040px){
+    .cols{flex-direction:column;align-items:stretch;gap:22px}
+    .main{width:100%}
+    .rail{position:static;flex:none;width:100%;display:grid;grid-template-columns:1fr 1fr;gap:14px;order:-1;align-items:start}
+    .card{margin-bottom:0}
+  }
+
+  /* ============ มือถือ 640px ============ */
+  @media (max-width:640px){
+    :root{--lead:0px;--num:62px;--gutter:62px;--pad:10px}
+    .shell{padding:20px 14px 72px}
+    .cols{gap:16px}
+    .head{margin-bottom:18px}
+    .head h1{font-size:20px}
+    .search{margin:10px 0 2px}
+    .search input{height:46px}
+    .tools{padding:8px 0 2px}
+    /* แถบขวายุบเป็นแถบสรุปสองบรรทัด — ไม่ผลักรายการลงไปไกลบนจอเล็ก */
+    .rail{grid-template-columns:1fr;gap:10px}
+    .card{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;padding:12px 14px;border-radius:12px}
+    .card h2{grid-column:1;grid-row:1}
+    .rail .mute,.rail .fields,.rail .legend,.rail .track,.rail .cta{display:none}
+    .ratio,.dupe-n{grid-column:1;grid-row:2;margin:3px 0 0}
+    .ratio b,.dupe-n b{font-size:22px}
+    .ratio span,.dupe-n span{font-size:12.5px}
+    .card a.link{grid-column:2;grid-row:1 / span 2;align-self:center;height:44px;font-size:13px}
+    .panel{padding:0 12px 12px;border-radius:12px}
+    .colhead{grid-template-columns:var(--lead) var(--num) minmax(0,1fr)}
+    .colhead .ch-b{font-size:0;letter-spacing:0}
+    .colhead .ch-b::after{content:"ชื่อร้าน · เอกสาร";font-size:11.5px;letter-spacing:.06em}
+    .gh{margin:0 -12px;padding:20px 12px 6px calc(var(--gutter) + 12px)}
+    .row{margin:0 -10px;padding:11px var(--pad);min-height:64px;contain-intrinsic-size:auto 74px}
+    .lead{display:none}
+    .num{padding-right:12px}
+    .t1{font-size:19px}
+    .t2{font-size:17px}
+    .t3{font-size:15px}
+    .kd{font-size:15px}
+    .name{white-space:normal;font-size:15.5px}
+    .meta{white-space:normal;font-size:12px}
+    .foot{padding-left:calc(var(--gutter) + 12px)}
+    .tools{gap:4px}
+    /* โหมดเลือกหลายรายการ: ช่องติ๊กค่อยกลับมา ไม่มี layout shift ตอนพัก */
+    .shell:has(#selmode:checked),.shell:has(.pick:checked){--lead:38px;--gutter:100px}
+    .shell:has(#selmode:checked) .lead,.shell:has(.pick:checked) .lead{display:flex;margin-left:-4px}
+  }
+  @media (prefers-reduced-motion:reduce){*{transition:none !important}}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <header class="head">
+    <h1>ร้านค้า / ซัพพลายเออร์</h1>
+    <p class="sub">353 ร้าน · คู่ค้าประจำ <b>56</b> ร้าน · ตั้งค่าข้อมูลครบแล้ว <b>0</b> ร้าน</p>
+  </header>
+
+  <div class="cols">
+
+    <main class="main">
+
+      <nav class="tabs" aria-label="กลุ่มร้านค้า">
+        <button class="tab" aria-current="page">คู่ค้าประจำ <span class="c">56</span></button>
+        <button class="tab">ใช้นาน ๆ ครั้ง <span class="c">294</span></button>
+        <button class="tab">ซ่อนแล้ว <span class="c">3</span></button>
+      </nav>
+
+      <div class="search">
+        <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+          <circle cx="8.6" cy="8.6" r="5.4"/><path d="M12.6 12.6 17 17" stroke-linecap="round"/>
+        </svg>
+        <input type="search" placeholder="ค้นหาชื่อร้าน" aria-label="ค้นหาชื่อร้าน">
+      </div>
+
+      <div class="tools">
+        <span class="tlabel">เรียงตาม</span>
+        <span class="seg" role="group" aria-label="เรียงตาม">
+          <input type="radio" name="sort" id="sort-freq" class="sr" checked>
+          <label class="seg-b" for="sort-freq">
+            <svg class="tick" width="12" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            ใช้บ่อยสุด
+          </label>
+          <input type="radio" name="sort" id="sort-date" class="sr">
+          <label class="seg-b" for="sort-date">
+            <svg class="tick" width="12" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            พบล่าสุด
+          </label>
+        </span>
+
+        <input type="checkbox" id="onlyempty" class="sr">
+        <label class="tbtn tbtn--filter" for="onlyempty">เฉพาะที่ยังไม่ตั้งค่า 56</label>
+
+        <span class="spacer"></span>
+
+        <input type="checkbox" id="selmode" class="sr">
+        <label class="tbtn tbtn--sel" for="selmode">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M5.4 8.2 7.2 10 10.8 6.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          เลือกหลายรายการ
+        </label>
+      </div>
+
+      <div class="selbar">
+        <span>เลือกไว้ <span class="n">1</span> รายการ</span>
+        <button type="button">ตั้งหมวดธุรกิจ</button>
+        <button type="button">ตั้งชนิดเอกสาร</button>
+        <button type="button">ซ่อน</button>
+      </div>
+
+      <section class="panel">
+
+        <div class="colhead">
+          <span class="ch-n"><span class="ch-f">ครั้ง</span><span class="ch-d">พบล่าสุด</span></span>
+          <span class="ch-b">
+            <span class="ch-f">ชื่อร้าน · ชนิดเอกสาร · พบล่าสุด</span>
+            <span class="ch-d">ชื่อร้าน · ชนิดเอกสาร · จำนวนครั้ง</span>
+          </span>
+        </div>
+
+        <div class="list">
+
+          <h2 class="gh gh--f" style="--of:1">เจอ 40 ครั้งขึ้นไป <span class="gc">3 ร้าน</span></h2>
+          <h2 class="gh gh--r" style="--or:1">พบใน 7 วันล่าสุด <span class="gc">6 ร้าน</span></h2>
+
+          <!-- 1 · Siam Makro -->
+          <div class="row" style="--of:2;--or:2;--wf:1;--wd:1">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก Siam Makro">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t1">62</span><span class="kd">31 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">Siam Makro</span>
+              <span class="meta">
+                <span class="doc doc--unset">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.6" width="10" height="10.8" rx="1.6" stroke-dasharray="2.6 2.2"/></svg>
+                  <span class="t">ยังไม่ระบุเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 31 ส.ค. 69</span>
+                <span class="md">เจอ 62 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 2 · แม็คโคร -->
+          <div class="row" style="--of:3;--or:12;--wf:.726;--wd:.10">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก แม็คโคร">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t1">45</span><span class="kd">3 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">แม็คโคร</span>
+              <span class="meta">
+                <span class="doc doc--full">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M5.9 8.6 7.4 10.1l3-3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="t">ใบกำกับเต็มรูป</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 3 ส.ค. 69</span>
+                <span class="md">เจอ 45 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 3 · CFW -->
+          <div class="row" style="--of:4;--or:4;--wf:.645;--wd:.96">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก CFW">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t1">40</span><span class="kd">30 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">CFW</span>
+              <span class="meta">
+                <span class="doc doc--unset">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.6" width="10" height="10.8" rx="1.6" stroke-dasharray="2.6 2.2"/></svg>
+                  <span class="t">ยังไม่ระบุเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 30 ส.ค. 69</span>
+                <span class="md">เจอ 40 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <h2 class="gh gh--f" style="--of:5">เจอ 20–39 ครั้ง <span class="gc">6 ร้าน</span></h2>
+
+          <!-- 4 · นาง จรีพร แก้วอ่อน (เลือกอยู่) -->
+          <div class="row is-sel" style="--of:6;--or:3;--wf:.613;--wd:1">
+            <label class="lead">
+              <input type="checkbox" class="pick" checked aria-label="เลือก นาง จรีพร แก้วอ่อน">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">38</span><span class="kd">31 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">นาง จรีพร แก้วอ่อน</span>
+              <span class="meta">
+                <span class="doc doc--none">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M4.2 13 12 3.4" stroke-linecap="round"/></svg>
+                  <span class="t">ไม่มีเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 31 ส.ค. 69</span>
+                <span class="md">เจอ 38 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 5 · นาง กฤษณา ชุณหสุนทร -->
+          <div class="row" style="--of:7;--or:9;--wf:.468;--wd:.75">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก นาง กฤษณา ชุณหสุนทร">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">29</span><span class="kd">24 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">นาง กฤษณา ชุณหสุนทร</span>
+              <span class="meta">
+                <span class="doc doc--none">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M4.2 13 12 3.4" stroke-linecap="round"/></svg>
+                  <span class="t">ไม่มีเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 24 ส.ค. 69</span>
+                <span class="md">เจอ 29 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 6 · รัตนาภรณ์ คงจันทร์ -->
+          <div class="row" style="--of:8;--or:10;--wf:.452;--wd:.43">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก รัตนาภรณ์ คงจันทร์">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">28</span><span class="kd">15 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">รัตนาภรณ์ คงจันทร์</span>
+              <span class="meta">
+                <span class="doc doc--none">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M4.2 13 12 3.4" stroke-linecap="round"/></svg>
+                  <span class="t">ไม่มีเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 15 ส.ค. 69</span>
+                <span class="md">เจอ 28 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 7 · go wholesale -->
+          <div class="row" style="--of:9;--or:6;--wf:.452;--wd:.89">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก go wholesale">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">28</span><span class="kd">28 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">go wholesale</span>
+              <span class="meta">
+                <span class="doc doc--unset">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="2.6" width="10" height="10.8" rx="1.6" stroke-dasharray="2.6 2.2"/></svg>
+                  <span class="t">ยังไม่ระบุเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 28 ส.ค. 69</span>
+                <span class="md">เจอ 28 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <!-- 8 · บจก. สดดี (หาดใหญ่) -->
+          <div class="row" style="--of:10;--or:5;--wf:.419;--wd:.93">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก บจก. สดดี (หาดใหญ่)">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">26</span><span class="kd">29 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">บจก. สดดี (หาดใหญ่)</span>
+              <span class="meta">
+                <span class="doc doc--full">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M5.9 8.6 7.4 10.1l3-3.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                  <span class="t">ใบกำกับเต็มรูป</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 29 ส.ค. 69</span>
+                <span class="md">เจอ 26 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+          <h2 class="gh gh--r" style="--or:8">พบ 8–21 วันก่อน <span class="gc">2 ร้าน</span></h2>
+          <h2 class="gh gh--r" style="--or:11">พบเกิน 3 สัปดาห์ <span class="gc">1 ร้าน</span></h2>
+
+          <!-- 9 · ตลาดสดหาดใหญ่ -->
+          <div class="row" style="--of:11;--or:7;--wf:.371;--wd:.86">
+            <label class="lead">
+              <input type="checkbox" class="pick" aria-label="เลือก ตลาดสดหาดใหญ่">
+              <span class="box" aria-hidden="true"><svg width="11" height="9" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg></span>
+            </label>
+            <div class="num"><span class="kf t2">23</span><span class="kd">27 ส.ค.</span></div>
+            <a class="body" href="#">
+              <span class="name">ตลาดสดหาดใหญ่</span>
+              <span class="meta">
+                <span class="doc doc--none">
+                  <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><path d="M3.6 2.6h5.2l3.6 3.6v7.2H3.6z" stroke-linejoin="round"/><path d="M4.2 13 12 3.4" stroke-linecap="round"/></svg>
+                  <span class="t">ไม่มีเอกสาร</span>
+                </span>
+                <span class="sep">·</span>
+                <span class="mf seen">พบล่าสุด 27 ส.ค. 69</span>
+                <span class="md">เจอ 23 ครั้ง</span>
+              </span>
+            </a>
+          </div>
+
+        </div>
+      </section>
+
+      <p class="foot">แสดง 9 จาก 56 ร้าน · เลื่อนลงเพื่อดูต่อ</p>
+    </main>
+
+    <aside class="rail">
+
+      <section class="card card--todo">
+        <h2>ข้อมูลที่ยังไม่ได้ตั้งค่า</h2>
+        <p class="ratio"><b>0</b><span>จาก 56 ร้านประจำ</span></p>
+        <div class="track" role="img" aria-label="ตั้งค่าครบแล้ว 0 จาก 56 ร้าน"><i style="--p:0%"></i></div>
+        <p class="mute">ยังไม่มีร้านไหนกรอกครบทั้ง 3 ช่อง จึงไม่ต้องติดป้ายเตือนทีละแถว — ตัวเลขก้อนเดียวตรงนี้พอ</p>
+        <ul class="fields">
+          <li><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.6" stroke-dasharray="2.6 2.2"/></svg> หมวดธุรกิจ</li>
+          <li><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.6" stroke-dasharray="2.6 2.2"/></svg> ชนิดเอกสาร</li>
+          <li><svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" aria-hidden="true"><rect x="3" y="3" width="10" height="10" rx="1.6" stroke-dasharray="2.6 2.2"/></svg> เลขบัญชี</li>
+        </ul>
+        <label class="cta" for="selmode">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true"><rect x="2.5" y="2.5" width="11" height="11" rx="2.5"/><path d="M5.4 8.2 7.2 10 10.8 6.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          ตั้งค่าทีละหลายร้าน
+        </label>
+        <p class="legend">
+          <svg width="13" height="13" viewBox="0 0 12 10" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M1 5.3 4.4 8.6 11 1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          ร้านที่ครบทั้ง 3 ช่องจะมีเครื่องหมายนี้หน้าชื่อ
+        </p>
+      </section>
+
+      <section class="card card--dupe">
+        <h2>ชื่อที่น่าจะเป็นร้านเดียวกัน</h2>
+        <p class="dupe-n"><b>129</b><span>คู่</span></p>
+        <p class="mute">เช่น “Siam Makro” กับ “แม็คโคร” — รวมแล้วจำนวนครั้งจะถูกต้องขึ้น</p>
+        <a class="link" href="#">ตรวจสอบและรวมร้าน</a>
+      </section>
+
+    </aside>
+  </div>
+</div>
+</body>
+</html>
