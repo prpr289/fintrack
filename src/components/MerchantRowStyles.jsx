@@ -153,6 +153,12 @@ export default function MerchantRowStyles() {
 .mp .fields li svg{flex:none;color:var(--ctl)}
 .mp .legend{display:flex;align-items:center;gap:7px;margin-top:12px;font-size:12.5px;color:var(--ink-3)}
 .mp .legend svg{flex:none;color:var(--green)}
+.mp .card--dupe{border-left:2px solid var(--amber)}
+/* ปุ่มในแถบขวา — ขอบใช้ --ctl (3.6:1) ไม่ใช่ --rule (1.37:1)
+   ขอบเขตของปุ่มต้องผ่าน 3:1 เหมือนกราฟิกอื่น ไม่งั้นอ่านเป็นข้อความธรรมดา */
+.mp .cta{display:inline-flex;align-items:center;justify-content:center;gap:8px;width:100%;height:44px;margin-top:14px;
+  border:1px solid var(--ctl);border-radius:9px;background:#1a2136;color:var(--ink-1);font-size:13.5px;font-weight:600;cursor:pointer}
+.mp .cta:hover{background:#202942;border-color:var(--green)}
 
 .mp .empty{padding:56px 16px;text-align:center}
 .mp .empty p{margin:0;font-size:14px;color:var(--ink-2)}
