@@ -1,0 +1,1315 @@
+<title>หน้าร้านค้า ซัพพลายเออร์</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=Noto+Serif+Thai:wght@600;700&display=swap">
+
+<style>
+  :root {
+    --ground:      #eaefec;
+    --surface:     #ffffff;
+    --surface-2:   #f3f6f4;
+    --ink:         #131a17;
+    --ink-2:       #3d4a45;
+    --muted:       #6b7a74;
+    --rule:        #d2dcd7;
+    --rule-soft:   #e3eae6;
+    --accent:      #0e7350;
+    --accent-ink:  #0a5a3e;
+    --accent-soft: #d9ece3;
+    --on-accent:   #ffffff;
+    --stamp:       #2e3f8f;
+    --stamp-soft:  #dfe4f7;
+    --warn:        #8f5800;
+    --warn-soft:   #f8ecd4;
+    --danger:      #9d2b2b;
+    --danger-soft: #f7dede;
+    --shadow:      0 1px 2px rgba(19,26,23,.05), 0 8px 24px -12px rgba(19,26,23,.18);
+
+    --serif: "Noto Serif Thai", Georgia, serif;
+    --sans:  "IBM Plex Sans Thai", "Sarabun", -apple-system, "Segoe UI", sans-serif;
+    --mono:  "IBM Plex Mono", ui-monospace, "SFMono-Regular", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #0d1310;
+      --surface:     #141c18;
+      --surface-2:   #1a2420;
+      --ink:         #e4ece8;
+      --ink-2:       #bac6c1;
+      --muted:       #8b9a94;
+      --rule:        #2a3833;
+      --rule-soft:   #212c28;
+      --accent:      #3ddc9a;
+      --accent-ink:  #6fe9b8;
+      --accent-soft: #143329;
+      --on-accent:   #06120d;
+      --stamp:       #96a8ff;
+      --stamp-soft:  #1b2140;
+      --warn:        #e0a955;
+      --warn-soft:   #33280f;
+      --danger:      #f08a8a;
+      --danger-soft: #351a1a;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #0d1310;
+    --surface:     #141c18;
+    --surface-2:   #1a2420;
+    --ink:         #e4ece8;
+    --ink-2:       #bac6c1;
+    --muted:       #8b9a94;
+    --rule:        #2a3833;
+    --rule-soft:   #212c28;
+    --accent:      #3ddc9a;
+    --accent-ink:  #6fe9b8;
+    --accent-soft: #143329;
+    --on-accent:   #06120d;
+    --stamp:       #96a8ff;
+    --stamp-soft:  #1b2140;
+    --warn:        #e0a955;
+    --warn-soft:   #33280f;
+    --danger:      #f08a8a;
+    --danger-soft: #351a1a;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 10px 30px -14px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.72;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .page { max-width: 78rem; margin: 0 auto; padding: 0 1.5rem 6rem; }
+  .col  { max-width: 44rem; }
+
+  /* ── masthead ─────────────────────────────────────────── */
+  .masthead {
+    display: grid;
+    gap: 1.1rem;
+    padding: 4rem 0 2.25rem;
+    border-bottom: 2px solid var(--ink);
+  }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  h1 {
+    font-family: var(--serif);
+    font-weight: 700;
+    font-size: clamp(2.1rem, 5.4vw, 3.4rem);
+    line-height: 1.18;
+    letter-spacing: -.01em;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: 1.075rem;
+    color: var(--ink-2);
+    max-width: 46rem;
+    margin: 0;
+  }
+  .meta-strip {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .5rem 1.5rem;
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    padding-top: .4rem;
+  }
+  .meta-strip b { color: var(--ink-2); font-weight: 500; }
+
+  /* ── sections ─────────────────────────────────────────── */
+  section { padding-top: 3.5rem; }
+  .sec-head {
+    display: grid;
+    gap: .35rem;
+    margin-bottom: 1.4rem;
+    padding-bottom: .7rem;
+    border-bottom: 1px solid var(--rule);
+  }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .14em;
+    color: var(--accent);
+    text-transform: uppercase;
+  }
+  h2 {
+    font-family: var(--serif);
+    font-weight: 600;
+    font-size: clamp(1.35rem, 2.7vw, 1.75rem);
+    line-height: 1.32;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-weight: 600;
+    font-size: 1rem;
+    margin: 0 0 .4rem;
+    letter-spacing: -.005em;
+  }
+  p { margin: 0 0 1rem; }
+  .col > p:last-child { margin-bottom: 0; }
+  strong { font-weight: 600; }
+  code {
+    font-family: var(--mono);
+    font-size: .855em;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 4px;
+    padding: .08em .34em;
+    white-space: nowrap;
+  }
+  a { color: var(--accent-ink); text-underline-offset: 3px; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 3px; }
+
+  /* ── decision box ─────────────────────────────────────── */
+  .decision {
+    margin-top: 2.5rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-top: 3px solid var(--accent);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 1.75rem 1.6rem;
+    display: grid;
+    gap: 1.1rem;
+  }
+  .decision-label {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .16em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .verdict {
+    font-family: var(--serif);
+    font-size: clamp(1.2rem, 2.5vw, 1.5rem);
+    font-weight: 600;
+    line-height: 1.42;
+    margin: 0;
+    text-wrap: balance;
+  }
+  .dl { display: grid; gap: .8rem; }
+  .dl-row { display: grid; grid-template-columns: 8.5rem 1fr; gap: .3rem 1rem; }
+  .dl-row dt {
+    font-family: var(--mono);
+    font-size: .7rem;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding-top: .28rem;
+  }
+  .dl-row dd { margin: 0; color: var(--ink-2); }
+  .dl-row ol { margin: 0; padding-left: 1.1rem; }
+  .dl-row li { margin-bottom: .15rem; }
+  @media (max-width: 640px) { .dl-row { grid-template-columns: 1fr; } }
+
+  .conf {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-family: var(--mono);
+    font-size: .72rem;
+    padding: .12rem .5rem;
+    border-radius: 2px;
+    background: var(--accent-soft);
+    color: var(--accent-ink);
+    border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+  }
+
+  /* ── tables ───────────────────────────────────────────── */
+  .tw { overflow-x: auto; border: 1px solid var(--rule); border-radius: 2px; background: var(--surface); }
+  table { width: 100%; border-collapse: collapse; font-size: .9rem; min-width: 34rem; }
+  th, td { text-align: left; padding: .7rem .85rem; border-bottom: 1px solid var(--rule-soft); vertical-align: top; }
+  thead th {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--rule);
+    white-space: nowrap;
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .06em;
+    padding: .1rem .4rem;
+    border-radius: 2px;
+    white-space: nowrap;
+    border: 1px solid transparent;
+  }
+  .tag.have  { background: var(--accent-soft); color: var(--accent-ink); border-color: color-mix(in srgb, var(--accent) 28%, transparent); }
+  .tag.need  { background: var(--warn-soft);   color: var(--warn);       border-color: color-mix(in srgb, var(--warn) 28%, transparent); }
+  .tag.risk  { background: var(--danger-soft); color: var(--danger);     border-color: color-mix(in srgb, var(--danger) 28%, transparent); }
+  .tag.ink   { background: var(--stamp-soft);  color: var(--stamp);      border-color: color-mix(in srgb, var(--stamp) 30%, transparent); }
+
+  /* ── decision cards ───────────────────────────────────── */
+  .cards { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr)); }
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1.1rem 1.15rem;
+    display: grid;
+    gap: .45rem;
+    align-content: start;
+  }
+  .card .q {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .card .a { font-weight: 600; font-size: 1.02rem; line-height: 1.4; }
+  .card .why { font-size: .875rem; color: var(--ink-2); line-height: 1.6; }
+
+  /* ── flow ─────────────────────────────────────────────── */
+  .flow { display: grid; gap: 0; counter-reset: step; }
+  .step {
+    display: grid;
+    grid-template-columns: 3.25rem 1fr;
+    gap: 0 1.1rem;
+    padding: 1.15rem 0;
+    border-bottom: 1px solid var(--rule-soft);
+  }
+  .step:last-child { border-bottom: none; }
+  .step-n {
+    font-family: var(--mono);
+    font-size: .78rem;
+    color: var(--accent);
+    padding-top: .18rem;
+    border-right: 1px solid var(--rule);
+    height: 100%;
+  }
+  .step-who {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: .1rem;
+  }
+  .step-body { font-size: .95rem; color: var(--ink-2); }
+  .step-body b { color: var(--ink); }
+
+  /* ── document mock ────────────────────────────────────── */
+  .mock-shell {
+    display: grid;
+    gap: 1.2rem;
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+  @media (max-width: 900px) { .mock-shell { grid-template-columns: 1fr; } }
+
+  .tabs { display: flex; flex-wrap: wrap; gap: .4rem; margin-bottom: 1rem; }
+  .tab {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .04em;
+    padding: .45rem .8rem;
+    border: 1px solid var(--rule);
+    background: var(--surface);
+    color: var(--muted);
+    border-radius: 2px;
+    cursor: pointer;
+    transition: background .15s, color .15s, border-color .15s;
+  }
+  .tab:hover { color: var(--ink); border-color: var(--ink-2); }
+  .tab[aria-selected="true"] { background: var(--ink); color: var(--ground); border-color: var(--ink); }
+
+  .doc {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    box-shadow: var(--shadow);
+    padding: 1.75rem 1.6rem;
+    font-size: .9rem;
+  }
+  .doc-head { text-align: center; border-bottom: 2px solid var(--ink); padding-bottom: .5rem; margin-bottom: .9rem; }
+  .doc-shop { font-weight: 700; font-size: 1.02rem; }
+  .doc-title {
+    font-family: var(--serif);
+    text-align: center;
+    font-weight: 700;
+    font-size: 1.12rem;
+    letter-spacing: .01em;
+    margin-bottom: .2rem;
+  }
+  .doc-title-en { text-align: center; font-family: var(--mono); font-size: .66rem; letter-spacing: .18em; color: var(--muted); margin-bottom: 1rem; }
+  .doc-meta { display: flex; justify-content: space-between; flex-wrap: wrap; gap: .3rem 1rem; font-size: .8rem; color: var(--ink-2); margin-bottom: .25rem; }
+  .doc-meta b { color: var(--ink); font-weight: 600; }
+
+  .doc-tw { overflow-x: auto; margin: .9rem 0 0; }
+  .doc table { min-width: 20rem; font-size: .82rem; margin: 0; }
+  .doc th, .doc td { padding: .42rem .5rem; border: 1px solid var(--rule); }
+  .doc thead th { background: var(--surface-2); }
+  .doc tfoot td { background: var(--surface-2); font-weight: 700; }
+
+  .pill {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-size: .78rem;
+    font-weight: 600;
+    padding: .35rem .75rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    line-height: 1.4;
+  }
+  .pill.wait { background: var(--warn-soft);   color: var(--warn);      border-color: color-mix(in srgb, var(--warn) 30%, transparent); }
+  .pill.ack  { background: var(--stamp-soft);  color: var(--stamp);     border-color: color-mix(in srgb, var(--stamp) 32%, transparent); }
+  .pill.paid { background: var(--accent-soft); color: var(--accent-ink);border-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+
+  .ack-form {
+    margin-top: 1.1rem;
+    border: 1px dashed var(--rule);
+    border-radius: 2px;
+    padding: .95rem;
+    background: var(--surface-2);
+    display: grid;
+    gap: .55rem;
+  }
+  .ack-form label { font-size: .78rem; color: var(--muted); }
+  .fake-input {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .5rem .6rem;
+    font-size: .88rem;
+    color: var(--muted);
+  }
+  .fake-btn {
+    background: var(--accent);
+    color: var(--on-accent);
+    border: none;
+    border-radius: 2px;
+    padding: .62rem .9rem;
+    font-family: var(--sans);
+    font-size: .9rem;
+    font-weight: 600;
+    text-align: center;
+  }
+  .ack-alt { font-size: .76rem; color: var(--muted); text-align: center; }
+
+  .ack-stamp {
+    margin-top: 1.1rem;
+    border: 1px solid color-mix(in srgb, var(--stamp) 30%, transparent);
+    background: var(--stamp-soft);
+    border-radius: 2px;
+    padding: .8rem .9rem;
+    display: grid;
+    gap: .18rem;
+  }
+  .ack-stamp .who { font-weight: 700; color: var(--stamp); }
+  .ack-stamp .line { font-family: var(--mono); font-size: .72rem; color: var(--muted); }
+
+  .slip {
+    margin-top: 1.1rem;
+    display: grid;
+    gap: .5rem;
+    justify-items: center;
+  }
+  .slip-cap { font-size: .74rem; color: var(--muted); }
+  .slip-card {
+    width: 100%;
+    max-width: 15rem;
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    background: var(--surface-2);
+    padding: .8rem .85rem;
+    display: grid;
+    gap: .3rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    color: var(--ink-2);
+  }
+  .slip-card .amt { font-size: 1.1rem; font-weight: 600; color: var(--ink); text-align: right; }
+  .slip-card .bar { height: 5px; border-radius: 3px; background: var(--rule); }
+  .slip-card .bar.w60 { width: 60%; }
+  .slip-card .bar.w40 { width: 40%; }
+
+  .doc-foot { margin-top: 1.3rem; padding-top: .8rem; border-top: 1px dashed var(--rule); font-size: .72rem; color: var(--muted); text-align: center; line-height: 1.6; }
+
+  .note-rail { display: grid; gap: .9rem; align-content: start; position: sticky; top: 1.25rem; }
+  @media (max-width: 900px) { .note-rail { position: static; } }
+  .note {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-left: 3px solid var(--accent);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    font-size: .855rem;
+    line-height: 1.62;
+    color: var(--ink-2);
+  }
+  .note h4 {
+    margin: 0 0 .3rem;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--accent);
+    font-weight: 500;
+  }
+  .note.ink-note { border-left-color: var(--stamp); }
+  .note.ink-note h4 { color: var(--stamp); }
+  .note.warn-note { border-left-color: var(--warn); }
+  .note.warn-note h4 { color: var(--warn); }
+
+  /* ── rules list ───────────────────────────────────────── */
+  .rules { display: grid; gap: .75rem; padding: 0; margin: 0; list-style: none; counter-reset: rule; }
+  .rules li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: .8rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .9rem 1rem;
+    font-size: .93rem;
+    color: var(--ink-2);
+  }
+  .rules li::before {
+    counter-increment: rule;
+    content: counter(rule);
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--danger);
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: var(--danger-soft);
+    border-radius: 2px;
+    width: 1.5rem;
+    height: 1.5rem;
+    display: grid;
+    place-items: center;
+    margin-top: .12rem;
+  }
+  .rules b { color: var(--ink); }
+
+  /* ── phases ───────────────────────────────────────────── */
+  .phases { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(16rem, 1fr)); }
+  .phase {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1.1rem 1.15rem;
+    display: grid;
+    gap: .5rem;
+    align-content: start;
+  }
+  .phase-tag {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--accent);
+  }
+  .phase ul { margin: 0; padding-left: 1.05rem; font-size: .885rem; color: var(--ink-2); display: grid; gap: .28rem; }
+  .phase .dod { font-size: .8rem; color: var(--muted); border-top: 1px solid var(--rule-soft); padding-top: .5rem; }
+
+  .checks { margin: 0; padding-left: 1.15rem; display: grid; gap: .4rem; font-size: .95rem; color: var(--ink-2); }
+  .checks b { color: var(--ink); }
+
+  footer {
+    margin-top: 4.5rem;
+    padding-top: 1.5rem;
+    border-top: 1px solid var(--rule);
+    font-family: var(--mono);
+    font-size: .72rem;
+    color: var(--muted);
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem 1.5rem;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; animation: none !important; }
+  }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+
+  /* ── compare panels ───────────────────────────────────── */
+  .split { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: 1rem 1.1rem;
+    display: grid;
+    gap: .55rem;
+    align-content: start;
+    font-size: .9rem;
+    color: var(--ink-2);
+  }
+  .panel h4 {
+    margin: 0;
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+  }
+  .panel.bad  { border-left: 3px solid var(--danger); }
+  .panel.good { border-left: 3px solid var(--accent); }
+  .panel.bad h4  { color: var(--danger); }
+  .panel.good h4 { color: var(--accent); }
+  .panel table { min-width: 0; font-size: .8rem; }
+  .panel th, .panel td { padding: .35rem .45rem; border: 1px solid var(--rule-soft); }
+  .panel .tw { border: none; background: transparent; }
+
+  .chat {
+    font-size: .85rem;
+    line-height: 1.75;
+    background: var(--surface-2);
+    border: 1px solid var(--rule-soft);
+    border-radius: 10px;
+    padding: .75rem .9rem;
+    white-space: pre-line;
+    color: var(--ink-2);
+  }
+
+  .chain { display: grid; gap: .4rem; }
+  .chain-row {
+    display: grid;
+    gap: .15rem;
+    padding: .7rem .9rem;
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    font-size: .92rem;
+    color: var(--ink-2);
+  }
+  .chain-row .lbl {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .chain-row.dead { border-color: color-mix(in srgb, var(--danger) 40%, transparent); background: var(--danger-soft); }
+  .chain-row.dead .lbl { color: var(--danger); }
+  .chain-row b { color: var(--ink); }
+  .chain-arrow { font-family: var(--mono); font-size: .7rem; color: var(--muted); padding-left: .9rem; }
+
+  .kpi { display: grid; gap: .75rem; grid-template-columns: repeat(auto-fit, minmax(11rem, 1fr)); }
+  .kpi-card {
+    background: var(--surface);
+    border: 1px solid var(--rule);
+    border-radius: 2px;
+    padding: .85rem .95rem;
+    display: grid;
+    gap: .15rem;
+  }
+  .kpi-card .k {
+    font-family: var(--mono);
+    font-size: .66rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .kpi-card .v { font-size: 1.3rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.35; }
+  .kpi-card .s { font-size: .78rem; color: var(--muted); }
+
+  /* ── mockup chrome ────────────────────────────────────── */
+  .mk { display: grid; gap: .5rem; }
+  .mk-cap {
+    font-family: var(--mono);
+    font-size: .68rem;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .mk-cap.bad  { color: var(--danger); }
+  .mk-cap.good { color: var(--accent); }
+
+  /* จอแอป — โทนเข้มเสมอ เพราะแอปจริงเป็น dark ไม่ว่าเอกสารนี้จะโหมดไหน */
+  .app {
+    background: #0d1120;
+    border: 1px solid #2e3349;
+    border-radius: 10px;
+    padding: 1rem;
+    color: #e2e8f0;
+    font-size: .82rem;
+    line-height: 1.55;
+    overflow-x: auto;
+  }
+  .app-row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; }
+  .app-card { background: #161b2e; border: 1px solid #1f2937; border-radius: 8px; padding: .7rem .8rem; }
+  .app-muted { color: #94a3b8; }
+  .app-dim { color: #64748b; }
+  .app-lbl { font-size: .68rem; color: #94a3b8; letter-spacing: .04em; }
+  .app-btn {
+    background: #059669; color: #fff; border-radius: 6px;
+    padding: .42rem .8rem; font-size: .78rem; font-weight: 600; display: inline-block;
+  }
+  .app-btn.ghost { background: transparent; border: 1px solid #475569; color: #cbd5e1; }
+  .app-chip {
+    font-size: .68rem; padding: .12rem .5rem; border-radius: 999px;
+    background: #10b98122; color: #34d399; display: inline-block;
+  }
+  .app-chip.warn { background: #b4530922; color: #f59e0b; }
+  .app-chip.ink  { background: #4338ca22; color: #a5b4fc; }
+  .app-chip.bad  { background: #b91c1c22; color: #f87171; }
+  .app table { width: 100%; min-width: 0; border-collapse: collapse; font-size: .76rem; }
+  .app th, .app td { padding: .35rem .4rem; border-bottom: 1px solid #1f2937; text-align: left; }
+  .app th { color: #94a3b8; font-weight: 500; font-family: var(--mono); font-size: .66rem; text-transform: uppercase; letter-spacing: .06em; background: transparent; border-bottom: 1px solid #2e3349; }
+  .app .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* เอกสาร — พื้นขาวเสมอ เพราะคู่ค้าเห็นแบบนี้จริง */
+  .paper {
+    background: #ffffff;
+    color: #1f2430;
+    border: 1px solid #cbd2dc;
+    border-radius: 8px;
+    padding: 1.4rem 1.3rem;
+    font-size: .8rem;
+    line-height: 1.6;
+    overflow-x: auto;
+  }
+  .paper table { width: 100%; min-width: 0; border-collapse: collapse; font-size: .74rem; }
+  .paper th, .paper td { border: 1px solid #cbd2dc; padding: .32rem .42rem; text-align: left; }
+  .paper thead th { background: #f1f3f7; font-weight: 700; }
+  .paper .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .paper .rule { border-bottom: 2px solid #1f2430; padding-bottom: .45rem; margin-bottom: .6rem; }
+  .paper .doc-h { text-align: center; font-weight: 700; font-size: .95rem; margin: .3rem 0 .8rem; }
+  .paper .small { font-size: .68rem; color: #6b7280; }
+  .paper .box { border: 1px solid #cbd2dc; border-radius: 5px; padding: .5rem .6rem; }
+  .paper .miss { color: #b91c1c; font-weight: 600; }
+  .paper .add { background: #ecfdf5; }
+
+  .two { display: grid; gap: 1rem; grid-template-columns: repeat(auto-fit, minmax(20rem, 1fr)); align-items: start; }
+
+  .gap-tbl td:first-child { white-space: nowrap; }
+  .bar-wrap { background: var(--surface-2); border-radius: 999px; height: 7px; overflow: hidden; }
+  .bar-fill { height: 100%; background: linear-gradient(90deg,#059669,#34d399); border-radius: 999px; }
+
+  /* ── merchants doc ────────────────────────────────────── */
+  .stat-row { display: grid; gap: .7rem; grid-template-columns: repeat(auto-fit, minmax(8.5rem, 1fr)); }
+  .stat {
+    background: var(--surface); border: 1px solid var(--rule); border-radius: 2px;
+    padding: .8rem .9rem; display: grid; gap: .1rem;
+  }
+  .stat .k { font-family: var(--mono); font-size: .64rem; letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+  .stat .v { font-size: 1.5rem; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1.25; }
+  .stat .s { font-size: .74rem; color: var(--muted); }
+  .stat.alarm { border-color: color-mix(in srgb, var(--danger) 45%, transparent); }
+  .stat.alarm .v { color: var(--danger); }
+
+  .rowdemo { display: grid; gap: 0; border: 1px solid #2e3349; border-radius: 8px; overflow: hidden; }
+  .rowdemo > div { border-bottom: 1px solid #1f2937; }
+  .rowdemo > div:last-child { border-bottom: none; }
+  .r-fat { padding: .85rem .9rem; }
+  .r-slim { padding: .38rem .9rem; display: flex; align-items: center; gap: .55rem; }
+
+  .merge-card {
+    background: #161b2e; border: 1px solid #2e3349; border-radius: 8px;
+    padding: .7rem .8rem; display: grid; gap: .5rem;
+  }
+  .merge-pair { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; font-size: .8rem; }
+  .merge-pair .nm { background: #0d1120; border: 1px solid #2e3349; border-radius: 5px; padding: .22rem .5rem; }
+</style>
+
+<div class="page">
+
+  <header class="masthead">
+    <div class="eyebrow">FinTrack · Famous Star Food OS · ตรวจหน้าจอ</div>
+    <h1>หน้าร้านค้า ซัพพลายเออร์</h1>
+    <p class="standfirst">
+      ตรวจหน้า <code>/merchants</code> จากข้อมูลจริงบน production —
+      ทำไมหน้านี้ยังใช้บริหารไม่ได้ และแบบใหม่ที่เสนอ พร้อมภาพทุกหน้าจอ
+    </p>
+    <div class="meta-strip">
+      <span>ข้อมูลจริงจาก <b>production</b> ไม่ใช่ตัวอย่างสมมติ</span>
+      <span>ระดับความลึก <b>R2 Deep Dive</b></span>
+      <span>1 ก.ย. 2569</span>
+    </div>
+  </header>
+
+  <div class="decision col">
+    <div class="decision-label">Decision Box</div>
+    <p class="verdict">
+      แค่ทำให้สวยจะได้ <b>ถังขยะที่สวยขึ้น</b> — หน้านี้ไม่ใช่ทะเบียนคู่ค้า
+      แต่เป็น <b>รายชื่อ 354 รายการที่ระบบเดามาจากการอ่านสลิป</b> ซึ่ง 99% ไม่มีข้อมูลอะไรเลย
+    </p>
+    <dl class="dl">
+      <div class="dl-row">
+        <dt>เหตุผลหลัก</dt>
+        <dd>
+          <ol>
+            <li><b>ฟีเจอร์บนหน้านี้แทบไม่มีข้อมูลรองรับ</b> — ตัวกรอง 8 หมวดธุรกิจใช้ไม่ได้เพราะ 353 จาก 354 ร้านไม่ระบุหมวด · ตัวกรอง “ออกใบกำกับภาษีได้” ใช้ไม่ได้เพราะ 345 ไม่ระบุเอกสาร</li>
+            <li><b>คำโปรยของหน้าโกหกโดยไม่ตั้งใจ</b> — เขียนว่า “บัญชีรับเงิน … ใช้เติมอัตโนมัติตอนแจ้งบิล” แต่ <b>ไม่มีร้านไหนมีเลขบัญชีเลยสักร้าน</b> (0 จาก 354)</li>
+            <li><b>รายชื่อสกปรก</b> — มีชื่อซ้ำ (Siam Makro กับ แม็คโคร) ชื่อสะกดตก และคำที่ไม่ใช่ชื่อร้านเลย (“พัสดุ” “คนละครึ่ง”) ปนอยู่ในอันดับต้น ๆ</li>
+          </ol>
+        </dd>
+      </div>
+      <div class="dl-row">
+        <dt>สิ่งที่ต้องเปลี่ยน</dt>
+        <dd>เปลี่ยนบทบาทหน้าจาก <b>“รายชื่อทั้งหมด”</b> เป็น <b>“เครื่องมือจัดระเบียบคู่ค้า”</b> — แยกคู่ค้าจริงออกจากชื่อที่ระบบเดา แล้วพาแอดมินไปทำงานที่คุ้มที่สุดก่อน</dd>
+      </div>
+      <div class="dl-row">
+        <dt>Confidence</dt>
+        <dd><span class="conf">สูง</span> — ทุกตัวเลขนับจากฐานข้อมูล production จริง ไม่ได้ประเมินจากภาพหน้าจอ</dd>
+      </div>
+      <div class="dl-row">
+        <dt>ข้อจำกัดที่ต้องรู้</dt>
+        <dd><b>ยังโชว์ “ยอดเงินต่อร้าน” ไม่ได้</b> — ตาราง <code>transactions</code> ไม่มีคอลัมน์เชื่อมไปที่ร้านค้าเลย ต้องเพิ่มการเชื่อมก่อน ไม่ใช่แค่ทำหน้าจอ</dd>
+      </div>
+      <div class="dl-row">
+        <dt>ทำก่อนอื่นเลย</dt>
+        <dd>แยกแท็บ <b>“คู่ค้าประจำ”</b> ออกจาก <b>“รอจัดระเบียบ”</b> — เปลี่ยนหน้าจากเลื่อน 45 จอ เหลือรายชื่อที่ใช้จริงไม่กี่สิบร้าน</dd>
+      </div>
+    </dl>
+  </div>
+
+  <!-- 01 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">01 — ข้อมูลจริง</div>
+      <h2>ตัวเลขที่เปลี่ยนโจทย์ทั้งหมด</h2>
+    </div>
+    <p class="col">นับจากตาราง <code>vendor_profiles</code> บน production เมื่อ 1 ก.ย. 2569</p>
+    <div class="stat-row">
+      <div class="stat"><span class="k">ร้านทั้งหมด</span><span class="v">354</span><span class="s">ในหน้ารายชื่อ</span></div>
+      <div class="stat alarm"><span class="k">ไม่ระบุหมวดธุรกิจ</span><span class="v">353</span><span class="s">99.7%</span></div>
+      <div class="stat alarm"><span class="k">ไม่ระบุชนิดเอกสาร</span><span class="v">345</span><span class="s">97.5%</span></div>
+      <div class="stat alarm"><span class="k">ไม่มีเลขบัญชี</span><span class="v">354</span><span class="s">100% — ทุกร้าน</span></div>
+      <div class="stat alarm"><span class="k">ไม่มีเลขผู้เสียภาษี</span><span class="v">354</span><span class="s">100% — ทุกร้าน</span></div>
+      <div class="stat"><span class="k">ปิดใช้งานแล้ว</span><span class="v">3</span><span class="s">เกือบไม่มีการเก็บกวาด</span></div>
+    </div>
+
+    <div class="note warn-note col" style="margin-top:1.1rem">
+      <h4>ตัวเลข 0 จาก 354 คือหัวใจของปัญหา</h4>
+      คำโปรยใต้หัวข้อหน้าเขียนว่า <b>“ข้อมูลร้าน · บัญชีรับเงิน · เอกสารภาษี — ใช้เติมอัตโนมัติตอนแจ้งบิล”</b>
+      แต่ไม่มีร้านไหนมีเลขบัญชีเลยแม้แต่ร้านเดียว — <b>ฟีเจอร์หลักที่หน้านี้โฆษณาไว้ ยังไม่เคยทำงานจริงสักครั้ง</b>
+    </div>
+  </section>
+
+  <!-- 02 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">02 — รากของปัญหา</div>
+      <h2>รายชื่อนี้ไม่มีใครกรอก ระบบเดาเอง</h2>
+    </div>
+    <p class="col">
+      ร้านค้าถูกสร้างอัตโนมัติตอนระบบอ่านสลิป (OCR) เจอชื่อร้าน — ไม่ได้มาจากคนกรอก
+      ผลคือได้ชื่อดิบ ๆ ตามที่กล้องอ่านได้ ซึ่งเห็นได้ชัดจาก 14 อันดับแรกที่ใช้บ่อยที่สุด
+    </p>
+    <div class="tw">
+      <table>
+        <thead><tr><th>ชื่อในระบบ</th><th class="num">ครั้ง</th><th>ปัญหา</th></tr></thead>
+        <tbody>
+          <tr><td>Siam Makro</td><td class="num">62</td><td rowspan="2" style="vertical-align:middle"><span class="tag risk">ร้านเดียวกัน แยกเป็นสองแถว</span> รวมกัน 107 ครั้ง แต่ระบบนับแยก</td></tr>
+          <tr><td>แม็คโคร</td><td class="num">45</td></tr>
+          <tr><td><b>พัสดุ</b></td><td class="num">44</td><td><span class="tag risk">ไม่ใช่ชื่อร้าน</span> เป็นคำที่ OCR อ่านมาจากสลิป</td></tr>
+          <tr><td>CFW</td><td class="num">40</td><td><span class="tag need">ชื่อย่อ</span> ไม่มีใครรู้ว่าร้านอะไร</td></tr>
+          <tr><td>นาง จรีพร แก้วอ่อน</td><td class="num">38</td><td>บุคคลธรรมดา ปนกับนิติบุคคลในลิสต์เดียว</td></tr>
+          <tr><td><b>คนละครึ่ง</b></td><td class="num">28</td><td><span class="tag risk">ไม่ใช่ชื่อร้าน</span> เป็นชื่อโครงการรัฐบนสลิป</td></tr>
+          <tr><td>กรกมล ธรรมรัตน์</td><td class="num">23</td><td rowspan="2" style="vertical-align:middle"><span class="tag risk">คนเดียวกัน</span> ชื่อล่างสะกดตก — OCR อ่านตัวอักษรหาย</td></tr>
+          <tr><td>นางสาว กรกมล ธรรมรัต</td><td class="num">20</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="col" style="margin-top:1rem">
+      <strong>แค่ 14 อันดับแรกก็เจอแล้ว:</strong> ชื่อซ้ำ 2 คู่ · คำที่ไม่ใช่ร้าน 2 รายการ (รวม 72 ครั้ง) ·
+      ชื่อย่อที่ตีความไม่ได้ 1 รายการ — <b>ถ้าอีก 340 รายการเป็นสัดส่วนเดียวกัน แปลว่าลิสต์นี้เชื่อไม่ได้ทั้งลิสต์</b>
+    </p>
+  </section>
+
+  <!-- 03 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">03 — ปัญหาหน้าจอ</div>
+      <h2>เลื่อน 45 จอ เพื่อหาร้านเดียว</h2>
+    </div>
+    <div class="two">
+      <div class="mk">
+        <div class="mk-cap bad">ตอนนี้ — แถวสูง 96px</div>
+        <div class="rowdemo">
+          <div class="r-fat">
+            <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+              <span style="color:#e2e8f0;font-weight:600">Siam Makro</span>
+              <span class="app-chip" style="background:#33415555;color:#94a3b8">ยังไม่ระบุเอกสาร</span>
+              <span style="margin-left:auto;color:#94a3b8;font-size:.72rem">เจอ 62 ครั้ง</span>
+            </div>
+            <div style="color:#64748b;font-size:.74rem;margin-top:.25rem">ยังไม่ระบุหมวดธุรกิจ</div>
+            <div style="color:#64748b;font-size:.7rem;text-align:right">ล่าสุด 31 ส.ค. 69</div>
+          </div>
+          <div class="r-fat">
+            <div style="display:flex;gap:.5rem;align-items:center;flex-wrap:wrap">
+              <span style="color:#e2e8f0;font-weight:600">แม็คโคร</span>
+              <span class="app-chip">ใบกำกับเต็มรูป</span>
+              <span style="margin-left:auto;color:#94a3b8;font-size:.72rem">เจอ 45 ครั้ง</span>
+            </div>
+            <div style="color:#64748b;font-size:.74rem;margin-top:.25rem">ยังไม่ระบุหมวดธุรกิจ</div>
+            <div style="color:#64748b;font-size:.7rem;text-align:right">ล่าสุด 3 ส.ค. 69</div>
+          </div>
+        </div>
+        <div style="color:var(--danger);font-size:.8rem;margin-top:.5rem">
+          354 ร้าน × 96px ≈ <b>34,000 พิกเซล</b> — เลื่อนกว่า 45 จอ<br>
+          บรรทัด “ยังไม่ระบุหมวดธุรกิจ” ซ้ำ 353 แถว กินที่โดยไม่บอกอะไร
+        </div>
+      </div>
+
+      <div class="mk">
+        <div class="mk-cap good">เสนอ — แถวสูง 40px เห็นมากกว่า 2 เท่า</div>
+        <div class="rowdemo">
+          <div class="r-slim"><span style="color:#64748b">☐</span><span style="color:#e2e8f0;flex:1">Siam Makro</span><span class="app-chip warn" style="font-size:.62rem">ข้อมูลไม่ครบ</span><span style="color:#94a3b8;font-size:.72rem;width:3rem;text-align:right">62</span><span style="color:#64748b;font-size:.7rem;width:4.5rem;text-align:right">31 ส.ค.</span></div>
+          <div class="r-slim"><span style="color:#64748b">☐</span><span style="color:#e2e8f0;flex:1">แม็คโคร</span><span class="app-chip" style="font-size:.62rem">ครบ</span><span style="color:#94a3b8;font-size:.72rem;width:3rem;text-align:right">45</span><span style="color:#64748b;font-size:.7rem;width:4.5rem;text-align:right">3 ส.ค.</span></div>
+          <div class="r-slim"><span style="color:#64748b">☐</span><span style="color:#e2e8f0;flex:1">บจก. สดดี (หาดใหญ่)</span><span class="app-chip" style="font-size:.62rem">ครบ</span><span style="color:#94a3b8;font-size:.72rem;width:3rem;text-align:right">26</span><span style="color:#64748b;font-size:.7rem;width:4.5rem;text-align:right">31 ส.ค.</span></div>
+          <div class="r-slim"><span style="color:#64748b">☐</span><span style="color:#e2e8f0;flex:1">นาง จรีพร แก้วอ่อน</span><span class="app-chip warn" style="font-size:.62rem">ข้อมูลไม่ครบ</span><span style="color:#94a3b8;font-size:.72rem;width:3rem;text-align:right">38</span><span style="color:#64748b;font-size:.7rem;width:4.5rem;text-align:right">31 ส.ค.</span></div>
+          <div class="r-slim"><span style="color:#64748b">☐</span><span style="color:#e2e8f0;flex:1">go wholesale</span><span class="app-chip" style="font-size:.62rem">ครบ</span><span style="color:#94a3b8;font-size:.72rem;width:3rem;text-align:right">28</span><span style="color:#64748b;font-size:.7rem;width:4.5rem;text-align:right">7 ส.ค.</span></div>
+        </div>
+        <div style="color:var(--accent);font-size:.8rem;margin-top:.5rem">
+          ตัดบรรทัด “ยังไม่ระบุ…” ทิ้ง → รวมเป็นป้ายเดียว <b>ข้อมูลไม่ครบ</b><br>
+          เพิ่มช่องติ๊กเพื่อจัดการทีละหลายร้าน
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 04 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">04 — หน้าจอใหม่</div>
+      <h2>เปลี่ยนจากรายชื่อ เป็นเครื่องมือจัดระเบียบ</h2>
+    </div>
+    <div class="app">
+      <div class="app-row" style="justify-content:space-between;margin-bottom:.7rem">
+        <div>
+          <div style="font-weight:700;font-size:.95rem">ร้านค้า / ซัพพลายเออร์</div>
+          <div class="app-dim" style="font-size:.74rem">ทะเบียนคู่ค้า · ใช้เติมข้อมูลอัตโนมัติตอนออกบิล</div>
+        </div>
+        <span class="app-btn">+ เพิ่มร้านค้า</span>
+      </div>
+
+      <!-- สรุปสถานะ: บอกทันทีว่าต้องทำอะไร -->
+      <div class="app-row" style="gap:.5rem;margin-bottom:.7rem">
+        <div class="app-card" style="flex:1;min-width:7rem"><div class="app-lbl">คู่ค้าประจำ</div><div style="font-size:1.2rem;font-weight:700">31</div></div>
+        <div class="app-card" style="flex:1;min-width:7rem;border-color:#78350f"><div class="app-lbl" style="color:#f59e0b">รอจัดระเบียบ</div><div style="font-size:1.2rem;font-weight:700;color:#f59e0b">320</div></div>
+        <div class="app-card" style="flex:1;min-width:7rem"><div class="app-lbl">เลิกใช้</div><div style="font-size:1.2rem;font-weight:700">3</div></div>
+      </div>
+
+      <!-- แถบพาไปทำงาน ไม่ใช่แค่รายงานปัญหา -->
+      <div class="app-card" style="border-color:#78350f;margin-bottom:.7rem">
+        <div class="app-row" style="justify-content:space-between">
+          <span style="color:#f59e0b;font-size:.8rem">⚠ พบชื่อที่น่าจะเป็นร้านเดียวกัน <b>12 คู่</b></span>
+          <span class="app-btn ghost" style="font-size:.72rem">ตรวจและรวม</span>
+        </div>
+      </div>
+
+      <!-- แท็บ: แยกของจริงออกจากของเดา -->
+      <div class="app-row" style="gap:.4rem;margin-bottom:.6rem">
+        <span class="app-chip" style="padding:.3rem .7rem">คู่ค้าประจำ 31</span>
+        <span class="app-chip warn" style="padding:.3rem .7rem">รอจัดระเบียบ 320</span>
+        <span class="app-chip" style="padding:.3rem .7rem;background:#33415555;color:#94a3b8">เลิกใช้ 3</span>
+      </div>
+
+      <div class="app-row" style="gap:.5rem;margin-bottom:.5rem">
+        <div class="app-card" style="flex:1;padding:.4rem .6rem;color:#64748b;font-size:.76rem">🔍 ค้นหา ชื่อร้าน / เลขภาษี / เลขบัญชี / เบอร์</div>
+        <div class="app-card" style="padding:.4rem .6rem;font-size:.76rem">เรียง: ใช้บ่อยสุด ▾</div>
+      </div>
+
+      <table>
+        <thead><tr><th style="width:1.2rem"></th><th>ร้าน</th><th>สถานะข้อมูล</th><th class="num">ครั้ง</th><th class="num">ล่าสุด</th></tr></thead>
+        <tbody>
+          <tr><td>☑</td><td>Siam Makro</td><td><span class="app-chip warn" style="font-size:.62rem">ไม่มีเลขบัญชี</span></td><td class="num">62</td><td class="num">31 ส.ค.</td></tr>
+          <tr><td>☑</td><td>แม็คโคร</td><td><span class="app-chip warn" style="font-size:.62rem">ไม่มีเลขบัญชี</span></td><td class="num">45</td><td class="num">3 ส.ค.</td></tr>
+          <tr><td>☐</td><td>บจก. สดดี (หาดใหญ่)</td><td><span class="app-chip" style="font-size:.62rem">ครบ</span></td><td class="num">26</td><td class="num">31 ส.ค.</td></tr>
+          <tr><td>☐</td><td>นาง จรีพร แก้วอ่อน</td><td><span class="app-chip warn" style="font-size:.62rem">ไม่มีเลขบัญชี</span></td><td class="num">38</td><td class="num">31 ส.ค.</td></tr>
+        </tbody>
+      </table>
+
+      <!-- แถบ bulk โผล่เมื่อเลือก -->
+      <div class="app-card" style="margin-top:.6rem;border-color:#10b98155">
+        <div class="app-row" style="justify-content:space-between">
+          <span style="font-size:.78rem">เลือกไว้ <b>2 ร้าน</b></span>
+          <span class="app-row" style="gap:.4rem">
+            <span class="app-btn ghost" style="font-size:.7rem">ตั้งหมวดธุรกิจ</span>
+            <span class="app-btn ghost" style="font-size:.7rem">รวมเป็นร้านเดียว</span>
+            <span class="app-btn ghost" style="font-size:.7rem">ซ่อน</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note col" style="margin-top:1.1rem">
+      <h4>สามอย่างที่เปลี่ยนแล้วได้ผลมากที่สุด</h4>
+      <b>1. แท็บแยกของจริงออกจากของเดา</b> — “คู่ค้าประจำ” คือร้านที่มีคนยืนยันข้อมูลแล้ว เปิดหน้ามาเจอ 31 ร้าน ไม่ใช่ 354 ·
+      <b>2. สรุปสถานะบนสุด</b> — รู้ทันทีว่ามีงานค้างเท่าไร ·
+      <b>3. เลือกหลายร้านแล้วสั่งทีเดียว</b> — ปัญหาคือ 320 ร้านไม่มีหมวด แก้ทีละร้านไม่มีวันจบ
+    </div>
+  </section>
+
+  <!-- 05 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">05 — เครื่องมือที่ขาดที่สุด</div>
+      <h2>ตัวช่วยรวมชื่อซ้ำ</h2>
+    </div>
+    <p class="col">
+      ชื่อซ้ำทำให้ตัวเลขทุกอย่างผิด — Makro ถูกนับเป็น 62 กับ 45 แทนที่จะเป็น 107
+      ระบบเสนอคู่ที่น่าจะซ้ำให้คนตัดสิน ไม่รวมเอง
+    </p>
+    <div class="app">
+      <div class="app-lbl" style="margin-bottom:.5rem">คู่ที่น่าจะเป็นร้านเดียวกัน · เรียงตามความมั่นใจ</div>
+      <div style="display:grid;gap:.5rem">
+        <div class="merge-card">
+          <div class="merge-pair">
+            <span class="nm">Siam Makro <span class="app-dim">62 ครั้ง</span></span>
+            <span class="app-dim">↔</span>
+            <span class="nm">แม็คโคร <span class="app-dim">45 ครั้ง</span></span>
+            <span class="app-chip" style="margin-left:auto">ชื่อไทย–อังกฤษของร้านเดียวกัน</span>
+          </div>
+          <div class="app-row" style="gap:.4rem">
+            <span class="app-btn" style="font-size:.72rem">รวมเป็นร้านเดียว</span>
+            <span class="app-btn ghost" style="font-size:.72rem">คนละร้าน</span>
+          </div>
+        </div>
+        <div class="merge-card">
+          <div class="merge-pair">
+            <span class="nm">กรกมล ธรรมรัตน์ <span class="app-dim">23</span></span>
+            <span class="app-dim">↔</span>
+            <span class="nm">นางสาว กรกมล ธรรมรัต <span class="app-dim">20</span></span>
+            <span class="app-chip" style="margin-left:auto">ชื่อสะกดตก · ต่างกัน 4 ตัวอักษร</span>
+          </div>
+          <div class="app-row" style="gap:.4rem">
+            <span class="app-btn" style="font-size:.72rem">รวมเป็นร้านเดียว</span>
+            <span class="app-btn ghost" style="font-size:.72rem">คนละร้าน</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="app-lbl" style="margin:.9rem 0 .5rem">น่าจะไม่ใช่ชื่อร้าน · ระบบเดามาจากสลิป</div>
+      <div class="app-card">
+        <div class="app-row" style="justify-content:space-between">
+          <span style="font-size:.8rem">“พัสดุ” <span class="app-dim">44 ครั้ง</span> · “คนละครึ่ง” <span class="app-dim">28 ครั้ง</span></span>
+          <span class="app-row" style="gap:.4rem">
+            <span class="app-btn ghost" style="font-size:.7rem">ซ่อนทั้งหมด</span>
+            <span class="app-btn ghost" style="font-size:.7rem">ดูทีละรายการ</span>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="note warn-note col" style="margin-top:1.1rem">
+      <h4>กฎที่ห้ามข้าม</h4>
+      <b>ระบบห้ามรวมชื่อเอง ต้องให้คนกด</b> — ถ้าเดาผิดแล้วรวมไปแล้ว ประวัติการซื้อสองร้านจะปนกันแก้กลับยาก ·
+      และตอนรวมต้อง<b>เก็บชื่อเดิมไว้เป็นชื่อพ้อง</b> เพราะสลิปใบเก่ายังอ่านได้ชื่อนั้นอยู่ ไม่งั้นครั้งหน้า OCR ก็สร้างซ้ำอีก
+    </div>
+  </section>
+
+  <!-- 06 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">06 — สิ่งที่ยังทำไม่ได้</div>
+      <h2>ยอดเงินต่อร้าน ต้องแก้ที่ฐานข้อมูลก่อน</h2>
+    </div>
+    <div class="col">
+      <p>
+        คำถามที่เจ้าของอยากรู้จริง ๆ ไม่ใช่ “ร้านนี้เจอกี่ครั้ง” แต่คือ <b>“ร้านไหนกินเงินเราเยอะที่สุด”</b>
+        — แต่ตอนนี้ตอบไม่ได้
+      </p>
+      <div class="chain" style="margin:1rem 0">
+        <div class="chain-row dead">
+          <span class="lbl">ข้อจำกัดที่ตรวจเจอ</span>
+          <span>ตาราง <code>transactions</code> <b>ไม่มีคอลัมน์เชื่อมไปที่ร้านค้าเลย</b> — ไม่มีทั้ง vendor · merchant · payee</span>
+        </div>
+        <div class="chain-row">
+          <span class="lbl">ที่เชื่อมได้ตอนนี้</span>
+          <span>มีทางเดียวคือ <code>pending_bills.payee_ref_id</code> ซึ่งครอบคลุมเฉพาะบิลที่ผ่านคิวรอจ่าย — ปัจจุบันมีอยู่ <b>ใบเดียว</b></span>
+        </div>
+      </div>
+      <p>
+        แปลว่า “ยอดซื้อสะสมต่อร้าน” ที่ควรอยู่บนหน้านี้ <b>ไม่ใช่งานหน้าจอ แต่เป็นงานฐานข้อมูล</b>
+        ต้องเพิ่มการเชื่อมรายการจ่ายกับร้านค้าก่อน ถึงจะแสดงได้จริง — และนั่นเป็นงานคนละก้อนกับการจัดหน้า
+      </p>
+    </div>
+  </section>
+
+  <!-- 07 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">07 — ลำดับทำ</div>
+      <h2>สามรอบ เรียงตามผลที่ได้ต่อแรงที่ลง</h2>
+    </div>
+    <div class="phases">
+      <div class="phase">
+        <div class="phase-tag">รอบ 1 · หน้าจอล้วน</div>
+        <h3>ทำให้เปิดมาแล้วใช้งานได้</h3>
+        <ul>
+          <li>แท็บ คู่ค้าประจำ / รอจัดระเบียบ / เลิกใช้</li>
+          <li>สรุปจำนวนสามตัวบนสุด</li>
+          <li>แถวกระชับ ตัดบรรทัด “ยังไม่ระบุ…” ทิ้ง</li>
+          <li>เรียงลำดับเลือกได้</li>
+        </ul>
+        <div class="dod">จบเมื่อ: เปิดหน้ามาเจอคู่ค้าที่ใช้จริงในจอแรก ไม่ต้องเลื่อนหา</div>
+      </div>
+      <div class="phase">
+        <div class="phase-tag">รอบ 2 · จัดระเบียบ</div>
+        <h3>ล้างข้อมูลให้เชื่อได้</h3>
+        <ul>
+          <li>ตัวช่วยรวมชื่อซ้ำ + เก็บชื่อพ้อง</li>
+          <li>คิว “ไม่ใช่ชื่อร้าน” + ซ่อนทีละหลายรายการ</li>
+          <li>เลือกหลายร้านแล้วตั้งหมวดทีเดียว</li>
+        </ul>
+        <div class="dod">จบเมื่อ: 30 ร้านที่ใช้บ่อยที่สุดมีหมวดและเอกสารครบ ไม่มีชื่อซ้ำเหลือ</div>
+      </div>
+      <div class="phase">
+        <div class="phase-tag">รอบ 3 · ต่อฐานข้อมูล</div>
+        <h3>ตอบคำถามเรื่องเงิน</h3>
+        <ul>
+          <li>เชื่อมรายการจ่ายกับร้านค้า</li>
+          <li>ยอดซื้อสะสม/เดือนต่อร้าน</li>
+          <li>เทียบราคาข้ามร้าน</li>
+        </ul>
+        <div class="dod">อย่าเริ่มจนกว่ารอบ 2 จะเสร็จ — เชื่อมข้อมูลสกปรกเข้าไปก็ได้ตัวเลขที่เชื่อไม่ได้</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 08 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">08 — สมมติฐาน</div>
+      <h2>สิ่งที่ยังไม่ได้เช็ค</h2>
+    </div>
+    <div class="tw">
+      <table>
+        <thead><tr><th>#</th><th>สมมติฐาน</th><th>ถ้าผิด</th><th>เช็คยังไง</th></tr></thead>
+        <tbody>
+          <tr>
+            <td class="num">1</td>
+            <td>ร้านที่ “ใช้จริง” มีราว 30–50 ร้าน ที่เหลือเป็นชื่อผ่านทาง</td>
+            <td>ถ้าจริง ๆ ใช้เป็นร้อยร้าน แท็บ “คู่ค้าประจำ” จะยังยาวอยู่ ต้องเพิ่มการจัดกลุ่ม</td>
+            <td>นับร้านที่ใช้เกิน 5 ครั้งใน 90 วัน</td>
+          </tr>
+          <tr>
+            <td class="num">2</td>
+            <td>เจ้าของยอมลงแรงจัดระเบียบ 30 ร้านแรก</td>
+            <td><span class="tag risk">พลิกทั้งงาน</span> — ถ้าไม่มีใครกรอก หน้าสวยแค่ไหนก็ยังว่างเปล่า</td>
+            <td>ลองกรอก 5 ร้านแรกดูว่าใช้เวลาจริงเท่าไร</td>
+          </tr>
+          <tr>
+            <td class="num">3</td>
+            <td>ชื่อซ้ำหาเจอด้วยกฎง่าย ๆ (ตัวอักษรคล้ายกัน + เลขบัญชีเดียวกัน)</td>
+            <td>ต้องให้คนไล่ดูเองทั้ง 354 รายการ ซึ่งจะไม่มีใครทำ</td>
+            <td>ลองจับคู่ 354 ชื่อด้วยกฎ แล้วดูว่าได้คู่ที่สมเหตุสมผลกี่คู่</td>
+          </tr>
+          <tr>
+            <td class="num">4</td>
+            <td>ร้านที่ OCR สร้างมาผิด ลบทิ้งได้โดยไม่กระทบรายการเก่า</td>
+            <td>ต้องใช้วิธีซ่อนแทนลบ (ซึ่งปลอดภัยกว่าอยู่แล้ว จึงเสนอแบบซ่อนตั้งแต่ต้น)</td>
+            <td>ดูว่ามีอะไรอ้างถึง <code>vendor_profiles.id</code> บ้าง</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 09 -->
+  <section>
+    <div class="sec-head col">
+      <div class="sec-num">09 — เริ่มยังไง</div>
+      <h2>สิ่งที่ทำได้ทันที</h2>
+    </div>
+    <ol class="checks col">
+      <li><b>วันนี้ · 10 นาที</b> — เปิดหน้าร้านค้า ไล่ดู 20 อันดับแรก แล้วบอกผมว่าอันไหน “ไม่ใช่ร้าน” บ้าง ผมจะได้ตั้งกฎกรองให้ตรงของจริง</li>
+      <li><b>วันนี้ · 5 นาที</b> — กรอกข้อมูลให้ <b>ร้านเดียว</b> ที่ซื้อบ่อยที่สุด (หมวด · เอกสาร · เลขบัญชี) จับเวลาว่าใช้จริงกี่นาที เอาไปคูณ 30 จะรู้ว่าคุ้มไหม</li>
+      <li><b>ตัดสินใจ</b> — ถ้าข้อบนใช้เวลาเกิน 3 นาทีต่อร้าน ต้องลดฟิลด์ที่บังคับกรอกลงก่อน ไม่ใช่เริ่มทำหน้าจอ</li>
+      <li><b>แล้วค่อยเริ่มรอบ 1</b> — งานหน้าจอล้วน ไม่แตะฐานข้อมูล ถอยกลับง่าย</li>
+    </ol>
+  </section>
+
+  <footer>
+    <span>FinTrack · Famous Star Food OS</span>
+    <span>ตัวเลขทั้งหมดนับจากฐานข้อมูล production</span>
+    <span>1 ก.ย. 2569</span>
+  </footer>
+</div>

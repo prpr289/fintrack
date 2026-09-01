@@ -90,9 +90,19 @@ export const api = {
     const p = new URLSearchParams()
     if (q) p.set('q', q)
     if (opts?.includeInactive) p.set('includeInactive', '1')
+    // ของใหม่ ส่งเมื่อต้องการเท่านั้น — ผู้เรียกเดิมได้พฤติกรรมเดิม
+    if (opts?.scope) p.set('scope', opts.scope)
+    if (opts?.sort) p.set('sort', opts.sort)
+    if (opts?.limit) p.set('limit', String(opts.limit))
+    if (opts?.offset) p.set('offset', String(opts.offset))
     const s = p.toString()
     return req('GET', '/vendor-profiles' + (s ? `?${s}` : ''))
   },
+  // คู่ร้านที่น่าจะซ้ำกัน — ระบบเสนอ คนกดยืนยันเอง
+  vendorDuplicates: (limit) => req('GET', '/vendor-profiles/duplicates' + (limit ? `?limit=${limit}` : '')),
+  // รวมร้าน dropId เข้ากับ intoId (ร้านเดิมถูกปิด ไม่ลบ กัน OCR สร้างซ้ำ)
+  mergeVendor: (dropId, intoId) => req('POST', `/vendor-profiles/${dropId}/merge`, { intoId }),
+  bulkUpdateVendors: (body) => req('POST', '/vendor-profiles/bulk', body),
   merchant: (id) => req('GET', `/vendor-profiles/${id}`),
   createMerchant: (body) => req('POST', '/vendor-profiles/create', body),
 

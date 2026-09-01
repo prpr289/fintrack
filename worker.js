@@ -3,6 +3,7 @@ import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } fr
 import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
 import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
+import { findDuplicatePairs } from "./vendor-dedupe.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -135,6 +136,10 @@ var worker_default = {
       const viIdMatch = path.match(/^\/vendor-items\/([a-zA-Z0-9_-]+)$/);
       if (viIdMatch && method === "PATCH") return cors(await updateVendorItem(viIdMatch[1], request, env, user));
       if (viIdMatch && method === "DELETE") return cors(await deleteVendorItem(viIdMatch[1], env, user));
+      if (path === "/vendor-profiles/duplicates" && method === "GET") return cors(await listVendorDuplicates(request, env, user));
+      if (path === "/vendor-profiles/bulk" && method === "POST") return cors(await bulkUpdateVendors(request, env, user));
+      const vpMergeMatch = path.match(/^\/vendor-profiles\/([a-zA-Z0-9_-]+)\/merge$/);
+      if (vpMergeMatch && method === "POST") return cors(await mergeVendors(vpMergeMatch[1], request, env, user));
       if (path === "/vendor-profiles" && method === "GET") return cors(await listVendorProfiles(request, env, user));
       if (path === "/vendor-profiles" && method === "POST") return cors(await learnVendorProfile(request, env, user));
       if (path === "/vendor-profiles/create" && method === "POST") return cors(await createVendorProfile(request, env, user));
@@ -1766,9 +1771,18 @@ __name(matchSuggest, "matchSuggest");
 
 async function upsertVendorProfile(workspaceId, ocr, txCategoryId, txCategoryName, txSubCategoryId, txSubCategoryName, txWalletId, txWalletName, env) {
   if (!ocr?.vendor_name) return;
-  const existing = await env.DB.prepare(
+  let existing = await env.DB.prepare(
     "SELECT * FROM vendor_profiles WHERE workspace_id = ? AND vendor_name = ? COLLATE NOCASE"
   ).bind(workspaceId, ocr.vendor_name).first();
+  // ชื่อนี้ถูกรวมเข้าร้านอื่นไปแล้ว → เดินตามลูกศรไปเพิ่มยอดให้ร้านที่อยู่รอดแทน
+  // ถ้าไม่ทำ ครั้งหน้าที่ OCR อ่านเจอชื่อเดิม ยอดจะไปกองที่แถวที่เราปิดไปแล้ว
+  // จำกัดความลึกไว้ กันข้อมูลชี้วนกันเองแล้ววนไม่รู้จบ
+  for (let hop = 0; existing && existing.merged_into && hop < 5; hop++) {
+    const target = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?")
+      .bind(existing.merged_into, workspaceId).first();
+    if (!target || target.id === existing.id) break;
+    existing = target;
+  }
   const now = new Date().toISOString().slice(0, 10);
   if (existing) {
     await env.DB.prepare(`UPDATE vendor_profiles SET
@@ -1810,10 +1824,145 @@ __name(upsertVendorProfile, "upsertVendorProfile");
 // ?q=    — merchant directory search: name, tax id, bank account, phone. Digits-only
 //          terms also match accounts/tax ids stored with dashes, because at the till
 //          people remember "ท้ายบัญชี 4371" not the punctuation.
+// ── จัดระเบียบร้านค้า ──────────────────────────────────────────────────────
+// หน้ารายชื่อเดิมดึงมา LIMIT 200 ทั้งที่มี 354 ร้าน — 154 ร้านหายไปเงียบ ๆ
+// ตรงนี้จึงนับยอดฝั่ง server แล้วส่งกลับ เพื่อให้หน้าจอบอกความจริงได้ว่ามีเท่าไร
+// เกณฑ์ "ประจำ" = ยังใช้อยู่ และเคยเจอตั้งแต่ 5 ครั้งขึ้นไป (จากข้อมูลจริง = 56 ร้าน)
+const REGULAR_MIN_SEEN = 5;
+
+async function vendorCounts(env, workspaceId) {
+  const r = await env.DB.prepare(
+    `SELECT
+       SUM(CASE WHEN IFNULL(is_active,1)=1 AND IFNULL(occurrence_count,0) >= ? THEN 1 ELSE 0 END) AS regular,
+       SUM(CASE WHEN IFNULL(is_active,1)=1 AND IFNULL(occurrence_count,0) <  ? THEN 1 ELSE 0 END) AS occasional,
+       SUM(CASE WHEN IFNULL(is_active,1)=0 THEN 1 ELSE 0 END) AS hidden,
+       COUNT(*) AS total
+     FROM vendor_profiles WHERE workspace_id = ?`
+  ).bind(REGULAR_MIN_SEEN, REGULAR_MIN_SEEN, workspaceId).first();
+  return {
+    regular: Number(r?.regular) || 0, occasional: Number(r?.occasional) || 0,
+    hidden: Number(r?.hidden) || 0, total: Number(r?.total) || 0,
+  };
+}
+__name(vendorCounts, "vendorCounts");
+
+// เสนอคู่ที่น่าจะเป็นร้านเดียวกัน — ไม่รวมให้เอง คนต้องกดยืนยัน
+// จับได้เฉพาะชื่อที่คล้ายกันเชิงตัวอักษร: "Siam Makro" กับ "แม็คโคร" จับไม่ได้
+// เพราะคนละภาษาและไม่มีเลขบัญชี/เลขภาษีให้ยึด — หน้าจอต้องมีปุ่มรวมด้วยมือคู่กัน
+async function listVendorDuplicates(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const limit = Math.min(Number(new URL(request.url).searchParams.get("limit")) || 50, 200);
+  const rows = await env.DB.prepare(
+    "SELECT id, vendor_name, occurrence_count, last_seen FROM vendor_profiles WHERE workspace_id = ? AND IFNULL(is_active,1)=1 AND merged_into IS NULL"
+  ).bind(user.workspace_id).all();
+  const vendors = (rows.results || []).map(r => ({
+    id: r.id, vendorName: r.vendor_name,
+    occurrenceCount: Number(r.occurrence_count) || 0, lastSeen: r.last_seen || null,
+  }));
+  const pairs = findDuplicatePairs(vendors, 0.82, limit);
+  return json({ pairs, scanned: vendors.length });
+}
+__name(listVendorDuplicates, "listVendorDuplicates");
+
+// รวมร้าน dropId เข้ากับร้าน intoId
+// ไม่ลบแถวเดิม — ปิดใช้งานแล้วชี้ merged_into ไว้ เพื่อไม่ให้ OCR สร้างชื่อเดิมซ้ำอีก
+async function mergeVendors(dropId, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const body = await request.json().catch(() => ({}));
+  const intoId = String(body.intoId || "");
+  if (!intoId) return json({ error: "ต้องระบุร้านปลายทาง" }, 400);
+  if (intoId === dropId) return json({ error: "รวมกับตัวเองไม่ได้" }, 400);
+  const ws = user.workspace_id;
+  const [drop, keep] = await Promise.all([
+    env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(dropId, ws).first(),
+    env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ? AND workspace_id = ?").bind(intoId, ws).first(),
+  ]);
+  if (!drop || !keep) return json({ error: "ไม่พบร้าน" }, 404);
+  if (drop.merged_into) return json({ error: "ร้านนี้ถูกรวมไปแล้ว" }, 409);
+  if (keep.merged_into) return json({ error: "ร้านปลายทางถูกรวมไปที่อื่นแล้ว" }, 409);
+
+  const steps = [
+    // ย้ายบิลที่อ้างร้านเดิมมาที่ร้านที่อยู่รอด
+    env.DB.prepare("UPDATE pending_bills SET payee_ref_id = ? WHERE payee_ref_id = ? AND workspace_id = ?").bind(intoId, dropId, ws),
+    // ย้ายตะกร้าสินค้า — ชื่อที่ชนกันให้รวมยอดแทนสร้างซ้ำ (unique index กันไว้อยู่แล้ว)
+    env.DB.prepare(
+      `INSERT INTO vendor_items (id, workspace_id, vendor_id, name, unit, last_price, times_bought, last_bought_at, is_active)
+       SELECT 'vi_' || lower(hex(randomblob(8))), workspace_id, ?, name, unit, last_price, times_bought, last_bought_at, is_active
+       FROM vendor_items WHERE workspace_id = ? AND vendor_id = ?
+       ON CONFLICT(workspace_id, vendor_id, name) DO UPDATE SET
+         times_bought = vendor_items.times_bought + excluded.times_bought,
+         last_price = COALESCE(excluded.last_price, vendor_items.last_price),
+         last_bought_at = MAX(IFNULL(vendor_items.last_bought_at,''), IFNULL(excluded.last_bought_at,'')),
+         updated_at = CURRENT_TIMESTAMP`
+    ).bind(intoId, ws, dropId),
+    env.DB.prepare("DELETE FROM vendor_items WHERE workspace_id = ? AND vendor_id = ?").bind(ws, dropId),
+    // รวมยอดและเติมช่องที่ร้านปลายทางยังว่าง จากข้อมูลของร้านที่ถูกรวม
+    env.DB.prepare(
+      `UPDATE vendor_profiles SET
+         occurrence_count = IFNULL(occurrence_count,0) + ?,
+         last_seen = MAX(IFNULL(last_seen,''), ?),
+         tax_id = COALESCE(tax_id, ?), address = COALESCE(address, ?), phone = COALESCE(phone, ?),
+         bank_name = COALESCE(bank_name, ?), bank_account_no = COALESCE(bank_account_no, ?),
+         bank_account_name = COALESCE(bank_account_name, ?), promptpay_id = COALESCE(promptpay_id, ?),
+         business_type = COALESCE(business_type, ?), business_sub_type = COALESCE(business_sub_type, ?),
+         doc_type = COALESCE(doc_type, ?), taxpayer_type = COALESCE(taxpayer_type, ?),
+         updated_at = datetime('now')
+       WHERE id = ? AND workspace_id = ?`
+    ).bind(
+      Number(drop.occurrence_count) || 0, drop.last_seen || '',
+      drop.tax_id || null, drop.address || null, drop.phone || null,
+      drop.bank_name || null, drop.bank_account_no || null,
+      drop.bank_account_name || null, drop.promptpay_id || null,
+      drop.business_type || null, drop.business_sub_type || null,
+      drop.doc_type || null, drop.taxpayer_type || null,
+      intoId, ws
+    ),
+    // ปิดร้านเดิมแล้วชี้ทางไว้ ไม่ลบ
+    env.DB.prepare("UPDATE vendor_profiles SET is_active = 0, merged_into = ?, updated_at = datetime('now') WHERE id = ? AND workspace_id = ?").bind(intoId, dropId, ws),
+  ];
+  await env.DB.batch(steps);
+  await logAudit(env, user, "merge", "vendor_profile", dropId, { intoId, name: drop.vendor_name, into: keep.vendor_name });
+  const merged = await env.DB.prepare("SELECT * FROM vendor_profiles WHERE id = ?").bind(intoId).first();
+  return json({ ok: true, vendor: formatVendor(merged) });
+}
+__name(mergeVendors, "mergeVendors");
+
+// จัดการหลายร้านพร้อมกัน — ปัญหาคือ 300+ ร้านไม่มีหมวด แก้ทีละร้านไม่มีวันจบ
+async function bulkUpdateVendors(request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  const b = await request.json().catch(() => ({}));
+  const ids = Array.isArray(b.ids) ? b.ids.filter(x => typeof x === "string").slice(0, 200) : [];
+  if (!ids.length) return json({ error: "ยังไม่ได้เลือกร้าน" }, 400);
+  const sets = [];
+  const args = [];
+  if (b.businessType !== undefined) { sets.push("business_type = ?"); args.push(b.businessType || null); }
+  if (b.businessSubType !== undefined) { sets.push("business_sub_type = ?"); args.push(b.businessSubType || null); }
+  if (b.docType !== undefined) { sets.push("doc_type = ?"); args.push(b.docType || null); }
+  if (b.isActive !== undefined) { sets.push("is_active = ?"); args.push(b.isActive ? 1 : 0); }
+  if (!sets.length) return json({ error: "ไม่มีอะไรให้แก้" }, 400);
+  sets.push("updated_at = datetime('now')");
+  const marks = ids.map(() => "?").join(",");
+  const res = await env.DB.prepare(
+    `UPDATE vendor_profiles SET ${sets.join(", ")} WHERE workspace_id = ? AND id IN (${marks})`
+  ).bind(...args, user.workspace_id, ...ids).run();
+  await logAudit(env, user, "bulk_update", "vendor_profile", ids[0], { count: ids.length, fields: sets.length - 1 });
+  return json({ ok: true, updated: res.meta?.changes ?? ids.length });
+}
+__name(bulkUpdateVendors, "bulkUpdateVendors");
+
 async function listVendorProfiles(request, env, user) {
   const params = new URL(request.url).searchParams;
   const name = params.get('name') || '';
   const q = (params.get('q') || '').trim();
+  const scope = params.get('scope') || '';
+  const limit = Math.min(Number(params.get('limit')) || 200, 500);
+  const offset = Math.max(Number(params.get('offset')) || 0, 0);
+  const SORTS = {
+    used: 'occurrence_count DESC, last_seen DESC',
+    recent: 'last_seen DESC, occurrence_count DESC',
+    name: 'vendor_name COLLATE NOCASE ASC',
+  };
+  const orderBy = SORTS[params.get('sort')] || SORTS.used;
   let rows;
   if (name) {
     rows = await env.DB.prepare(
@@ -1838,12 +1987,23 @@ async function listVendorProfiles(request, env, user) {
          ) ORDER BY occurrence_count DESC, last_seen DESC LIMIT 100`
       ).bind(user.workspace_id, like, like, like, like, like, like, like, like, dlike, dlike, dlike).all();
     } else {
+      // scope/limit/offset เป็นของใหม่ ใช้เฉพาะเมื่อส่งมา — ผู้เรียกเดิม (เช่น MerchantPicker)
+      // ที่ไม่ส่งอะไรมา ยังได้พฤติกรรมเดิมทุกอย่าง
+      let scopeCond = '';
+      const scopeArgs = [];
+      if (scope === 'regular') { scopeCond = ' AND IFNULL(occurrence_count,0) >= ?'; scopeArgs.push(REGULAR_MIN_SEEN); }
+      else if (scope === 'occasional') { scopeCond = ' AND IFNULL(occurrence_count,0) < ?'; scopeArgs.push(REGULAR_MIN_SEEN); }
+      // ร้านที่ถูกรวมไปแล้วไม่ต้องโผล่ในรายชื่อปกติ (ยังค้นเจอได้ถ้าขอ includeInactive)
+      const mergedCond = params.get('includeInactive') === '1' ? '' : ' AND merged_into IS NULL';
       rows = await env.DB.prepare(
-        `SELECT * FROM vendor_profiles WHERE workspace_id = ?${active} ORDER BY occurrence_count DESC, last_seen DESC LIMIT 200`
-      ).bind(user.workspace_id).all();
+        `SELECT * FROM vendor_profiles WHERE workspace_id = ?${active}${scopeCond}${mergedCond} ORDER BY ${orderBy} LIMIT ? OFFSET ?`
+      ).bind(user.workspace_id, ...scopeArgs, limit, offset).all();
     }
   }
-  return json({ vendors: (rows.results || []).map(formatVendor) });
+  // นับจากฐานข้อมูลเสมอ ไม่ใช่จากจำนวนแถวที่ส่งกลับ — หน้าจอเดิมเคยโชว์ "N ร้าน"
+  // จากผลที่ถูกตัดที่ 200 ทั้งที่มี 354 ร้าน ทำให้เข้าใจผิดว่ามีแค่นั้น
+  const counts = name ? null : await vendorCounts(env, user.workspace_id);
+  return json({ vendors: (rows.results || []).map(formatVendor), counts });
 }
 __name(listVendorProfiles, "listVendorProfiles");
 

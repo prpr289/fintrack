@@ -1,65 +1,100 @@
-import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import MerchantModal from '../components/MerchantModal'
+import MergeSuggestions from '../components/MergeSuggestions'
 import DocBadge from '../components/DocBadge'
 import { BUSINESS_TYPES } from '../merchantMeta'
-import { Search, Store, Loader2, Plus, ChevronRight, Landmark, EyeOff } from 'lucide-react'
+import { Search, Store, Loader2, Plus, ChevronRight, EyeOff } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
+const SUNK = { background: '#0d1120', border: '1px solid #1f2937' }
+const PAGE = 100
 
-function Chip({ on, onClick, children }) {
-  return (
-    <button onClick={onClick} aria-pressed={on}
-      className="text-xs px-3 py-1.5 rounded-full border transition-colors whitespace-nowrap"
-      style={{
-        background: on ? 'rgba(16,185,129,0.12)' : '#0d1120',
-        borderColor: on ? 'rgba(16,185,129,0.4)' : '#1f2937',
-        color: on ? '#34d399' : '#94a3b8',
-        fontWeight: on ? 600 : 400,
-      }}>{children}</button>
-  )
+// แท็บแทนแถวชิป 11 อัน — ชิปหมวดธุรกิจใช้ไม่ได้จริงเพราะ 353 จาก 354 ร้านไม่ระบุหมวด
+// เกณฑ์ "ประจำ" อิงการใช้งานจริง (เจอตั้งแต่ 5 ครั้ง) ไม่ใช่ความครบของข้อมูล
+// ถ้าอิงความครบ แท็บแรกจะว่างเปล่าเพราะแทบไม่มีร้านไหนกรอกข้อมูลไว้
+const TABS = [
+  { key: 'regular', label: 'คู่ค้าประจำ', countKey: 'regular', hint: 'เจอตั้งแต่ 5 ครั้งขึ้นไป' },
+  { key: 'occasional', label: 'ใช้นาน ๆ ครั้ง', countKey: 'occasional', hint: 'เจอไม่ถึง 5 ครั้ง — ส่วนใหญ่เป็นชื่อที่ระบบเดามาจากสลิป' },
+  { key: 'hidden', label: 'ซ่อนแล้ว', countKey: 'hidden', hint: 'ไม่โผล่ตอนแจ้งบิล แต่ยังอ้างอิงย้อนหลังได้' },
+]
+
+const SORTS = [
+  { key: 'used', label: 'ใช้บ่อยสุด' },
+  { key: 'recent', label: 'ล่าสุด' },
+  { key: 'name', label: 'ชื่อ ก–ฮ' },
+]
+
+// รวมสถานะข้อมูลเป็นป้ายเดียว — ของเดิมเขียน "ยังไม่ระบุหมวดธุรกิจ" ซ้ำทุกแถว
+// ซึ่งกินที่ 353 บรรทัดโดยไม่บอกอะไรที่ต่างกันเลย
+function completeness(m) {
+  const missing = []
+  if (!m.businessType) missing.push('หมวด')
+  if (!m.docType) missing.push('เอกสาร')
+  if (!m.bankAccountNo) missing.push('บัญชี')
+  return missing
 }
 
 export default function Merchants() {
   const [merchants, setMerchants] = useState([])
+  const [counts, setCounts] = useState(null)
   const [cats, setCats] = useState([])
   const [wallets, setWallets] = useState([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [debounced, setDebounced] = useState('')
   const [adding, setAdding] = useState(false)
-  const [bizFilter, setBizFilter] = useState('')
-  const [onlyFullTax, setOnlyFullTax] = useState(false)
-  const [showInactive, setShowInactive] = useState(false)
+  const [tab, setTab] = useState('regular')
+  const [sort, setSort] = useState('used')
+  const [page, setPage] = useState(0)
+  const [picked, setPicked] = useState([])
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [err, setErr] = useState('')
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(search), 350)
     return () => clearTimeout(t)
   }, [search])
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [md, cd, wd] = await Promise.all([
-        api.merchants(debounced, { includeInactive: showInactive }), api.categories(), api.wallets(),
-      ])
-      setMerchants(md.vendors || [])
-      setCats(cd.categories || [])
-      setWallets(wd.wallets || [])
-    } finally { setLoading(false) }
-  }, [debounced, showInactive])
+  // ค้นหาแล้วให้ข้ามแท็บ — คนค้นหาต้องการเจอร้าน ไม่ใช่เจอแท็บที่ถูก
+  const searching = debounced.trim().length > 0
+
+  const load = useCallback(() => {
+    const opts = searching
+      ? { includeInactive: true }
+      : { scope: tab === 'hidden' ? '' : tab, includeInactive: tab === 'hidden', sort, limit: PAGE, offset: page * PAGE }
+    return Promise.all([api.merchants(debounced, opts), api.categories(), api.wallets()])
+      .then(([md, cd, wd]) => {
+        const list = md.vendors || []
+        setMerchants(tab === 'hidden' && !searching ? list.filter(m => m.isActive === false) : list)
+        setCounts(md.counts || null)
+        setCats(cd.categories || [])
+        setWallets(wd.wallets || [])
+        setErr('')
+      })
+      .catch(e => setErr(e.message || 'โหลดรายชื่อไม่สำเร็จ'))
+      .finally(() => setLoading(false))
+  }, [debounced, searching, tab, sort, page])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(0); setPicked([]) }, [tab, sort, debounced])
 
-  // ponytail: กรองชิปในเครื่องจากผลที่ API ส่งมา (เพดาน 200 ร้าน / ค้นหาแล้ว 100)
-  // ถ้าร้านทะลุเพดานเมื่อไหร่ค่อยย้ายไปกรองฝั่ง SQL
-  const shown = useMemo(() => merchants.filter(m =>
-    (!bizFilter || m.businessType === bizFilter) &&
-    (!onlyFullTax || m.docType === 'full_tax')
-  ), [merchants, bizFilter, onlyFullTax])
+  const toggle = (id) => setPicked(p => p.includes(id) ? p.filter(x => x !== id) : [...p, id])
+
+  const bulk = async (body, confirmMsg) => {
+    if (confirmMsg && !confirm(confirmMsg)) return
+    setBulkBusy(true); setErr('')
+    try {
+      await api.bulkUpdateVendors({ ids: picked, ...body })
+      setPicked([])
+      await load()
+    } catch (e) { setErr(e.message || 'แก้ไม่สำเร็จ') } finally { setBulkBusy(false) }
+  }
 
   const fmtDate = (s) => s ? new Date(s).toLocaleDateString('th-TH', { year: '2-digit', month: 'short', day: 'numeric' }) : '-'
+  const tabCount = (t) => counts ? counts[t.countKey] : null
+  const activeTab = TABS.find(t => t.key === tab)
 
   return (
     <div className="merchants-page p-4 sm:p-5 space-y-4">
@@ -81,13 +116,17 @@ export default function Merchants() {
         </div>
         <div className="min-w-0 flex-1">
           <h2 className="text-xl font-bold text-white leading-tight">ร้านค้า / ซัพพลายเออร์</h2>
-          <p className="text-sm text-slate-500 mt-0.5">ข้อมูลร้าน · บัญชีรับเงิน · เอกสารภาษี — ใช้เติมอัตโนมัติตอนแจ้งบิล</p>
+          <p className="text-sm text-slate-500 mt-0.5">
+            {counts ? <>ทั้งหมด <span className="tabular-nums">{counts.total}</span> ร้าน · ใช้เติมข้อมูลอัตโนมัติตอนออกบิล</> : 'ทะเบียนคู่ค้า'}
+          </p>
         </div>
         <button onClick={() => setAdding(true)}
           className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg px-3.5 py-2 text-sm font-semibold transition-colors flex-shrink-0">
           <Plus className="w-4 h-4" /><span className="hidden sm:inline">เพิ่มร้านค้า</span>
         </button>
       </div>
+
+      <MergeSuggestions onMerged={load} />
 
       <div className="relative">
         <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -97,75 +136,112 @@ export default function Merchants() {
           style={{ background: '#0d1120' }} />
       </div>
 
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label="กรองร้านค้า">
-        <Chip on={!bizFilter} onClick={() => setBizFilter('')}>ทั้งหมด</Chip>
-        {BUSINESS_TYPES.map(b => (
-          <Chip key={b.value} on={bizFilter === b.value} onClick={() => setBizFilter(bizFilter === b.value ? '' : b.value)}>{b.value}</Chip>
-        ))}
-        <Chip on={onlyFullTax} onClick={() => setOnlyFullTax(v => !v)}>◆ ออกใบกำกับภาษีได้</Chip>
-        <Chip on={showInactive} onClick={() => setShowInactive(v => !v)}>รวมร้านที่เลิกใช้</Chip>
-      </div>
+      {!searching && (
+        <div>
+          <div className="flex flex-wrap gap-1.5" role="tablist">
+            {TABS.map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)} role="tab" aria-selected={tab === t.key}
+                className="text-xs px-3 py-1.5 rounded-full border transition-colors whitespace-nowrap"
+                style={{
+                  background: tab === t.key ? 'rgba(16,185,129,0.12)' : '#0d1120',
+                  borderColor: tab === t.key ? 'rgba(16,185,129,0.4)' : '#1f2937',
+                  color: tab === t.key ? '#34d399' : '#94a3b8',
+                  fontWeight: tab === t.key ? 600 : 400,
+                }}>
+                {t.label}{tabCount(t) != null && <span className="tabular-nums"> {tabCount(t)}</span>}
+              </button>
+            ))}
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="text-xs text-slate-600">เรียง</span>
+              <select value={sort} onChange={e => setSort(e.target.value)} aria-label="เรียงลำดับ"
+                className="text-xs rounded-lg px-2 py-1.5 text-slate-300 border border-slate-700" style={{ background: '#0d1120' }}>
+                {SORTS.map(s => <option key={s.key} value={s.key}>{s.label}</option>)}
+              </select>
+            </div>
+          </div>
+          {activeTab?.hint && <p className="text-[11px] text-slate-600 mt-1.5">{activeTab.hint}</p>}
+        </div>
+      )}
+
+      {picked.length > 0 && (
+        <div className="rounded-xl p-3 flex items-center gap-2 flex-wrap" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
+          <span className="text-sm text-slate-200">เลือกไว้ <b className="tabular-nums">{picked.length}</b> ร้าน</span>
+          <select disabled={bulkBusy} defaultValue="" aria-label="ตั้งหมวดธุรกิจ"
+            onChange={e => { if (e.target.value) { bulk({ businessType: e.target.value }); e.target.value = '' } }}
+            className="text-xs rounded-lg px-2 py-1.5 text-slate-300 border border-slate-600" style={{ background: '#0d1120' }}>
+            <option value="">ตั้งหมวดธุรกิจ…</option>
+            {BUSINESS_TYPES.map(b => <option key={b.value} value={b.value}>{b.value}</option>)}
+          </select>
+          <button disabled={bulkBusy} onClick={() => bulk({ isActive: false }, `ซ่อน ${picked.length} ร้าน?\n\nจะไม่โผล่ตอนแจ้งบิล แต่บิลเก่ายังอ้างอิงได้ตามเดิม`)}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 disabled:opacity-50">ซ่อน</button>
+          {tab === 'hidden' && (
+            <button disabled={bulkBusy} onClick={() => bulk({ isActive: true })}
+              className="text-xs px-3 py-1.5 rounded-lg border border-slate-600 text-slate-300 disabled:opacity-50">เอากลับมาใช้</button>
+          )}
+          <button onClick={() => setPicked([])} className="text-xs text-slate-500 ml-auto">ยกเลิกที่เลือก</button>
+        </div>
+      )}
+
+      {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
 
       <div className="rounded-xl overflow-hidden" style={CARD}>
         {loading ? (
           <div className="p-8 text-center"><Loader2 className="w-5 h-5 text-emerald-500 animate-spin mx-auto" /></div>
-        ) : shown.length === 0 ? (
+        ) : merchants.length === 0 ? (
           <div className="p-12 text-center flex flex-col items-center gap-2">
-            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={{ background: '#0d1120', border: '1px solid #2e3349' }}>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center mb-1" style={SUNK}>
               <Store className="w-6 h-6 text-slate-600" />
             </div>
             <p className="text-slate-300 text-sm font-medium">
-              {bizFilter || onlyFullTax ? 'ไม่มีร้านที่ตรงกับตัวกรอง' : debounced ? 'ไม่พบร้านค้าที่ค้นหา' : 'ยังไม่มีร้านค้า'}
+              {searching ? 'ไม่พบร้านค้าที่ค้นหา' : 'ยังไม่มีร้านในกลุ่มนี้'}
             </p>
-            {bizFilter || onlyFullTax ? (
-              <button onClick={() => { setBizFilter(''); setOnlyFullTax(false) }} className="text-emerald-400 hover:text-emerald-300 text-sm font-medium mt-1">
-                ล้างตัวกรอง
-              </button>
-            ) : (
+            {searching && (
               <button onClick={() => setAdding(true)} className="text-emerald-400 hover:text-emerald-300 text-sm font-medium mt-1">
-                + เพิ่มร้านใหม่{debounced ? ` "${debounced}"` : ''}
+                + เพิ่มร้านใหม่ &quot;{debounced}&quot;
               </button>
             )}
           </div>
         ) : (
           <div className="divide-y" style={{ borderColor: '#1a2035' }}>
-            {shown.map(m => (
-              <Link key={m.id} to={`/merchants/${m.id}`}
-                className="flex items-center gap-3 p-4 hover:bg-white/[0.02] transition-colors">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className={`font-semibold text-sm truncate ${m.isActive === false ? 'text-slate-500 line-through' : 'text-slate-200'}`}>{m.vendorName}</p>
-                    <DocBadge docType={m.docType} short />
-                    {m.isActive === false && (
-                      <span className="text-[11px] text-slate-500 flex items-center gap-1"><EyeOff className="w-3 h-3" />เลิกใช้</span>
+            {merchants.map(m => {
+              const missing = completeness(m)
+              return (
+                <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-white/[0.02] transition-colors">
+                  <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)}
+                    aria-label={`เลือก ${m.vendorName}`} className="flex-shrink-0 accent-emerald-500" />
+                  <Link to={`/merchants/${m.id}`} className="flex items-center gap-2.5 min-w-0 flex-1">
+                    <span className={`text-sm truncate flex-1 ${m.isActive === false ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
+                      {m.vendorName}
+                    </span>
+                    {m.docType && <DocBadge docType={m.docType} short />}
+                    {missing.length > 0 && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full flex-shrink-0 hidden sm:inline"
+                        style={{ background: '#b4530922', color: '#f59e0b' }}>ยังไม่มี{missing.join(' · ')}</span>
                     )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-slate-500 mt-1">
-                    <span>{m.businessType
-                      ? <>{m.businessType}{m.businessSubType && <span className="text-slate-600"> › {m.businessSubType}</span>}</>
-                      : <span className="text-slate-600">ยังไม่ระบุหมวดธุรกิจ</span>}</span>
-                    {m.bankAccountNo && (
-                      <span className="flex items-center gap-1">· <Landmark className="w-3 h-3" />
-                        {m.bankName || 'บัญชี'} <span className="font-mono tabular-nums">{m.bankAccountNo}</span></span>
-                    )}
-                    {m.taxId && <span className="font-mono tabular-nums">· ภาษี {m.taxId}</span>}
-                  </div>
+                    {m.isActive === false && <EyeOff className="w-3.5 h-3.5 text-slate-600 flex-shrink-0" />}
+                    <span className="text-xs text-slate-400 tabular-nums w-12 text-right flex-shrink-0">{m.occurrenceCount || 0}</span>
+                    <span className="text-xs text-slate-600 tabular-nums w-16 text-right flex-shrink-0 hidden sm:inline">{fmtDate(m.lastSeen)}</span>
+                    <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
+                  </Link>
                 </div>
-                <div className="text-right flex-shrink-0 hidden sm:block">
-                  <p className="text-xs text-slate-400 tabular-nums">เจอ {m.occurrenceCount || 0} ครั้ง</p>
-                  <p className="text-xs text-slate-600 mt-0.5">ล่าสุด {fmtDate(m.lastSeen)}</p>
-                </div>
-                <ChevronRight className="w-4 h-4 text-slate-600 flex-shrink-0" />
-              </Link>
-            ))}
+              )
+            })}
           </div>
         )}
       </div>
 
-      {!loading && shown.length > 0 && (
-        <p className="text-xs text-slate-600">
-          {shown.length} ร้าน{shown.length !== merchants.length && ` (กรองจาก ${merchants.length})`}
-        </p>
+      {/* หน้าถัดไป — ของเดิมตัดที่ 200 เงียบ ๆ ทั้งที่มี 354 ร้าน */}
+      {!loading && !searching && (merchants.length === PAGE || page > 0) && (
+        <div className="flex items-center justify-between">
+          <button disabled={page === 0} onClick={() => setPage(p => Math.max(0, p - 1))}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 disabled:opacity-30">ก่อนหน้า</button>
+          <span className="text-xs text-slate-600 tabular-nums">
+            {page * PAGE + 1}–{page * PAGE + merchants.length}
+            {counts && activeTab && <> จาก {counts[activeTab.countKey]}</>}
+          </span>
+          <button disabled={merchants.length < PAGE} onClick={() => setPage(p => p + 1)}
+            className="text-xs px-3 py-1.5 rounded-lg border border-slate-700 text-slate-300 disabled:opacity-30">ถัดไป</button>
+        </div>
       )}
 
       {adding && <MerchantModal merchant={null} cats={cats} wallets={wallets} onClose={() => setAdding(false)} onDone={load} />}
