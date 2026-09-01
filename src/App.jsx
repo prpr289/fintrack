@@ -66,8 +66,10 @@ export default function App() {
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />
             <Route path="slips"        element={<SlipsGallery />} />
             <Route path="reports"      element={<RequireAdmin><Reports /></RequireAdmin>} />
-            <Route path="merchants"     element={<RequireAdmin><Merchants /></RequireAdmin>} />
-            <Route path="merchants/:id" element={<RequireAdmin><MerchantDetail /></RequireAdmin>} />
+            {/* staff เข้าได้ — คนที่เจอร้านใหม่หน้างานคือ staff · งานที่ย้อนกลับยาก
+                (รวมร้าน/ซ่อน/จัดการหลายร้าน/ลบ) ยังกันไว้ที่ฝั่งเซิร์ฟเวอร์ให้ admin เท่านั้น */}
+            <Route path="merchants"     element={<Merchants />} />
+            <Route path="merchants/:id" element={<MerchantDetail />} />
             {/* เมนูเดิมชื่อ Vendor — คงลิงก์ไว้กัน bookmark เก่าพัง */}
             <Route path="vendors"      element={<Navigate to="/merchants" replace />} />
             <Route path="category-rules" element={<RequireAdmin><CategoryRules /></RequireAdmin>} />

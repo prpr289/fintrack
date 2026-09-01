@@ -6,6 +6,35 @@ import PaginationBar from '../components/PaginationBar'
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const DEFAULT_PAGE_SIZE = 50
 
+// แสดงว่าใครแก้อะไรจากอะไรเป็นอะไร — ก่อนหน้านี้ API ส่ง details มาแล้วแต่หน้าจอไม่เคยแสดง
+// จำเป็นเพราะเปิดให้ staff แก้ข้อมูลร้านรวมเลขบัญชีได้ ประวัติคือมาตรการคุมความเสี่ยงที่แลกมา
+function AuditDetails({ details }) {
+  const changes = details?.changes
+  if (!changes || typeof changes !== 'object') return null
+  const keys = Object.keys(changes)
+  if (!keys.length) return null
+  const money = Array.isArray(details.moneyChanged) ? details.moneyChanged : []
+  const val = (v) => (v === null || v === undefined || v === '') ? '—' : String(v)
+  return (
+    <div className="mt-1.5 space-y-1">
+      {details.vendorName && <p className="text-xs text-slate-400">{details.vendorName}</p>}
+      {keys.map(k => (
+        <div key={k} className="flex items-center gap-1.5 flex-wrap text-xs">
+          <span className={money.includes(k) ? 'text-amber-400 font-medium' : 'text-slate-500'}>
+            {money.includes(k) && '⚠ '}{changes[k].label || k}
+          </span>
+          <span className="text-slate-600 line-through font-mono">{val(changes[k].from)}</span>
+          <span className="text-slate-700">→</span>
+          <span className="text-slate-300 font-mono">{val(changes[k].to)}</span>
+        </div>
+      ))}
+      {money.length > 0 && (
+        <p className="text-[11px] text-amber-500/80">แก้ช่องที่เป็นทางเดินเงิน — ตรวจก่อนโอนครั้งถัดไป</p>
+      )}
+    </div>
+  )
+}
+
 const ACTION_COLOR = { create: '#34d399', update: '#60a5fa', delete: '#f87171', transfer: '#c084fc', update_password: '#f59e0b', confirm: '#34d399', edit_pending: '#60a5fa', confirm_edit: '#34d399', cancel_edit: '#94a3b8', print: '#a78bfa', hros_on: '#34d399', hros_off: '#f87171' }
 const ACTION_LABEL = { create: 'สร้าง', update: 'แก้ไข', delete: 'ลบ', transfer: 'โอนเงิน', update_password: 'เปลี่ยนรหัส', confirm: 'ยืนยัน', edit_pending: 'แก้ไข (รอยืนยัน)', confirm_edit: 'ยืนยันการแก้ไข', cancel_edit: 'ยกเลิกการแก้ไข', print: 'พิมพ์เอกสาร', hros_on: 'เปิดดึงจาก HR OS', hros_off: 'ปิดดึงจาก HR OS' }
 const ENTITY_LABEL = { transaction: 'ธุรกรรม', user: 'ผู้ใช้', wallet: 'กระเป๋า', category: 'หมวดหมู่', vendor: 'Vendor', integration: 'เชื่อมระบบ' }
@@ -125,6 +154,7 @@ export default function AuditLog() {
                     <span className="text-xs text-slate-400 font-mono truncate flex-1">{l.entityId}</span>
                   </div>
                   <p className="text-xs text-slate-500">{fmtDate(l.createdAt)}</p>
+                  <AuditDetails details={l.details} />
                 </div>
               ))}
             </div>
@@ -134,7 +164,7 @@ export default function AuditLog() {
               <table className="w-full text-sm">
                 <thead>
                   <tr style={{ borderBottom: '1px solid #1f2937', background: '#111827' }}>
-                    {['วันเวลา', 'ผู้ใช้', 'การกระทำ', 'ประเภท', 'รหัสอ้างอิง'].map((h, i) => (
+                    {['วันเวลา', 'ผู้ใช้', 'การกระทำ', 'ประเภท', 'รหัสอ้างอิง', 'รายละเอียด'].map((h, i) => (
                       <th key={i} className="px-4 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide text-left">{h}</th>
                     ))}
                   </tr>
@@ -156,6 +186,7 @@ export default function AuditLog() {
                       </td>
                       <td className="px-4 py-3 text-slate-400">{ENTITY_LABEL[l.entityType] || l.entityType}</td>
                       <td className="px-4 py-3 text-xs text-slate-400 font-mono truncate max-w-36">{l.entityId}</td>
+                      <td className="px-4 py-3"><AuditDetails details={l.details} /></td>
                     </tr>
                   ))}
                 </tbody>

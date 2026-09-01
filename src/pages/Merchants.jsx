@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { useAuth } from '../AuthContext'
 import MerchantModal from '../components/MerchantModal'
 import MergeSuggestions from '../components/MergeSuggestions'
 import DocBadge from '../components/DocBadge'
@@ -37,6 +38,9 @@ function completeness(m) {
 }
 
 export default function Merchants() {
+  // staff เพิ่ม/แก้ร้านได้ แต่ไม่เห็นเครื่องมือที่ย้อนกลับยาก — เซิร์ฟเวอร์กันซ้ำอีกชั้นอยู่แล้ว
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [merchants, setMerchants] = useState([])
   const [counts, setCounts] = useState(null)
   const [cats, setCats] = useState([])
@@ -126,7 +130,7 @@ export default function Merchants() {
         </button>
       </div>
 
-      <MergeSuggestions onMerged={load} />
+      {isAdmin && <MergeSuggestions onMerged={load} />}
 
       <div className="relative">
         <Search className="w-4 h-4 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -139,7 +143,7 @@ export default function Merchants() {
       {!searching && (
         <div>
           <div className="flex flex-wrap gap-1.5" role="tablist">
-            {TABS.map(t => (
+            {TABS.filter(t => isAdmin || t.key !== 'hidden').map(t => (
               <button key={t.key} onClick={() => setTab(t.key)} role="tab" aria-selected={tab === t.key}
                 className="text-xs px-3 py-1.5 rounded-full border transition-colors whitespace-nowrap"
                 style={{
@@ -163,7 +167,7 @@ export default function Merchants() {
         </div>
       )}
 
-      {picked.length > 0 && (
+      {isAdmin && picked.length > 0 && (
         <div className="rounded-xl p-3 flex items-center gap-2 flex-wrap" style={{ background: 'rgba(16,185,129,0.08)', border: '1px solid rgba(16,185,129,0.3)' }}>
           <span className="text-sm text-slate-200">เลือกไว้ <b className="tabular-nums">{picked.length}</b> ร้าน</span>
           <select disabled={bulkBusy} defaultValue="" aria-label="ตั้งหมวดธุรกิจ"
@@ -207,8 +211,10 @@ export default function Merchants() {
               const missing = completeness(m)
               return (
                 <div key={m.id} className="flex items-center gap-2.5 px-3 py-2 hover:bg-white/[0.02] transition-colors">
-                  <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)}
-                    aria-label={`เลือก ${m.vendorName}`} className="flex-shrink-0 accent-emerald-500" />
+                  {isAdmin && (
+                    <input type="checkbox" checked={picked.includes(m.id)} onChange={() => toggle(m.id)}
+                      aria-label={`เลือก ${m.vendorName}`} className="flex-shrink-0 accent-emerald-500" />
+                  )}
                   <Link to={`/merchants/${m.id}`} className="flex items-center gap-2.5 min-w-0 flex-1">
                     <span className={`text-sm truncate flex-1 ${m.isActive === false ? 'text-slate-500 line-through' : 'text-slate-200'}`}>
                       {m.vendorName}

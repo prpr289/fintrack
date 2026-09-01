@@ -40,7 +40,7 @@ const NAV_GROUPS = [
   { label: 'งานประจำวัน', items: [
     { to: '/transactions',  icon: ArrowLeftRight,  label: 'รายการธุรกรรม' },
     { to: '/pending-bills', icon: Receipt,         label: 'บิลรอจ่าย' },
-    { to: '/merchants',     icon: Store,           label: 'ร้านค้า',       admin: true },
+    { to: '/merchants',     icon: Store,           label: 'ร้านค้า' },
     { to: '/bulk-upload',   icon: UploadCloud,     label: 'อัปสลิปหลายใบ' },
     { to: '/slips',         icon: Paperclip,       label: 'สลิปทั้งหมด' },
   ] },
