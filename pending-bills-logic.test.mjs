@@ -2,6 +2,7 @@
 import assert from 'node:assert'
 import {
   NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds, sumLineItems, validateLineItems,
+  unpricedItems, billsWithUnpricedItems,
 } from './pending-bills-logic.mjs'
 
 // --- validateBillInput ---
@@ -62,5 +63,41 @@ assert.strictEqual(validateLineItems([]).ok, false)                             
 assert.strictEqual(validateLineItems([{name:'',qty:1,unitPrice:10}]).ok, false)        // ชื่อว่าง
 assert.strictEqual(validateLineItems([{name:'x',qty:0,unitPrice:10}]).ok, false)       // จำนวน 0
 assert.strictEqual(validateLineItems([{name:'x',qty:1,unitPrice:-5}]).ok, false)       // ราคาติดลบ
+
+// ── unpricedItems: ของรับมาแล้วแต่ยังไม่ลงราคา ────────────────────────
+// เคสจริงจากหน้าจอ 2026-09-04: ใบ ฿1,840 บวกได้จาก 6 บรรทัดแรก ที่เหลือ x฿0
+const bill1840 = [
+  { name: 'มะละกอ', qty: 40, unitPrice: 20 },
+  { name: 'พริกแดง', qty: 8, unitPrice: 60 },
+  { name: 'กะหล่ำปลี', qty: 15, unitPrice: 20 },
+  { name: 'ต้นหอม', qty: 1, unitPrice: 90 },
+  { name: 'ผักชี', qty: 1, unitPrice: 100 },
+  { name: 'ผักชีฝรั่ง', qty: 1, unitPrice: 70 },
+  { name: 'ผักกาดหอม', qty: 3, unitPrice: 0 },
+  { name: 'มะเขือม่วง', qty: 1, unitPrice: 0 },
+]
+assert.strictEqual(sumLineItems(bill1840), 1840)                 // ยอดที่โชว์
+assert.strictEqual(unpricedItems(bill1840).length, 2)            // ...แต่ยังไม่ครบ
+assert.strictEqual(unpricedItems(bill1840)[0].name, 'ผักกาดหอม')
+
+assert.deepStrictEqual(unpricedItems([]), [])                    // ไม่มีรายการ
+assert.deepStrictEqual(unpricedItems(null), [])                  // บิล simple: lineItems = null
+assert.deepStrictEqual(unpricedItems(undefined), [])
+assert.strictEqual(unpricedItems([{ name: 'x', qty: 1, unitPrice: '0' }]).length, 1)  // JSON ส่ง string มา
+assert.strictEqual(unpricedItems([{ name: 'x', qty: 1, unitPrice: 0.5 }]).length, 0)  // มีราคาแล้ว
+assert.strictEqual(unpricedItems([null, { qty: 1, unitPrice: 0 }]).length, 1)         // แถวเสียไม่ทำพัง
+assert.strictEqual(unpricedItems([{ qty: 1, unitPrice: 0 }, { qty: 2, unitPrice: 0 }]).length, 2) // ฿0 ทั้งใบ
+
+// ── billsWithUnpricedItems: เตือนเฉพาะใบที่ยังรอจ่าย ──────────────────
+const queue = [
+  { id: 'a', status: 'pending',  lineItems: bill1840 },                            // ต้องเตือน
+  { id: 'b', status: 'pending',  lineItems: [{ qty: 1, unitPrice: 50 }] },          // ราคาครบ
+  { id: 'c', status: 'pending',  lineItems: null },                                 // บิล simple
+  { id: 'd', status: 'paid',     lineItems: bill1840 },                             // จ่ายแล้ว ไม่เตือน
+  { id: 'e', status: 'rejected', lineItems: bill1840 },                             // ปฏิเสธแล้ว ไม่เตือน
+]
+assert.deepStrictEqual(billsWithUnpricedItems(queue), ['a'])
+assert.deepStrictEqual(billsWithUnpricedItems([]), [])
+assert.deepStrictEqual(billsWithUnpricedItems(null), [])
 
 console.log('pending-bills-logic.test.mjs OK')

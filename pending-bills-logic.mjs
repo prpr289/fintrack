@@ -73,3 +73,18 @@ export function validateLineItems(items) {
   }
   return { ok: true }
 }
+
+// ── เพิ่มใหม่ (additive) — ไม่แตะฟังก์ชันด้านบน เพราะ worker.js import ไฟล์นี้อยู่ ──
+// ของที่รับมาแล้วแต่ยังไม่ได้ลงราคา: qty ใส่แล้ว แต่ unitPrice ยังเป็น 0
+// เจ้าของเคาะ 2026-09-04: unitPrice 0 = "ยังไม่ลงราคา" เสมอ (ไม่ใช่ของแถม) → เตือนทุกครั้ง
+// เพราะยอดที่โชว์จะต่ำกว่ายอดจริง ถ้าจ่ายไปแล้วส่วนต่างจะตามไม่เจอ
+export function unpricedItems(items) {
+  return (items || []).filter(it => it && Number(it.unitPrice) === 0)
+}
+
+// นับใบที่ "ยอดยังไม่ครบ" — เฉพาะบิลที่ยังรอจ่าย เพราะจ่ายไปแล้วเตือนไม่ช่วยอะไร
+export function billsWithUnpricedItems(bills) {
+  return (bills || [])
+    .filter(b => b.status === 'pending' && unpricedItems(b.lineItems).length > 0)
+    .map(b => b.id)
+}
