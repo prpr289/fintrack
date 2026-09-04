@@ -30,7 +30,7 @@ export default function PendingBillStyles() {
 .pb .h1{margin:0;font-size:20px;font-weight:600;color:var(--ink-1)}
 .pb .sum{margin:3px 0 0;font-size:13.5px;color:var(--ink-3);font-variant-numeric:tabular-nums}
 .pb .acts{display:flex;gap:8px;flex-wrap:wrap}
-.pb .abtn{display:inline-flex;align-items:center;gap:7px;height:40px;padding:0 15px;border-radius:9px;
+.pb .abtn{display:inline-flex;align-items:center;gap:7px;height:44px;padding:0 15px;border-radius:9px;
   border:1px solid var(--ctl);background:#1a2136;color:var(--ink-1);font-size:13.5px;font-weight:600;
   cursor:pointer;font-family:inherit;white-space:nowrap}
 .pb .abtn:hover{background:#202942;border-color:var(--green)}
@@ -62,7 +62,7 @@ export default function PendingBillStyles() {
 .pb .tlabel{font-size:12.5px;color:var(--ink-3);padding-right:2px}
 .pb .seg{display:inline-flex;gap:2px;padding:3px;border-radius:10px;background:#121729;
   box-shadow:inset 0 0 0 1px var(--line)}
-.pb .seg-b{display:inline-flex;align-items:center;gap:6px;height:36px;padding:0 12px;border-radius:8px;
+.pb .seg-b{display:inline-flex;align-items:center;gap:6px;height:38px;padding:0 12px;border-radius:8px;
   border:0;background:none;font-size:13.5px;color:var(--ink-3);cursor:pointer;font-family:inherit;
   white-space:nowrap}
 .pb .seg-b:hover{color:var(--ink-1)}
@@ -84,7 +84,7 @@ export default function PendingBillStyles() {
 .pb .gh--todo{color:var(--amber)}
 
 .pb .row{position:relative;display:grid;grid-template-columns:var(--num) minmax(0,1fr) auto;
-  align-items:center;gap:0 12px;min-height:64px;margin:0 -10px;padding:10px var(--pad);
+  align-items:center;gap:0 12px;min-height:68px;margin:0 -10px;padding:10px var(--pad);
   border-radius:10px}
 /* ห้ามใส่ content-visibility/contain ที่ .row เด็ดขาด — มันให้ paint containment
    แล้วตัดเมนู ⋯ (position:absolute) ทิ้งทั้งก้อน เจอมาแล้วตอนตรวจหน้าจอจริง
@@ -119,11 +119,13 @@ export default function PendingBillStyles() {
 .pb .meta .bad{color:var(--red);font-weight:500}
 .pb .meta .good{color:var(--green)}
 
+/* เป้าแตะทุกตัว >= 44px ตามที่หน้าร้านค้าตั้งไว้แล้ว (MerchantRowStyles .tbtn/.cta/.lead)
+   พนักงานกดจากมือถือในตลาดสด มือเปียก รีบ — 34px พลาดง่ายเกินไปสำหรับปุ่มที่จ่ายเงิน */
 .pb .act{display:flex;align-items:center;gap:6px}
-.pb .pay{height:34px;padding:0 14px;border-radius:8px;border:1px solid var(--ctl);background:#1a2136;
+.pb .pay{height:44px;padding:0 16px;border-radius:8px;border:1px solid var(--ctl);background:#1a2136;
   color:var(--ink-1);font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;white-space:nowrap}
 .pb .pay:hover{border-color:var(--green);background:#202942}
-.pb .more{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;
+.pb .more{display:inline-flex;align-items:center;justify-content:center;width:44px;height:44px;
   border-radius:8px;border:1px solid var(--ctl);background:none;color:var(--ink-2);cursor:pointer;
   font-family:inherit}
 .pb .more:hover{background:var(--hover);color:var(--ink-1)}
@@ -135,7 +137,7 @@ export default function PendingBillStyles() {
   list-style:none;background:#1a2136;border:1px solid var(--ctl);border-radius:10px;
   box-shadow:0 12px 30px rgba(0,0,0,.55)}
 .pb .menu li{margin:0}
-.pb .menu button{display:flex;align-items:center;gap:9px;width:100%;height:36px;padding:0 9px;
+.pb .menu button{display:flex;align-items:center;gap:9px;width:100%;height:44px;padding:0 9px;
   border:0;border-radius:7px;background:none;color:var(--ink-2);font-size:13px;font-family:inherit;
   cursor:pointer;text-align:left;white-space:nowrap}
 .pb .menu button:hover{background:var(--hover);color:var(--ink-1)}

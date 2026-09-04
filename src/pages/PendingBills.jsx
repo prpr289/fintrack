@@ -701,6 +701,17 @@ function PayModal({ bill, onClose, onDone }) {
         <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
       </div>
       <form onSubmit={pay} className="p-4 space-y-3.5 overflow-y-auto">
+        {/* จุดที่เงินออกจริง — ลิงก์ "คัดลอกลิงก์จ่าย" (?pay=<id>) เปิดตรงเข้ามาที่นี่ได้
+            โดยไม่ผ่านหน้าคิว ธงบนคิวจึงกันไม่ถึง ต้องเตือนซ้ำตรงนี้ด้วย */}
+        {unpricedItems(bill.lineItems).length > 0 && (
+          <div className="rounded-xl p-3 flex items-start gap-2 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-amber-300">
+              <b>ยอดนี้ยังไม่ครบ</b> — มี {unpricedItems(bill.lineItems).length} รายการที่รับของมาแล้วแต่ยังไม่ลงราคา
+              จ่ายตามยอดนี้จะบันทึกน้อยกว่าที่ต้องจ่ายจริง แล้วส่วนต่างจะตามไม่เจอ
+            </div>
+          </div>
+        )}
         {bill.kind === 'billing_link' && !bill.vendorAck?.at && (
           <div className="rounded-xl p-3 flex items-start gap-2 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
             <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
@@ -964,15 +975,17 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
         <div className="act">
           {items.length > 0 && (
             <button type="button" className="more" aria-expanded={open} onClick={() => setOpen(v => !v)}
-              aria-label={open ? 'ย่อรายการ' : 'ดูรายการทั้งหมด ' + items.length + ' รายการ'}>
+              aria-label={(open ? 'ย่อรายการของ ' : 'ดู ' + items.length + ' รายการของ ') + displayName(bill)}>
               <ChevronDown className="w-4 h-4" style={{ transform: open ? 'rotate(180deg)' : 'none' }} />
             </button>
           )}
-          {isAdmin && pending && <button type="button" className="pay" onClick={() => onPay(bill)}>จ่าย</button>}
-          {depositAwaiting && <button type="button" className="pay" onClick={() => onReceived(bill)}>ของมาแล้ว</button>}
+          {isAdmin && pending && <button type="button" className="pay" onClick={() => onPay(bill)}
+            aria-label={'จ่าย ' + displayName(bill) + ' ' + thb(bill.amount)}>จ่าย</button>}
+          {depositAwaiting && <button type="button" className="pay" onClick={() => onReceived(bill)}
+            aria-label={'ของมาแล้ว · ' + displayName(bill)}>ของมาแล้ว</button>}
           {hasMenu && <div className="menuwrap" onKeyDown={e => { if (e.key === 'Escape') closeMenu() }}>
             <button ref={moreRef} type="button" className="more" aria-haspopup="menu" aria-expanded={menu}
-              aria-label="ตัวเลือกเพิ่มเติม" onClick={() => setMenu(v => !v)}>
+              aria-label={'ตัวเลือกเพิ่มเติมของ ' + displayName(bill)} onClick={() => setMenu(v => !v)}>
               <MoreHorizontal className="w-4 h-4" />
             </button>
             {menu && <>
