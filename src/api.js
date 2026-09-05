@@ -169,6 +169,7 @@ export const api = {
   pendingBills: (params) => req('GET', '/pending-bills?' + new URLSearchParams(params || {})),
   createPendingBill: (body) => req('POST', '/pending-bills', body),
   getPendingBill: (id) => req('GET', `/pending-bills/${id}`),
+  updatePendingBill: (id, body) => req('PATCH', `/pending-bills/${id}`, body),
   deletePendingBill: (id) => req('DELETE', `/pending-bills/${id}`),
   payPendingBill: (id, body) => req('POST', `/pending-bills/${id}/pay`, body),
   rejectPendingBill: (id, body) => req('POST', `/pending-bills/${id}/reject`, body),

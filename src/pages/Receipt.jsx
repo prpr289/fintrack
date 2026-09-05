@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { api } from '../api'
+import { sameGoods } from '../../pending-bills-logic.mjs'
 import { bahtText } from '../bahtText'
 import SignaturePad from '../components/SignaturePad'
 
@@ -81,7 +82,7 @@ const inputStyle = {
 }
 
 // ฟอร์มให้คู่ค้ายืนยันรายการ — โผล่เฉพาะใบวางบิลที่ยังไม่ยืนยันและยังไม่จ่าย
-function AckForm({ token, onDone }) {
+function AckForm({ token, onDone, seen }) {
   const [name, setName] = useState('')
   const [sig, setSig] = useState(null)
   const [reason, setReason] = useState('')
@@ -100,6 +101,17 @@ function AckForm({ token, onDone }) {
     }
     setBusy(true)
     try {
+      // แอดมินแก้บิลได้แล้ว (PATCH /pending-bills/:id) หน้านี้โหลดครั้งเดียวตอน mount ไม่มี polling
+      // ถ้าเขาแก้ยอด/รายการหลังคู่ค้าเปิดหน้าค้างไว้ การกดยืนยันตอนนี้จะไปติดกับของที่คู่ค้าไม่เคยเห็น
+      // จึงต้องอ่านของจริงซ้ำก่อนส่ง ถ้าไม่ตรงกับที่แสดงอยู่ ให้รีเฟรชแล้วให้เขาดูใหม่
+      const fresh = await api.publicReceipt(token)
+      const changed = Number(fresh.amount) !== Number(seen?.amount) || !sameGoods(fresh.lineItems, seen?.lineItems)
+      if (changed) {
+        setErr('เอกสารนี้เพิ่งถูกแก้ไข — กำลังโหลดฉบับล่าสุดให้ กรุณาตรวจรายการใหม่ก่อนยืนยัน')
+        setBusy(false)
+        await onDone()
+        return
+      }
       if (mode === 'dispute') {
         await api.disputeReceipt(token, reason.trim())
       } else {
@@ -325,7 +337,7 @@ export default function Receipt() {
               </div>
             )}
 
-            {canAck && <AckForm token={token} onDone={load} />}
+            {canAck && <AckForm token={token} onDone={load} seen={data} />}
 
             {/* Status pill */}
             <div style={{ marginTop: '1.1rem', display: 'inline-flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.3rem', fontSize: '0.8rem', fontWeight: 700, padding: '0.4rem 0.85rem', borderRadius: '999px', background: statusMeta.bg, color: statusMeta.fg, border: `1px solid ${statusMeta.border}` }}>
