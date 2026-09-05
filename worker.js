@@ -3146,8 +3146,13 @@ async function updatePendingBill(id, request, env, user) {
   const storedItems = b.line_items ? (() => { try { return JSON.parse(b.line_items); } catch { return null; } })() : null;
   const itemsChanged = body.lineItems !== void 0 && !sameGoods(body.lineItems, storedItems);
   const amountChanged = newAmount !== null && Number(newAmount) !== Number(b.amount);
+  // note ส่วนใหญ่เป็นบันทึกภายใน แก้แล้วไม่ควรล้างลายเซ็นใคร
+  // แต่ BillingLinkModal ซ่อน "วันที่ส่งของ" ไว้ใน note และ getPublicReceipt (บรรทัด ~3376)
+  // แกะด้วย regex เดียวกันนี้ไปพิมพ์บนใบที่คู่ค้าเซ็น -> เฉพาะวันส่งของที่เปลี่ยนเท่านั้นที่นับ
+  const dueOf = (t) => { const m = String(t || "").match(/ของส่งวันที่\s*(\d{4}-\d{2}-\d{2})/); return m ? m[1] : null; };
+  const deliveryChanged = body.note !== void 0 && dueOf(body.note) !== dueOf(b.note);
   let ackCleared = false, signatureCleared = false;
-  if (amountChanged || itemsChanged) {
+  if (amountChanged || itemsChanged || deliveryChanged) {
     // ลายเซ็น: ล้างทุกครั้งที่มี ไม่ผูกกับ ack เลย (คอลัมน์ R2 key เหลือขยะไว้ ไม่กระทบความถูกต้อง)
     if (b.vendor_signature_key) { set("vendor_signature_key", null); signatureCleared = true; }
     // คำยืนยัน: ห้ามเขียนทับเป็น NULL ทั้งก้อน เพราะคำทักท้วงของคู่ค้าอยู่ในคอลัมน์เดียวกัน

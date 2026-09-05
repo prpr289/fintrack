@@ -125,7 +125,7 @@ assert.strictEqual((await call({ lineItems: [{ name: 'x', qty: 0, unitPrice: 5 }
   const acked = { ...baseBill, vendor_ack: JSON.stringify({ name: 'ป้านิด', at: '2026-09-02T00:00:00Z' }), vendor_signature_key: 'k' }
   const r = await call({ note: 'แก้โน้ตเฉย ๆ' }, { bill: acked })
   assert.strictEqual(r.status, 200)
-  assert.strictEqual(r.json.ackCleared, false, 'ยอดไม่เปลี่ยน ไม่ควรล้างคำยืนยัน')
+  assert.strictEqual(r.json.ackCleared, false, 'โน้ตภายในเปลี่ยน ไม่ควรล้างคำยืนยัน')
   const cols = updateSQL(r.db).sql.split('SET ')[1].split(' WHERE')[0]
   assert.ok(!cols.includes('vendor_ack'), 'ห้ามแตะ vendor_ack')
   assert.ok(!cols.includes('vendor_signature_key'), 'ห้ามแตะลายเซ็น')
@@ -241,4 +241,22 @@ assert.strictEqual((await call({ lineItems: [{ name: 'a', qty: 2, unitPrice: 0 }
   assert.strictEqual(r3.json.signatureCleared, false, 'สลับลำดับแถวไม่ใช่ของเปลี่ยน')
 }
 
-console.log('pending-bills-patch.test.mjs OK — 15 กลุ่ม ผ่านหมด')
+// ── 16. วันส่งของซ่อนอยู่ใน note และถูกพิมพ์บนใบที่คู่ค้าเซ็น (getPublicReceipt แกะด้วย regex)
+//   เปลี่ยนวันส่งของ = เปลี่ยนสิ่งที่เขาตกลง ต้องล้าง แต่โน้ตภายในอื่น ๆ ต้องไม่ล้าง
+{
+  const withDue = { ...baseBill, note: 'ของส่งวันที่ 2026-09-10',
+    vendor_ack: JSON.stringify({ name: 'ป้า', at: '2026-09-02T00:00:00Z' }), vendor_signature_key: 'k' }
+  const moved = await call({ note: 'ของส่งวันที่ 2026-12-31' }, { bill: withDue })
+  assert.strictEqual(moved.json.ackCleared, true, 'เลื่อนวันส่งของ ต้องล้างคำยืนยัน')
+  assert.strictEqual(moved.json.signatureCleared, true)
+
+  const sameDue = await call({ note: 'ของส่งวันที่ 2026-09-10 (โทรยืนยันแล้ว)' }, { bill: withDue })
+  assert.strictEqual(sameDue.json.ackCleared, false, 'วันส่งเท่าเดิม เพิ่มข้อความต่อท้าย ไม่ต้องล้าง')
+  assert.strictEqual(sameDue.json.signatureCleared, false)
+
+  const internal = { ...baseBill, note: 'ของโอปอ', vendor_signature_key: 'k' }
+  const r = await call({ note: 'ของโอปอ · จ่ายด่วน' }, { bill: internal })
+  assert.strictEqual(r.json.signatureCleared, false, 'โน้ตภายในล้วน ห้ามล้างลายเซ็น')
+}
+
+console.log('pending-bills-patch.test.mjs OK — 16 กลุ่ม ผ่านหมด')

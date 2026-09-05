@@ -271,7 +271,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
                   <span className="text-xs font-semibold tabular-nums w-16 text-right shrink-0"
                     style={{ color: dropped.some(d => d.index === idx) ? '#f59e0b' : '#e2e8f0' }}>
                     {dropped.find(d => d.index === idx)?.reason.replace('ไม่มีชื่อรายการ', 'ไม่มีชื่อ')
-                      || thb(Number(it.qty) * Number(it.unitPrice))}
+                      || (Number(it.qty) > 0 ? thb(Number(it.qty) * Number(it.unitPrice)) : '—')}
                   </span>
                 </div>
               </div>
@@ -609,7 +609,7 @@ function BillingLinkModal({ me, onClose, onDone }) {
                   <span className="text-xs font-semibold tabular-nums w-16 text-right shrink-0"
                     style={{ color: dropped.some(d => d.index === idx) ? '#f59e0b' : '#e2e8f0' }}>
                     {dropped.find(d => d.index === idx)?.reason.replace('ไม่มีชื่อรายการ', 'ไม่มีชื่อ')
-                      || thb(Number(it.qty) * Number(it.unitPrice))}
+                      || (Number(it.qty) > 0 ? thb(Number(it.qty) * Number(it.unitPrice)) : '—')}
                   </span>
                 </div>
               </div>
@@ -925,8 +925,11 @@ function EditBillModal({ bill, onClose, onDone }) {
   const dropped = hasItems ? droppedRows(items) : []
   const newAmount = hasItems ? sumLineItems(items) : Number(amount || 0)
   const amountChanged = Number(newAmount) !== Number(bill.amount)
+  // ต้องทำนายจาก "อาร์เรย์ที่จะส่งจริง" ไม่ใช่ state ดิบ ไม่งั้นกด "เพิ่มรายการ" แล้วปล่อยว่าง
+  // จะขึ้นคำเตือนว่าลายเซ็นจะถูกลบ ทั้งที่ server ไม่ได้ลบอะไร (payload กรองแถวว่างทิ้งก่อนส่ง)
+  const payloadItems = items.filter(it => it.name.trim() || String(it.qty) !== '' || String(it.unitPrice) !== '')
   // ใช้ sameGoods ตัวเดียวกับ server ห้ามเขียนตรรกะเทียบซ้ำ ไม่งั้นคำเตือนกับสิ่งที่เกิดจริงจะไม่ตรงกัน
-  const itemsChanged = hasItems && !sameGoods(items, bill.lineItems)
+  const itemsChanged = hasItems && !sameGoods(payloadItems, bill.lineItems)
   const agreementChanged = amountChanged || itemsChanged
   const willClearAck = agreementChanged && !!bill.vendorAck?.at
   const willClearSig = agreementChanged && !!bill.hasSignature
@@ -943,8 +946,7 @@ function EditBillModal({ bill, onClose, onDone }) {
       if (hasItems) {
         // แถวที่ยังไม่ได้พิมพ์อะไรเลย (กด "เพิ่มรายการ" แล้วเปลี่ยนใจ) ตัดทิ้งเงียบได้
         // droppedRows ก็ข้ามมันอยู่แล้ว ถ้าส่งไป server จะตอบ 400 "ชื่อรายการห้ามว่าง" แบบดิบ ๆ
-        body.lineItems = items
-          .filter(it => it.name.trim() || String(it.qty) !== '' || String(it.unitPrice) !== '')
+        body.lineItems = payloadItems
           .map(it => ({
             name: it.name.trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
           }))
@@ -1377,7 +1379,7 @@ export default function PendingBills() {
             <h2>ต้องดูก่อนจ่าย</h2>
             <div className="v"><b>{needLookCount}</b><span>{needLookCount === 0 ? 'ไม่มี' : 'ใบ'}</span></div>
             <div className="track"><i style={{ '--p': Math.round((needLookCount / bills.length) * 100) + '%' }} /></div>
-            <p>ยอดไม่ครบ {unpricedSet.size} · จ่ายขาดแล้ว {paidShortSet.size} · หลักฐานอ่อน {weakCount} · อาจซ้ำ {dupSet.size} · ทักท้วง {disputeCount}</p>
+            <p>ยอดไม่ครบ {unpricedSet.size}{paidShortSet.size > 0 ? ` · จ่ายขาดแล้ว ${paidShortSet.size}` : ''} · หลักฐานอ่อน {weakCount} · อาจซ้ำ {dupSet.size} · ทักท้วง {disputeCount}</p>
           </div>
         </div>
       )}

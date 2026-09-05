@@ -41,7 +41,9 @@ export default function PendingBillStyles() {
 .pb .alarm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0;padding:11px 14px;
   border-radius:10px;background:#b4530915;border:1px solid #6b4410;font-size:13.5px;color:var(--ink-1)}
 .pb .alarm b{color:var(--amber);font-weight:600}
-.pb .alarm--past{background:#7f1d1d18;border-color:#7f1d1d}
+/* ขอบต้อง >= 3:1 บนพื้นหน้า #0d1120 เหมือนกราฟิกอื่น — #7f1d1d ได้แค่ 1.87:1 มองไม่เห็น
+   (พลาดซ้ำรอยเดิมที่ #24 เพิ่งแก้) #c0392b = 3.45:1 */
+.pb .alarm--past{background:#7f1d1d20;border-color:#c0392b}
 .pb .alarm--past b{color:var(--red)}
 
 /* ── แถบสรุป: ของที่ทุกใบเหมือนกัน อยู่ตรงนี้ที่เดียว ไม่ใช่รายแถว ── */
