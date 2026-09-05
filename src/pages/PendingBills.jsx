@@ -7,7 +7,7 @@ import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck,
 import MerchantPicker from '../components/MerchantPicker'
 import SignaturePad from '../components/SignaturePad'
 import PromptPayQR from '../components/PromptPayQR'
-import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems, unpricedItems, unpricedBillIds, droppedRows } from '../../pending-bills-logic.mjs'
+import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems, unpricedItems, unpricedBillIds, droppedRows, sameGoods } from '../../pending-bills-logic.mjs'
 import PendingBillStyles from '../components/PendingBillStyles'
 import { parseOrderText, normalizeUnit } from '../parseOrderText.js'
 
@@ -925,12 +925,8 @@ function EditBillModal({ bill, onClose, onDone }) {
   const dropped = hasItems ? droppedRows(items) : []
   const newAmount = hasItems ? sumLineItems(items) : Number(amount || 0)
   const amountChanged = Number(newAmount) !== Number(bill.amount)
-  // ต้องตรงกับกฎฝั่ง server เป๊ะ: "สิ่งที่คู่ค้าตกลงด้วย" = ยอด + รายการของ
-  const itemsChanged = hasItems && JSON.stringify(items.map(it => ({
-    name: it.name.trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
-  }))) !== JSON.stringify((bill.lineItems || []).map(it => ({
-    name: String(it.name || '').trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
-  })))
+  // ใช้ sameGoods ตัวเดียวกับ server ห้ามเขียนตรรกะเทียบซ้ำ ไม่งั้นคำเตือนกับสิ่งที่เกิดจริงจะไม่ตรงกัน
+  const itemsChanged = hasItems && !sameGoods(items, bill.lineItems)
   const agreementChanged = amountChanged || itemsChanged
   const willClearAck = agreementChanged && !!bill.vendorAck?.at
   const willClearSig = agreementChanged && !!bill.hasSignature
@@ -956,7 +952,14 @@ function EditBillModal({ bill, onClose, onDone }) {
         body.amount = Number(amount)
       }
       const res = await api.updatePendingBill(bill.id, body)
-      if (res?.ackCleared) alert('บันทึกแล้ว — คำยืนยันและลายเซ็นเดิมของคู่ค้าถูกลบ ส่งลิงก์เดิมให้เขายืนยันใหม่ได้เลย (ลิงก์ไม่เปลี่ยน)')
+      if (res?.ackCleared || res?.signatureCleared) {
+        const parts = []
+        if (res.ackCleared) parts.push('คำยืนยันของคู่ค้าถูกลบ ส่งลิงก์เดิมให้เขายืนยันใหม่ได้ (ลิงก์ไม่เปลี่ยน)')
+        if (res.signatureCleared) parts.push(bill.kind === 'goods_receipt'
+          ? 'ลายเซ็นที่เซ็นไว้ตอนรับของถูกลบ และเก็บใหม่ผ่านระบบไม่ได้'
+          : 'ลายเซ็นเดิมถูกลบ')
+        alert('บันทึกแล้ว — ' + parts.join(' · '))
+      }
       onDone(); onClose()
     } catch (e) { setErr(e.message) } finally { setSaving(false) }
   }

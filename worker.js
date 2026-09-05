@@ -1,5 +1,7 @@
 ﻿import { effectiveDue, addDays } from "./notif-due.mjs";
 import { validateBillInput, checkNoBillCap, sumLineItems, validateLineItems } from "./pending-bills-logic.mjs";
+// แยกบรรทัด import ไม่รวมกับบรรทัดบน เพื่อให้ diff ของไฟล์ shared เป็น "เพิ่มอย่างเดียว"
+import { sameGoods } from "./pending-bills-logic.mjs";
 import { hrosSyncEnabled, withHrosSync } from "./hros-sync.mjs";
 import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
@@ -3138,12 +3140,16 @@ async function updatePendingBill(id, request, env, user) {
   //      แก้ยอดแล้วลายเซ็นจริงของคู่ค้าค้างอยู่ใต้ยอดใหม่ที่เขาไม่เคยเซ็น = เอกสารที่ดูเหมือนถูกปลอม
   //   2) เคยเช็คแค่ "ยอดเปลี่ยน" — สลับรายการของทั้งตะกร้าโดยยอดรวมเท่าเดิมจึงรอด
   //      คู่ค้าเซ็นรับ "หมู 4 กก." แล้วกลายเป็น "ไก่ 8 กก." ยอดเท่าเดิม ลายเซ็นยังอยู่
-  const itemsChanged = body.lineItems !== void 0 && JSON.stringify(body.lineItems) !== (b.line_items || null);
+  //   3) เคยเทียบ JSON ตรง ๆ — แต่ GoodsReceiptModal เก็บ qty/ราคาเป็น string ส่วน EditBillModal
+  //      ส่งกลับเป็น number การเทียบไบต์จึงบอกว่า "ของเปลี่ยน" ทุกครั้งที่แก้ใบรับของ แม้แก้แค่ชื่อ
+  //      -> ลบลายเซ็นคู่ค้าทิ้งฟรี ๆ และกู้คืนไม่ได้ ตอนนี้ใช้ sameGoods ตัวเดียวกับหน้าเว็บ
+  const storedItems = b.line_items ? (() => { try { return JSON.parse(b.line_items); } catch { return null; } })() : null;
+  const itemsChanged = body.lineItems !== void 0 && !sameGoods(body.lineItems, storedItems);
   const amountChanged = newAmount !== null && Number(newAmount) !== Number(b.amount);
-  let ackCleared = false;
+  let ackCleared = false, signatureCleared = false;
   if (amountChanged || itemsChanged) {
     // ลายเซ็น: ล้างทุกครั้งที่มี ไม่ผูกกับ ack เลย (คอลัมน์ R2 key เหลือขยะไว้ ไม่กระทบความถูกต้อง)
-    if (b.vendor_signature_key) { set("vendor_signature_key", null); ackCleared = true; }
+    if (b.vendor_signature_key) { set("vendor_signature_key", null); signatureCleared = true; }
     // คำยืนยัน: ห้ามเขียนทับเป็น NULL ทั้งก้อน เพราะคำทักท้วงของคู่ค้าอยู่ในคอลัมน์เดียวกัน
     if (b.vendor_ack) {
       // แกะแบบเดียวกับ formatPendingBill — vendor_ack ที่พังไม่ควรทำให้แก้บิลไม่ได้
@@ -3173,10 +3179,11 @@ async function updatePendingBill(id, request, env, user) {
     amountFrom: Number(b.amount),
     amountTo: newAmount !== null ? newAmount : Number(b.amount),
     ackCleared,
+    signatureCleared,
     byRole: user.role || null,
   });
   const updated = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
-  return json({ bill: formatPendingBill(updated), ackCleared });
+  return json({ bill: formatPendingBill(updated), ackCleared, signatureCleared });
 }
 __name(updatePendingBill, "updatePendingBill");
 

@@ -2,7 +2,7 @@
 import assert from 'node:assert'
 import {
   NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds, sumLineItems, validateLineItems,
-  unpricedItems, billsWithUnpricedItems, droppedRows, unpricedBillIds,
+  unpricedItems, billsWithUnpricedItems, droppedRows, unpricedBillIds, sameGoods, canonicalItems,
 } from './pending-bills-logic.mjs'
 
 // --- validateBillInput ---
@@ -141,5 +141,40 @@ assert.deepStrictEqual(unpricedBillIds([], ['paid']), [])
 assert.deepStrictEqual(unpricedBillIds(null), [])
 // ของเดิมต้องไม่เปลี่ยนพฤติกรรม
 assert.deepStrictEqual(billsWithUnpricedItems(q), ['p'])
+
+// ── sameGoods: เทียบ "ของ" ไม่ใช่ไบต์ ────────────────────────────────
+// เหตุที่ต้องมี: GoodsReceiptModal เก็บ qty/unitPrice เป็น string ดิบจากช่องกรอก
+// (PendingBills.jsx: lineItems: validItems) ส่วน BillingLinkModal กับ EditBillModal
+// ส่งเป็น number การเทียบ JSON ตรง ๆ จึงบอกว่า "ของเปลี่ยน" ทุกครั้งที่แก้ใบรับของ
+// แล้วลบลายเซ็นคู่ค้าทิ้ง ทั้งที่ของไม่ได้เปลี่ยน และใบรับของเซ็นใหม่ไม่ได้
+const storedGoodsReceipt = [{ name: 'หมู', qty: '4', unit: 'กก.', unitPrice: '120' }]
+const sentFromEditModal = [{ name: 'หมู', qty: 4, unit: 'กก.', unitPrice: 120 }]
+assert.strictEqual(JSON.stringify(sentFromEditModal) === JSON.stringify(storedGoodsReceipt), false) // เทียบไบต์หลอก
+assert.strictEqual(sameGoods(sentFromEditModal, storedGoodsReceipt), true)   // เทียบของ ถูกต้อง
+
+assert.strictEqual(sameGoods([{ name: ' หมู ', qty: '4', unitPrice: 120 }], [{ name: 'หมู', qty: 4, unitPrice: '120' }]), true) // ช่องว่างหัวท้าย
+assert.strictEqual(sameGoods([{ name: 'x', qty: 1, unitPrice: 0 }], [{ name: 'x', qty: 1, unitPrice: '' }]), true) // ราคาว่าง = 0
+assert.strictEqual(sameGoods([{ name: 'x', qty: 1, unitPrice: 5, unit: undefined }], [{ name: 'x', qty: 1, unitPrice: 5, unit: '' }]), true)
+// สลับลำดับแถวไม่ได้แปลว่าของเปลี่ยน
+assert.strictEqual(sameGoods([{ name: 'ข', qty: 1, unitPrice: 2 }, { name: 'ก', qty: 1, unitPrice: 1 }],
+                             [{ name: 'ก', qty: 1, unitPrice: 1 }, { name: 'ข', qty: 1, unitPrice: 2 }]), true)
+// ของเปลี่ยนจริงต้องจับได้ทุกแบบ
+assert.strictEqual(sameGoods([{ name: 'ไก่', qty: 4, unitPrice: 120 }], storedGoodsReceipt), false) // เปลี่ยนชื่อของ
+assert.strictEqual(sameGoods([{ name: 'หมู', qty: 5, unitPrice: 120 }], storedGoodsReceipt), false) // เปลี่ยนจำนวน
+assert.strictEqual(sameGoods([{ name: 'หมู', qty: 4, unitPrice: 130 }], storedGoodsReceipt), false) // เปลี่ยนราคา
+assert.strictEqual(sameGoods([{ name: 'หมู', qty: 4, unit: 'ขีด', unitPrice: 120 }], storedGoodsReceipt), false) // เปลี่ยนหน่วย
+assert.strictEqual(sameGoods([...storedGoodsReceipt, { name: 'ไก่', qty: 1, unitPrice: 0 }], storedGoodsReceipt), false) // เพิ่มแถว
+assert.strictEqual(sameGoods([], storedGoodsReceipt), false)
+// สลับยอดกันระหว่างสองแถว = ของคนละชุด ต้องจับได้ (กันการเรียงกลบความต่าง)
+assert.strictEqual(sameGoods([{ name: 'ก', qty: 1, unitPrice: 2 }, { name: 'ข', qty: 1, unitPrice: 1 }],
+                             [{ name: 'ก', qty: 1, unitPrice: 1 }, { name: 'ข', qty: 1, unitPrice: 2 }]), false)
+// ข้อมูลพิการต้องไม่ทำให้พัง
+assert.strictEqual(sameGoods(null, null), true)
+assert.strictEqual(sameGoods(null, []), true)
+assert.strictEqual(sameGoods([null, { name: 'x', qty: 1, unitPrice: 1 }], [{ name: 'x', qty: 1, unitPrice: 1 }]), true)
+assert.strictEqual(canonicalItems(null).length, 0)
+// ต้องแปลงเป็น "ตัวเลข" จริง ไม่ใช่แค่ทำให้เป็นสตริงเหมือนกัน — ผู้ใช้พิมพ์ 4.0 ก็คือ 4
+assert.strictEqual(sameGoods([{ name: 'x', qty: '4.0', unitPrice: '5.00' }], [{ name: 'x', qty: 4, unitPrice: 5 }]), true)
+assert.strictEqual(sameGoods([{ name: 'x', qty: 0, unitPrice: 1 }], [{ name: 'x', qty: '', unitPrice: 1 }]), true)
 
 console.log('pending-bills-logic.test.mjs OK')

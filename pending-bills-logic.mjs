@@ -120,3 +120,26 @@ export function unpricedBillIds(bills, statuses) {
     .filter(b => allow.includes(b.status) && unpricedItems(b.lineItems).length > 0)
     .map(b => b.id)
 }
+
+// เทียบว่า "ของ" ชุดเดิมไหม — ห้ามเทียบ JSON ตรง ๆ เด็ดขาด
+// GoodsReceiptModal เก็บ qty/unitPrice เป็น string ดิบจากช่องกรอก (lineItems: validItems)
+// ส่วน BillingLinkModal กับ EditBillModal ส่งเป็น number (map ผ่าน Number())
+// เทียบไบต์จึงบอกว่า "ของเปลี่ยน" ทุกครั้งที่แก้ใบรับของ แม้แก้แค่ชื่อ -> ลบลายเซ็นคู่ค้าทิ้งฟรี ๆ
+// เรียงก่อนเทียบด้วย เพราะสลับลำดับแถวไม่ได้แปลว่าของเปลี่ยน
+// worker กับหน้าเว็บต้องเรียกตัวนี้ตัวเดียวกัน ห้ามเขียนตรรกะเทียบซ้ำคนละที่
+export function canonicalItems(items) {
+  return (items || [])
+    .filter(Boolean)
+    .map(it => [
+      String(it.name ?? '').trim(),
+      Number(it.qty) || 0,
+      String(it.unit ?? ''),
+      Number(it.unitPrice) || 0,
+    ].join('\u0001'))
+    .sort()
+}
+
+export function sameGoods(a, b) {
+  const x = canonicalItems(a), y = canonicalItems(b)
+  return x.length === y.length && x.every((v, i) => v === y[i])
+}
