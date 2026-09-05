@@ -3,11 +3,11 @@ import { useSearchParams } from 'react-router-dom'
 import QRCode from 'qrcode'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck, MoreHorizontal, ChevronDown } from 'lucide-react'
+import { Plus, X, Receipt, AlertTriangle, FileText, Truck, Camera, PackageCheck, MoreHorizontal, ChevronDown, Pencil } from 'lucide-react'
 import MerchantPicker from '../components/MerchantPicker'
 import SignaturePad from '../components/SignaturePad'
 import PromptPayQR from '../components/PromptPayQR'
-import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems, unpricedItems, billsWithUnpricedItems } from '../../pending-bills-logic.mjs'
+import { isWeakEvidence, weakRatioByUser, duplicateIds, sumLineItems, unpricedItems, unpricedBillIds, droppedRows } from '../../pending-bills-logic.mjs'
 import PendingBillStyles from '../components/PendingBillStyles'
 import { parseOrderText, normalizeUnit } from '../parseOrderText.js'
 
@@ -166,6 +166,7 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
 
   const vendor = vendors.find(v => v.id === vendorId)
   const validItems = items.filter(it => String(it.name || '').trim() && Number(it.qty) > 0 && Number(it.unitPrice) >= 0)
+  const dropped = droppedRows(items)   // แถวที่ตัวกรองข้างบนจะทิ้ง ทั้งที่ผู้ใช้พิมพ์อะไรลงไปแล้ว
   const total = sumLineItems(validItems)
 
 
@@ -267,8 +268,10 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
                   <span className="text-slate-600 text-xs">×</span>
                   <input className="flex-1 min-w-0 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 text-right focus:outline-none focus:border-emerald-500"
                     style={INPUT_STYLE} type="number" min="0" step="0.01" inputMode="decimal" placeholder="ราคา/หน่วย" value={it.unitPrice} onChange={e => updateItem(idx, { ...it, unitPrice: e.target.value })} />
-                  <span className="text-xs font-semibold text-slate-200 tabular-nums w-16 text-right shrink-0">
-                    {(Number(it.qty) > 0 && Number(it.unitPrice) >= 0) ? thb(Number(it.qty) * Number(it.unitPrice)) : '—'}
+                  <span className="text-xs font-semibold tabular-nums w-16 text-right shrink-0"
+                    style={{ color: dropped.some(d => d.index === idx) ? '#f59e0b' : '#e2e8f0' }}>
+                    {dropped.find(d => d.index === idx)?.reason.replace('ไม่มีชื่อรายการ', 'ไม่มีชื่อ')
+                      || thb(Number(it.qty) * Number(it.unitPrice))}
                   </span>
                 </div>
               </div>
@@ -285,6 +288,12 @@ function GoodsReceiptModal({ me, onClose, onDone }) {
           <span className="text-xs text-slate-400">ยอดรวม (ระบบคูณให้)</span>
           <span className="text-2xl font-bold text-slate-100 tabular-nums">{thb(total)}</span>
         </div>
+        {dropped.length > 0 && (
+          <p className="text-xs flex items-start gap-1.5" style={{ color: '#f59e0b' }} role="alert">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{dropped.length} รายการจะไม่ถูกบันทึกและไม่ถูกรวมในยอด — {dropped.map(d => (d.name || 'แถวที่ ' + (d.index + 1)) + ' (' + d.reason + ')').join(' · ')}</span>
+          </p>
+        )}
 
         <div>
           <div className="flex items-center justify-between mb-1.5">
@@ -398,6 +407,7 @@ function BillingLinkModal({ me, onClose, onDone }) {
 
   const vendor = vendors.find(v => v.id === vendorId)
   const validItems = items.filter(it => String(it.name || '').trim() && Number(it.qty) > 0 && Number(it.unitPrice) >= 0)
+  const dropped = droppedRows(items)   // แถวที่ตัวกรองข้างบนจะทิ้ง ทั้งที่ผู้ใช้พิมพ์อะไรลงไปแล้ว
   const total = sumLineItems(validItems)
   const missingPrice = items.filter(it => String(it.name || '').trim() && !(Number(it.unitPrice) > 0)).length
 
@@ -596,8 +606,10 @@ function BillingLinkModal({ me, onClose, onDone }) {
                     style={{ ...INPUT_STYLE, borderColor: Number(it.unitPrice) > 0 ? '#475569' : '#b45309' }}
                     type="number" min="0" step="0.01" inputMode="decimal" placeholder="ราคา/หน่วย"
                     value={it.unitPrice} onChange={e => updateItem(idx, { ...it, unitPrice: e.target.value })} />
-                  <span className="text-xs font-semibold text-slate-200 tabular-nums w-16 text-right shrink-0">
-                    {(Number(it.qty) > 0 && Number(it.unitPrice) >= 0) ? thb(Number(it.qty) * Number(it.unitPrice)) : '—'}
+                  <span className="text-xs font-semibold tabular-nums w-16 text-right shrink-0"
+                    style={{ color: dropped.some(d => d.index === idx) ? '#f59e0b' : '#e2e8f0' }}>
+                    {dropped.find(d => d.index === idx)?.reason.replace('ไม่มีชื่อรายการ', 'ไม่มีชื่อ')
+                      || thb(Number(it.qty) * Number(it.unitPrice))}
                   </span>
                 </div>
               </div>
@@ -618,6 +630,12 @@ function BillingLinkModal({ me, onClose, onDone }) {
           <span className="text-xs text-slate-400">ยอดรวม (ระบบคูณให้)</span>
           <span className="text-2xl font-bold text-slate-100 tabular-nums">{thb(total)}</span>
         </div>
+        {dropped.length > 0 && (
+          <p className="text-xs flex items-start gap-1.5" style={{ color: '#f59e0b' }} role="alert">
+            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+            <span>{dropped.length} รายการจะไม่ถูกบันทึกและไม่ถูกรวมในยอด — {dropped.map(d => (d.name || 'แถวที่ ' + (d.index + 1)) + ' (' + d.reason + ')').join(' · ')}</span>
+          </p>
+        )}
 
         {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
         <button type="submit" disabled={saving}
@@ -884,6 +902,164 @@ function RefundModal({ bill, onClose, onDone }) {
   )
 }
 
+function EditBillModal({ bill, onClose, onDone }) {
+  const [categories, setCategories] = useState([])
+  const [name, setName] = useState(bill.name || '')
+  const [note, setNote] = useState(bill.note || '')
+  const [categoryId, setCategoryId] = useState(bill.categoryId || '')
+  const hasItems = Array.isArray(bill.lineItems) && bill.lineItems.length > 0
+  const [items, setItems] = useState(hasItems ? bill.lineItems.map(it => ({
+    name: it.name || '', qty: String(it.qty ?? ''), unit: it.unit || '', unitPrice: String(it.unitPrice ?? ''),
+  })) : [])
+  const [amount, setAmount] = useState(String(bill.amount ?? ''))
+  const [saving, setSaving] = useState(false)
+  const [err, setErr] = useState('')
+  useEffect(() => { api.categories().then(d => setCategories(d.categories || d || [])).catch(() => {}) }, [])
+
+  const updateItem = (i, next) => setItems(items.map((it, idx) => idx === i ? next : it))
+  const removeItem = (i) => { if (items.length > 1) setItems(items.filter((_, idx) => idx !== i)) }
+  const addItem = () => setItems([...items, { name: '', qty: '', unit: '', unitPrice: '' }])
+
+  // แก้บิลคือการ "เก็บของที่ค้าง" ไม่ใช่การพิมพ์ลิสต์ใหม่ ทุกแถวจึงควรกรอกครบก่อนบันทึก
+  // ต่างจากตอนสร้างที่แถวยังไม่เสร็จเป็นเรื่องปกติระหว่างพิมพ์
+  const dropped = hasItems ? droppedRows(items) : []
+  const newAmount = hasItems ? sumLineItems(items) : Number(amount || 0)
+  const amountChanged = Number(newAmount) !== Number(bill.amount)
+  // ต้องตรงกับกฎฝั่ง server เป๊ะ: "สิ่งที่คู่ค้าตกลงด้วย" = ยอด + รายการของ
+  const itemsChanged = hasItems && JSON.stringify(items.map(it => ({
+    name: it.name.trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
+  }))) !== JSON.stringify((bill.lineItems || []).map(it => ({
+    name: String(it.name || '').trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
+  })))
+  const agreementChanged = amountChanged || itemsChanged
+  const willClearAck = agreementChanged && !!bill.vendorAck?.at
+  const willClearSig = agreementChanged && !!bill.hasSignature
+  // ใบรับของเซ็นต่อหน้าตอนรับของเท่านั้น — signPublicReceipt รับเฉพาะ billing_link
+  // ล้างแล้วจึงไม่มีทางเก็บลายเซ็นใหม่ผ่านแอป ต้องบอกตรง ๆ ก่อนกด
+  const sigUnrecoverable = willClearSig && bill.kind === 'goods_receipt'
+
+  const submit = async (e) => {
+    e.preventDefault()
+    if (dropped.length) { setErr('ยังมีรายการกรอกไม่ครบ แก้ให้ครบก่อนบันทึก'); return }
+    setSaving(true); setErr('')
+    try {
+      const body = { name: name.trim(), note, categoryId: categoryId || null }
+      if (hasItems) {
+        // แถวที่ยังไม่ได้พิมพ์อะไรเลย (กด "เพิ่มรายการ" แล้วเปลี่ยนใจ) ตัดทิ้งเงียบได้
+        // droppedRows ก็ข้ามมันอยู่แล้ว ถ้าส่งไป server จะตอบ 400 "ชื่อรายการห้ามว่าง" แบบดิบ ๆ
+        body.lineItems = items
+          .filter(it => it.name.trim() || String(it.qty) !== '' || String(it.unitPrice) !== '')
+          .map(it => ({
+            name: it.name.trim(), qty: Number(it.qty), unit: it.unit || '', unitPrice: Number(it.unitPrice || 0),
+          }))
+      } else {
+        body.amount = Number(amount)
+      }
+      const res = await api.updatePendingBill(bill.id, body)
+      if (res?.ackCleared) alert('บันทึกแล้ว — คำยืนยันและลายเซ็นเดิมของคู่ค้าถูกลบ ส่งลิงก์เดิมให้เขายืนยันใหม่ได้เลย (ลิงก์ไม่เปลี่ยน)')
+      onDone(); onClose()
+    } catch (e) { setErr(e.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="flex items-center justify-between p-4 border-b border-slate-700">
+        <h3 className="font-semibold text-slate-100">แก้ไขบิล</h3>
+        <button onClick={onClose} aria-label="ปิด"><X className="w-5 h-5 text-slate-400" /></button>
+      </div>
+      <form onSubmit={submit} className="p-4 space-y-3.5 overflow-y-auto">
+        {(willClearAck || willClearSig) && (
+          <div className="rounded-xl p-3 flex items-start gap-2 text-xs" style={{ background: '#3a2e1233', border: '1px solid #78350f' }}>
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="text-amber-300">
+              {willClearAck && <><b>{bill.vendorAck?.name || 'คู่ค้า'} ยืนยันของเดิมไว้แล้ว</b> — บันทึกแล้วคำยืนยันจะถูกลบ ส่งลิงก์เดิมให้เขายืนยันใหม่ได้ (ลิงก์ไม่เปลี่ยน){willClearSig ? ' ' : ''}</>}
+              {willClearSig && (sigUnrecoverable
+                ? <><b>ลายเซ็นที่คู่ค้าเซ็นไว้ตอนรับของจะถูกลบ</b> — ใบรับของเซ็นได้เฉพาะต่อหน้าตอนรับของ
+                    ระบบยังไม่มีทางเก็บลายเซ็นใหม่ ถ้าต้องมีลายเซ็นกำกับยอดใหม่ ให้ปฏิเสธใบนี้แล้วออกใบรับของใหม่แทน</>
+                : <b>ลายเซ็นเดิมจะถูกลบ</b>)}
+            </div>
+          </div>
+        )}
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">ชื่อรายการ</label>
+          <input className={INPUT} style={INPUT_STYLE} value={name} onChange={e => setName(e.target.value)} required />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">หมวดหมู่</label>
+          <select className={INPUT} style={INPUT_STYLE} value={categoryId} onChange={e => setCategoryId(e.target.value)}>
+            <option value="">— ไม่ระบุ —</option>
+            {categories.filter(c => !c.parentId).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        </div>
+
+        {hasItems ? (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">รายการสินค้า</label>
+            <div className="rounded-lg overflow-hidden" style={{ border: '1px solid #1f2937' }}>
+              {items.map((it, idx) => {
+                const bad = dropped.find(d => d.index === idx)
+                return (
+                  <div key={idx} className="p-2.5 border-b" style={{ borderColor: bad ? '#78350f' : '#1f2937', background: bad ? '#3a2e1220' : 'transparent' }}>
+                    <div className="flex gap-1.5">
+                      <input className="flex-1 min-w-0 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500"
+                        style={INPUT_STYLE} placeholder="ชื่อของ" value={it.name} onChange={e => updateItem(idx, { ...it, name: e.target.value })} />
+                      {items.length > 1 && (
+                        <button type="button" onClick={() => removeItem(idx)} aria-label={'ลบรายการ ' + (it.name || idx + 1)} className="shrink-0 px-1">
+                          <X className="w-3.5 h-3.5 text-slate-500" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="flex gap-1.5 mt-1.5 items-center">
+                      <input className="w-16 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 text-right focus:outline-none focus:border-emerald-500"
+                        style={INPUT_STYLE} type="number" min="0" step="0.01" inputMode="decimal" placeholder="จำนวน" value={it.qty} onChange={e => updateItem(idx, { ...it, qty: e.target.value })} />
+                      <input className="w-16 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500"
+                        style={INPUT_STYLE} placeholder="หน่วย" value={it.unit} onChange={e => updateItem(idx, { ...it, unit: e.target.value })} />
+                      <span className="text-slate-600 text-xs">×</span>
+                      <input className="flex-1 min-w-0 rounded-md px-2 py-1.5 text-xs text-slate-200 border border-slate-600 text-right focus:outline-none focus:border-emerald-500"
+                        style={INPUT_STYLE} type="number" min="0" step="0.01" inputMode="decimal" placeholder="ราคา/หน่วย" value={it.unitPrice} onChange={e => updateItem(idx, { ...it, unitPrice: e.target.value })} />
+                      <span className="text-xs font-semibold tabular-nums w-16 text-right shrink-0"
+                        style={{ color: bad ? '#f59e0b' : '#e2e8f0' }}>
+                        {bad ? bad.reason.replace('ไม่มีชื่อรายการ', 'ไม่มีชื่อ') : thb(Number(it.qty) * Number(it.unitPrice))}
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
+              <button type="button" onClick={addItem}
+                className="w-full flex items-center justify-center gap-1.5 py-2.5 text-xs font-medium transition-colors"
+                style={{ color: '#34d399', background: '#10b98115' }}>
+                <Plus className="w-3.5 h-3.5" />เพิ่มรายการ
+              </button>
+            </div>
+            <div className="flex justify-between items-baseline mt-2 text-sm">
+              <span className="text-slate-400 text-xs">ยอดรวม (ระบบคูณให้)</span>
+              <span className="font-bold text-slate-100 tabular-nums">{thb(newAmount)}
+                {amountChanged && <span className="text-xs font-normal text-amber-400"> (เดิม {thb(bill.amount)})</span>}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <div>
+            <label className="block text-xs font-medium text-slate-400 mb-1.5">จำนวนเงิน</label>
+            <input className={INPUT} style={INPUT_STYLE} type="number" min="0" step="0.01" inputMode="decimal"
+              value={amount} onChange={e => setAmount(e.target.value)} required />
+          </div>
+        )}
+
+        <div>
+          <label className="block text-xs font-medium text-slate-400 mb-1.5">หมายเหตุ</label>
+          <input className={INPUT} style={INPUT_STYLE} value={note} onChange={e => setNote(e.target.value)} />
+        </div>
+        {err && <p className="text-sm text-red-400" role="alert">{err}</p>}
+        <button type="submit" disabled={saving || dropped.length > 0}
+          className="w-full bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded-lg py-3 text-sm font-semibold transition-colors">
+          {saving ? 'กำลังบันทึก...' : dropped.length ? `ยังมี ${dropped.length} รายการกรอกไม่ครบ` : 'บันทึกการแก้ไข'}
+        </button>
+      </form>
+    </Overlay>
+  )
+}
+
 // ── ตัวช่วยการแสดงผล ───────────────────────────────────────────────────
 // ตัดคำนำหน้าที่ป้ายบอกซ้ำอยู่แล้ว ทำตอน "แสดงผล" ไม่แก้ข้อมูลในดาต้าเบส
 // เพราะบิลเก่าที่สร้างไว้แล้วก็มีคำนี้ติดมาด้วย แก้ตอนสร้างช่วยแค่ของใหม่
@@ -912,7 +1088,7 @@ function kindText(bill) {
   return bill.categoryName || 'บิลทั่วไป'
 }
 
-function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, onReceived, onRefund, onDone }) {
+function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, onReceived, onRefund, onEdit, onDone }) {
   const [menu, setMenu] = useState(false)
   const [open, setOpen] = useState(false)
   const [copied, setCopied] = useState('')
@@ -920,7 +1096,10 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
   const weak = isWeakEvidence(bill.evidenceType)
   const pending = bill.status === 'pending'
   const items = Array.isArray(bill.lineItems) ? bill.lineItems : []
-  const unpriced = pending ? unpricedItems(items) : []
+  // เดิมดับสัญญาณทั้งหมดเมื่อไม่ใช่ pending — แต่ใบที่ "จ่ายไปแล้วทั้งที่ยอดขาด"
+  // คือเคสที่เงินออกไปจริงแล้ว อันตรายกว่าตอนยังรอจ่าย จึงต้องเห็นย้อนหลังได้
+  const unpriced = unpricedItems(items)
+  const paidShort = bill.status === 'paid' && unpriced.length > 0
   const depositAwaiting = bill.isDeposit && bill.status === 'paid' && !bill.goodsReceivedAt
   const showCert = bill.status === 'paid' && bill.evidenceType === 'self_declared'
   const age = ageText(bill.createdAt)
@@ -943,12 +1122,13 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
   const closeMenu = () => { setMenu(false); moreRef.current?.focus() }
   const act = (fn) => { closeMenu(); fn() }
   // ถ้าไม่มีอะไรให้เลือกเลย อย่าโชว์ปุ่ม ⋯ ที่กดแล้วได้กล่องเปล่า
-  const hasMenu = !!(bill.publicToken || bill.hasEvidence || showCert || pending ||
+  const canEdit = isAdmin && pending
+  const hasMenu = !!(canEdit || bill.publicToken || bill.hasEvidence || showCert || pending ||
     (isAdmin && bill.status === 'paid' && !bill.refundTxId))
 
   return (
     <li>
-      <div className={'row' + (unpriced.length ? ' is-todo' : '') + (bill.status === 'rejected' ? ' is-off' : '')}
+      <div className={'row' + (pending && unpriced.length ? ' is-todo' : '') + (paidShort ? ' is-short' : '') + (bill.status === 'rejected' ? ' is-off' : '')}
         style={{ '--w': widthRatio }}>
         <div className="amt">{thb(bill.amount)}</div>
         <div className="body">
@@ -956,7 +1136,8 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
           <div className="meta">
             {/* ป้ายรายแถวเหลือเฉพาะ "ข้อยกเว้น" — ถ้าตัวไหนขึ้นทุกแถว แปลว่าออกแบบพลาดอีกรอบ */}
             {copied && <><span className="good">{copied}</span><span className="sep">·</span></>}
-            {unpriced.length > 0 && <><span className="warn">{unpriced.length} รายการยังไม่ลงราคา</span><span className="sep">·</span></>}
+            {pending && unpriced.length > 0 && <><span className="warn">{unpriced.length} รายการยังไม่ลงราคา</span><span className="sep">·</span></>}
+            {paidShort && <><span className="bad">จ่ายขาด · {unpriced.length} รายการไม่ได้ลงราคา</span><span className="sep">·</span></>}
             {disputed && <><span className="bad">คู่ค้าทักท้วง</span><span className="sep">·</span></>}
             {weak && <><span className="warn">หลักฐานอ่อน</span><span className="sep">·</span></>}
             {isDup && <><span className="warn">อาจซ้ำ</span><span className="sep">·</span></>}
@@ -991,6 +1172,8 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
             {menu && <>
               <div style={{ position: 'fixed', inset: 0, zIndex: 10 }} onClick={closeMenu} />
               <ul className="menu" role="menu">
+                {canEdit && <li role="none"><button role="menuitem" type="button" onClick={() => act(() => onEdit(bill))}>
+                  <Pencil className="w-4 h-4" />แก้ไขบิล</button></li>}
                 {bill.publicToken && <li role="none"><button role="menuitem" type="button" onClick={() => act(() => window.open('/receipt/' + bill.publicToken, '_blank'))}>
                   <PackageCheck className="w-4 h-4" />{bill.kind === 'billing_link' ? 'ดูใบวางบิล' : 'ดูใบรับของ'}</button></li>}
                 {bill.hasEvidence && <li role="none"><button role="menuitem" type="button" onClick={() => act(() => onView(bill))}>
@@ -1022,7 +1205,8 @@ function BillRow({ bill, isAdmin, isDup, widthRatio, onPay, onReject, onView, on
       {/* กางรายการ: ที่ยังไม่ลงราคาขึ้นก่อนและสว่างกว่า เพราะเป็นสิ่งเดียวที่ต้องลงมือทำ */}
       {open && items.length > 0 && (
         <div className="open">
-          {unpriced.length > 0 && <p className="hint">{unpriced.length} รายการยังไม่ลงราคา — ยอดที่โชว์จึงยังไม่ใช่ยอดจริง</p>}
+          {pending && unpriced.length > 0 && <p className="hint">{unpriced.length} รายการยังไม่ลงราคา — ยอดที่โชว์จึงยังไม่ใช่ยอดจริง</p>}
+          {paidShort && <p className="hint" style={{ color: '#f87171' }}>จ่าย {thb(bill.amount)} ไปแล้วทั้งที่ {unpriced.length} รายการยังไม่ได้ลงราคา — ยอดจริงสูงกว่านี้</p>}
           <ul>
             {[...items].sort((a, b) => (Number(a.unitPrice) === 0 ? 0 : 1) - (Number(b.unitPrice) === 0 ? 0 : 1)).map((it, i) => {
               const zero = Number(it.unitPrice) === 0
@@ -1056,6 +1240,7 @@ export default function PendingBills() {
   const [showBilling, setShowBilling] = useState(false)
   const [payBill, setPayBill] = useState(null)
   const [refundBill, setRefundBill] = useState(null)
+  const [editBill, setEditBill] = useState(null)
   const [adminFilter, setAdminFilter] = useState('pending')
   const [sortBy, setSortBy] = useState('amount')
   const [sp, setSp] = useSearchParams()
@@ -1094,7 +1279,9 @@ export default function PendingBills() {
   const dupSet = duplicateIds(bills.map(b => ({ id: b.id, payeeRefId: b.payeeRefId, payeeName: b.payeeName, amount: b.amount, date: (b.createdAt || '').slice(0, 10) })))
   const depositAwaitingCount = bills.filter(b => b.isDeposit && b.status === 'paid' && !b.goodsReceivedAt).length
   // ใบที่ยอดยังไม่ครบ — ธงเดียวในหน้านี้ที่กันความผิดพลาดเรื่องเงิน จึงมาก่อนทุกอย่าง
-  const unpricedSet = new Set(billsWithUnpricedItems(bills))
+  const unpricedSet = new Set(unpricedBillIds(bills, ['pending']))
+  // จ่ายไปแล้วทั้งที่ยอดขาด — เงินออกไปแล้ว แก้ที่บิลเดิมไม่ได้อีก
+  const paidShortSet = new Set(unpricedBillIds(bills, ['paid']))
   const maxAmount = bills.reduce((m, b) => Math.max(m, Number(b.amount) || 0), 0) || 1
   const strongCount = bills.filter(b => !isWeakEvidence(b.evidenceType)).length
   const weakCount = bills.length - strongCount
@@ -1105,12 +1292,13 @@ export default function PendingBills() {
     ...unpricedSet, ...dupSet,
     ...bills.filter(b => isWeakEvidence(b.evidenceType)).map(b => b.id),
     ...bills.filter(b => b.vendorAck?.disputeAt).map(b => b.id),
+    ...paidShortSet,
   ])
   const needLookCount = needLookIds.size
   const ordered = [...bills].sort((a, b) => {
     // ใบที่ยอดไม่ครบลอยขึ้นบนสุดเสมอ ไม่ว่าจะเรียงแบบไหน
-    const ta = unpricedSet.has(a.id) ? 0 : 1
-    const tb = unpricedSet.has(b.id) ? 0 : 1
+    const ta = (unpricedSet.has(a.id) || paidShortSet.has(a.id)) ? 0 : 1
+    const tb = (unpricedSet.has(b.id) || paidShortSet.has(b.id)) ? 0 : 1
     if (ta !== tb) return ta - tb
     if (sortBy === 'age') {
       // ไม่มีวันที่ = ไม่รู้ว่าค้างนานแค่ไหน ให้ไปท้ายแถว ไม่ใช่ลอยขึ้นบนเป็นใบเก่าสุด
@@ -1119,13 +1307,13 @@ export default function PendingBills() {
     }
     return (Number(b.amount) || 0) - (Number(a.amount) || 0)
   })
-  const todoBills = ordered.filter(b => unpricedSet.has(b.id))
-  const restBills = ordered.filter(b => !unpricedSet.has(b.id))
+  const todoBills = ordered.filter(b => unpricedSet.has(b.id) || paidShortSet.has(b.id))
+  const restBills = ordered.filter(b => !unpricedSet.has(b.id) && !paidShortSet.has(b.id))
   const rowOf = (b) => (
     <BillRow key={b.id} bill={b} isAdmin={isAdmin} isDup={dupSet.has(b.id)}
       widthRatio={(Number(b.amount) || 0) / maxAmount}
       onPay={setPayBill} onReject={reject} onView={view} onReceived={received}
-      onRefund={setRefundBill} onDone={load} />
+      onRefund={setRefundBill} onEdit={setEditBill} onDone={load} />
   )
   if (isViewer) {
     return (
@@ -1157,6 +1345,13 @@ export default function PendingBills() {
         </div>
       </div>
 
+      {paidShortSet.size > 0 && (
+        <div className="alarm alarm--past" role="alert">
+          <AlertTriangle className="w-4 h-4" style={{ flex: 'none', color: '#f87171' }} />
+          <span><b>{paidShortSet.size} ใบจ่ายไปแล้วทั้งที่ยอดขาด</b> — เงินออกไปน้อยกว่าที่ต้องจ่ายจริง
+            บิลที่จ่ายแล้วแก้ไม่ได้ ต้องตั้งเบิกส่วนต่างเป็นบิลใหม่</span>
+        </div>
+      )}
       {/* ธงกันจ่ายยอดขาด — ขึ้นก่อนทุกอย่างเพราะเป็นเรื่องเงินที่ย้อนกลับไม่ได้ */}
       {unpricedSet.size > 0 && (
         <div className="alarm" role="alert">
@@ -1179,7 +1374,7 @@ export default function PendingBills() {
             <h2>ต้องดูก่อนจ่าย</h2>
             <div className="v"><b>{needLookCount}</b><span>{needLookCount === 0 ? 'ไม่มี' : 'ใบ'}</span></div>
             <div className="track"><i style={{ '--p': Math.round((needLookCount / bills.length) * 100) + '%' }} /></div>
-            <p>ยอดไม่ครบ {unpricedSet.size} · หลักฐานอ่อน {weakCount} · อาจซ้ำ {dupSet.size} · ทักท้วง {disputeCount}</p>
+            <p>ยอดไม่ครบ {unpricedSet.size} · จ่ายขาดแล้ว {paidShortSet.size} · หลักฐานอ่อน {weakCount} · อาจซ้ำ {dupSet.size} · ทักท้วง {disputeCount}</p>
           </div>
         </div>
       )}
@@ -1232,6 +1427,7 @@ export default function PendingBills() {
       {showBilling && <BillingLinkModal me={user} onClose={() => setShowBilling(false)} onDone={load} />}
       {payBill && <PayModal bill={payBill} onClose={() => setPayBill(null)} onDone={load} />}
       {refundBill && <RefundModal bill={refundBill} onClose={() => setRefundBill(null)} onDone={load} />}
+      {editBill && <EditBillModal bill={editBill} onClose={() => setEditBill(null)} onDone={load} />}
     </div>
   )
 }

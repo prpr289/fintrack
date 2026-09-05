@@ -41,6 +41,8 @@ export default function PendingBillStyles() {
 .pb .alarm{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:14px 0 0;padding:11px 14px;
   border-radius:10px;background:#b4530915;border:1px solid #6b4410;font-size:13.5px;color:var(--ink-1)}
 .pb .alarm b{color:var(--amber);font-weight:600}
+.pb .alarm--past{background:#7f1d1d18;border-color:#7f1d1d}
+.pb .alarm--past b{color:var(--red)}
 
 /* ── แถบสรุป: ของที่ทุกใบเหมือนกัน อยู่ตรงนี้ที่เดียว ไม่ใช่รายแถว ── */
 .pb .rail{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;margin:14px 0 0}
@@ -101,6 +103,8 @@ export default function PendingBillStyles() {
 .pb .row:hover{background:var(--hover)}
 .pb .row:hover::after{background:var(--bar-hi)}
 .pb .row.is-todo::after{background:var(--amber)}
+/* จ่ายไปแล้วทั้งที่ยอดขาด = แดง ไม่ใช่อำพัน — อำพันแปลว่า "แก้ทัน" แต่อันนี้เงินออกไปแล้ว */
+.pb .row.is-short::after{background:var(--red)}
 .pb .row.is-off .who{color:var(--ink-3)}
 
 .pb .amt{text-align:right;padding-right:16px;font-variant-numeric:tabular-nums;

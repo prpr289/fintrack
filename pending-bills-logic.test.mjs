@@ -2,7 +2,7 @@
 import assert from 'node:assert'
 import {
   NO_BILL_CAP, validateBillInput, checkNoBillCap, isWeakEvidence, dupKey, weakRatioByUser, duplicateIds, sumLineItems, validateLineItems,
-  unpricedItems, billsWithUnpricedItems,
+  unpricedItems, billsWithUnpricedItems, droppedRows, unpricedBillIds,
 } from './pending-bills-logic.mjs'
 
 // --- validateBillInput ---
@@ -99,5 +99,47 @@ const queue = [
 assert.deepStrictEqual(billsWithUnpricedItems(queue), ['a'])
 assert.deepStrictEqual(billsWithUnpricedItems([]), [])
 assert.deepStrictEqual(billsWithUnpricedItems(null), [])
+
+// ── droppedRows: แถวที่ modal ทิ้งเงียบทั้งที่ผู้ใช้พิมพ์ไปแล้ว ────────────
+// ตัวกรองจริงของ modal: name.trim() && Number(qty) > 0 && Number(unitPrice) >= 0
+const keptPriceBlank = { name: 'ผักกาดหอม', qty: 3, unitPrice: '' }   // Number('')=0, 0>=0 ผ่าน
+assert.deepStrictEqual(droppedRows([keptPriceBlank]), [])             // ไม่ถูกทิ้ง -> unpricedItems จับต่อ
+assert.strictEqual(unpricedItems([keptPriceBlank]).length, 1)         // และจับได้จริง
+
+// ที่หายเงียบจริงมีสองแบบ
+const noQty = { name: 'ผักกาดหอม', qty: '', unitPrice: 20 }
+const noName = { name: '', qty: 5, unitPrice: 150 }                   // ช่องยอดเคยโชว์ ฿750 ทั้งที่ถูกทิ้ง
+assert.strictEqual(droppedRows([noQty])[0].reason, 'ยังไม่ใส่จำนวน')
+assert.strictEqual(droppedRows([noQty])[0].name, 'ผักกาดหอม')
+assert.strictEqual(droppedRows([noName])[0].reason, 'ไม่มีชื่อรายการ')
+assert.strictEqual(droppedRows([{ name: 'x', qty: 0, unitPrice: 5 }])[0].reason, 'ยังไม่ใส่จำนวน')
+
+// แถวว่างเปล่าที่ modal เติมไว้ให้พิมพ์ ไม่ใช่ความผิดพลาด ห้ามเตือน
+assert.deepStrictEqual(droppedRows([{ name: '', qty: '', unitPrice: '' }]), [])
+assert.deepStrictEqual(droppedRows([{}]), [])
+assert.deepStrictEqual(droppedRows([]), [])
+assert.deepStrictEqual(droppedRows(null), [])
+assert.deepStrictEqual(droppedRows([null]), [])
+
+// index ต้องชี้แถวจริงเพื่อไฮไลต์ได้ถูกตัว
+const mixed = [{ name: 'ก', qty: 1, unitPrice: 10 }, noQty, { name: 'ค', qty: 2, unitPrice: 5 }, noName]
+assert.deepStrictEqual(droppedRows(mixed).map(r => r.index), [1, 3])
+assert.strictEqual(sumLineItems(mixed.filter(it => String(it.name||'').trim() && Number(it.qty)>0 && Number(it.unitPrice)>=0)), 20)
+
+// ── unpricedBillIds: ตัวใหม่ที่เลือกสถานะได้ (ของเดิมล็อก pending ห้ามแก้) ──
+const zero = [{ name: 'x', qty: 1, unitPrice: 0 }]
+const q = [
+  { id: 'p', status: 'pending', lineItems: zero },
+  { id: 'd', status: 'paid', lineItems: zero },
+  { id: 'r', status: 'rejected', lineItems: zero },
+  { id: 'ok', status: 'paid', lineItems: [{ name: 'y', qty: 1, unitPrice: 9 }] },
+]
+assert.deepStrictEqual(unpricedBillIds(q), ['p'])                        // default = pending เท่านั้น
+assert.deepStrictEqual(unpricedBillIds(q, ['paid']), ['d'])              // จ่ายไปแล้วทั้งที่ยอดขาด
+assert.deepStrictEqual(unpricedBillIds(q, ['pending', 'paid']), ['p', 'd'])
+assert.deepStrictEqual(unpricedBillIds([], ['paid']), [])
+assert.deepStrictEqual(unpricedBillIds(null), [])
+// ของเดิมต้องไม่เปลี่ยนพฤติกรรม
+assert.deepStrictEqual(billsWithUnpricedItems(q), ['p'])
 
 console.log('pending-bills-logic.test.mjs OK')

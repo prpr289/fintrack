@@ -88,3 +88,35 @@ export function billsWithUnpricedItems(bills) {
     .filter(b => b.status === 'pending' && unpricedItems(b.lineItems).length > 0)
     .map(b => b.id)
 }
+
+// ── เฟส 2 (additive) — ยังไม่แตะของเดิมเหมือนเดิม เพราะ worker.js import ไฟล์นี้ ──
+
+// แถวที่ตัวกรอง validItems ของ modal จะทิ้งทั้งที่ผู้ใช้พิมพ์อะไรลงไปแล้ว
+// ตัวกรองจริงคือ: ชื่อไม่ว่าง && qty > 0 && unitPrice >= 0
+// จุดที่คนสะดุด: Number('') === 0 ทำให้ "ราคาว่าง" ผ่าน (กลายเป็น ฿0 ซึ่ง unpricedItems จับได้)
+// แต่ "จำนวนว่าง" ไม่ผ่าน (0 > 0 เป็นเท็จ) แถวจึงหายไปทั้งแถวโดยไม่มีอะไรบอก
+export function droppedRows(items) {
+  const out = []
+  ;(items || []).forEach((it, index) => {
+    if (!it) return
+    const hasName = !!String(it.name || '').trim()
+    const qtyOk = Number(it.qty) > 0
+    const priceOk = Number(it.unitPrice) >= 0
+    if (hasName && qtyOk && priceOk) return
+    // แถวที่ยังว่างเปล่าทั้งแถวไม่ใช่ความผิดพลาด — เป็นแถวที่ modal เติมไว้ให้พิมพ์ต่อ
+    const touched = hasName || String(it.qty ?? '') !== '' || String(it.unitPrice ?? '') !== ''
+    if (!touched) return
+    const reason = !hasName ? 'ไม่มีชื่อรายการ' : !qtyOk ? 'ยังไม่ใส่จำนวน' : 'ราคาไม่ถูกต้อง'
+    out.push({ index, name: String(it.name || '').trim(), reason })
+  })
+  return out
+}
+
+// เหมือน billsWithUnpricedItems แต่เลือกสถานะได้ — ของเดิมล็อก pending ไว้และมีเทสต์ปักไว้แล้ว
+// จึงเพิ่มตัวใหม่แทนการแก้ตัวเดิม (INTEGRATION_POLICY ข้อ 2)
+export function unpricedBillIds(bills, statuses) {
+  const allow = statuses && statuses.length ? statuses : ['pending']
+  return (bills || [])
+    .filter(b => allow.includes(b.status) && unpricedItems(b.lineItems).length > 0)
+    .map(b => b.id)
+}

@@ -162,6 +162,7 @@ var worker_default = {
       if (path === "/pending-bills" && method === "GET") return cors(await listPendingBills(request, env, user));
       const pbMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)$/);
       if (pbMatch && method === "GET") return cors(await getPendingBill(pbMatch[1], env, user));
+      if (pbMatch && method === "PATCH") return cors(await updatePendingBill(pbMatch[1], request, env, user));
       if (pbMatch && method === "DELETE") return cors(await deletePendingBill(pbMatch[1], env, user));
       const pbEvMatch = path.match(/^\/pending-bills\/([a-zA-Z0-9_-]+)\/evidence$/);
       if (pbEvMatch && method === "POST") return cors(await uploadBillEvidence(pbEvMatch[1], request, env, user));
@@ -3071,6 +3072,113 @@ async function rejectPendingBill(id, request, env, user) {
   return json({ ok: true });
 }
 __name(rejectPendingBill, "rejectPendingBill");
+
+// แก้บิลที่ยังรอจ่าย — เพิ่มใหม่ทั้งก้อน ไม่แตะ handler เดิมสักตัว (INTEGRATION_POLICY ข้อ 2)
+// ก่อนมีตัวนี้ พิมพ์ราคาผิดต้องปฏิเสธแล้วออกใบใหม่ ซึ่งได้ public_token ใหม่
+// ลิงก์ที่ส่งให้คู่ค้าไปแล้วจะตายทันที ตัวนี้จึงคง public_token เดิมไว้เสมอ
+async function updatePendingBill(id, request, env, user) {
+  if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  // requireAuth เป็นประตูร่วมของทุก route: service token ของ LINE bot / HR OS วิ่งผ่านมาถึงตรงนี้ได้
+  // ถ้าแถว user ของมันเป็น role admin การแก้บิลเป็นการตัดสินใจของคน ไม่ใช่ของบอท จึงปิดให้ชัด
+  if (env.SERVICE_USER_ID && user.id === env.SERVICE_USER_ID) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  if (env.HROS_SERVICE_USER_ID && user.id === env.HROS_SERVICE_USER_ID) return json({ error: "ไม่มีสิทธิ์" }, 403);
+
+  const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
+  if (!b) return json({ error: "ไม่พบบิล" }, 404);
+  // จ่ายหรือปฏิเสธไปแล้วห้ามแก้ ไม่งั้นบิลจะหลุดจากธุรกรรมและยอดกระเป๋าที่สร้างไปแล้ว
+  if (b.status !== "pending") return json({ error: "บิลนี้ถูกดำเนินการไปแล้ว แก้ไขไม่ได้" }, 409);
+
+  const body = await request.json().catch(() => ({}));
+  const updates = [], args = [], pairs = [];
+  const set = (col, val) => { updates.push(`${col} = ?`); args.push(val); pairs.push([col, val]); };
+
+  if (body.name !== void 0) {
+    const nm = String(body.name).trim();
+    if (!nm) return json({ error: "ต้องมีชื่อรายการ" }, 400);
+    set("name", nm);
+  }
+  if (body.note !== void 0) set("note", String(body.note || "").trim() || null);
+  if (body.categoryId !== void 0) set("category_id", body.categoryId || null);
+  if (body.subCategoryId !== void 0) set("sub_category_id", body.subCategoryId || null);
+
+  // ยอดเงิน: บิลที่มีรายการสินค้า ให้เซิร์ฟเวอร์คูณเอง ห้ามเชื่อค่าที่ client ส่งมา
+  // (invariant เดียวกับตอนสร้างบิล ถ้าปล่อยให้ client ส่ง amount มา ยอดกับรายการจะเพี้ยนคนละทาง
+  //  แล้วหน้าใบวางบิลของคู่ค้าจะพิมพ์ยอดรวมที่ไม่ตรงกับผลคูณในตาราง)
+  let newAmount = null;
+  if (body.lineItems !== void 0) {
+    if (!b.line_items) return json({ error: "บิลนี้ไม่มีรายการสินค้า" }, 400);
+    const v = validateLineItems(body.lineItems);
+    if (!v.ok) return json({ error: v.error }, 400);
+    newAmount = sumLineItems(body.lineItems);
+    // create ใช้ validateBillInput ซึ่งบังคับ amount > 0 — edit ต้องบังคับเท่ากัน
+    // ไม่งั้นลงราคา 0 ทุกแถวแล้วบิลจะกลายเป็น ฿0 แล้ว "จ่าย" ผ่านไปเฉย ๆ
+    if (!(newAmount > 0)) return json({ error: "ยอดรวมต้องมากกว่า 0" }, 400);
+    set("line_items", JSON.stringify(body.lineItems));
+    set("amount", newAmount);
+  } else if (body.amount !== void 0) {
+    if (b.line_items) return json({ error: "บิลที่มีรายการสินค้า ต้องแก้ที่รายการ ไม่ใช่ยอดรวม" }, 400);
+    if (!(Number(body.amount) > 0)) return json({ error: "จำนวนเงินต้องมากกว่า 0" }, 400);
+    newAmount = Number(body.amount);
+    set("amount", newAmount);
+  }
+
+  if (updates.length === 0) return json({ error: "ไม่มีอะไรให้แก้" }, 400);
+
+  // เพดานบิลไม่มีบิลต้องเช็คซ้ำ เพราะยอดเปลี่ยนได้หลังสร้าง
+  const capCheck = checkNoBillCap(b.evidence_type, newAmount !== null ? newAmount : Number(b.amount));
+  if (!capCheck.ok) return json({ error: capCheck.error }, 400);
+
+  // สิ่งที่คู่ค้า "ตกลงด้วย" คือยอด + รายการของ ถ้าอย่างใดอย่างหนึ่งเปลี่ยน
+  // หลักฐานที่เขาให้ไว้ (ลายเซ็น และ/หรือ คำยืนยัน) ใช้กับของใหม่ไม่ได้อีก ต้องล้างทิ้งทั้งคู่
+  //
+  // เงื่อนไขนี้เคยผิดสองชั้น และ reviewer จับได้ก่อนขึ้น prod:
+  //   1) เคยผูกการล้างลายเซ็นไว้กับ vendor_ack — แต่ใบรับของ (goods_receipt) ไม่มีวันมี vendor_ack
+  //      เพราะ loadAckableBill ปฏิเสธทุก kind ที่ไม่ใช่ billing_link ขณะที่ GoodsReceiptModal
+  //      "บังคับ" ให้คู่ค้าเซ็นทุกใบ ผลคือใบรับของทุกใบมีลายเซ็นแต่ไม่มี ack -> guard ไม่เคยทำงานเลย
+  //      แก้ยอดแล้วลายเซ็นจริงของคู่ค้าค้างอยู่ใต้ยอดใหม่ที่เขาไม่เคยเซ็น = เอกสารที่ดูเหมือนถูกปลอม
+  //   2) เคยเช็คแค่ "ยอดเปลี่ยน" — สลับรายการของทั้งตะกร้าโดยยอดรวมเท่าเดิมจึงรอด
+  //      คู่ค้าเซ็นรับ "หมู 4 กก." แล้วกลายเป็น "ไก่ 8 กก." ยอดเท่าเดิม ลายเซ็นยังอยู่
+  const itemsChanged = body.lineItems !== void 0 && JSON.stringify(body.lineItems) !== (b.line_items || null);
+  const amountChanged = newAmount !== null && Number(newAmount) !== Number(b.amount);
+  let ackCleared = false;
+  if (amountChanged || itemsChanged) {
+    // ลายเซ็น: ล้างทุกครั้งที่มี ไม่ผูกกับ ack เลย (คอลัมน์ R2 key เหลือขยะไว้ ไม่กระทบความถูกต้อง)
+    if (b.vendor_signature_key) { set("vendor_signature_key", null); ackCleared = true; }
+    // คำยืนยัน: ห้ามเขียนทับเป็น NULL ทั้งก้อน เพราะคำทักท้วงของคู่ค้าอยู่ในคอลัมน์เดียวกัน
+    if (b.vendor_ack) {
+      // แกะแบบเดียวกับ formatPendingBill — vendor_ack ที่พังไม่ควรทำให้แก้บิลไม่ได้
+      const ack = (() => { try { return JSON.parse(b.vendor_ack); } catch { return null; } })();
+      if (ack && ack.at) {
+        const keep = (ack.disputeAt || ack.disputeReason)
+          ? JSON.stringify({ name: null, at: null, ip: null, ua: null, disputeReason: ack.disputeReason || null, disputeAt: ack.disputeAt || null })
+          : null;
+        set("vendor_ack", keep);
+        ackCleared = true;
+      }
+    }
+  }
+
+  updates.push("updated_at = CURRENT_TIMESTAMP");
+  // WHERE ยืนยันซ้ำสามอย่างที่อ่านมาตอนต้น: status, คำยืนยัน และลายเซ็น
+  // ถ้าคู่ค้ากดยืนยันหรือเซ็นระหว่างที่แอดมินกำลังพิมพ์แก้ ค่าจะไม่ตรงแล้ว changes = 0
+  // ดีกว่าปล่อยให้คำยืนยันที่เพิ่งเข้ามาไปติดกับยอดใหม่ที่เขาไม่เคยเห็น (SQLite IS เทียบ NULL ได้)
+  args.push(id, user.workspace_id, b.vendor_ack, b.vendor_signature_key);
+  const audit = diffFields(b, pairs);
+  const claim = await env.DB.prepare(`UPDATE pending_bills SET ${updates.join(", ")} WHERE id = ? AND workspace_id = ? AND status = 'pending' AND vendor_ack IS ? AND vendor_signature_key IS ?`).bind(...args).run();
+  if (!claim.meta || claim.meta.changes !== 1) return json({ error: "บิลนี้เพิ่งถูกแก้หรือคู่ค้าเพิ่งตอบกลับ — เปิดใหม่แล้วลองอีกครั้ง" }, 409);
+
+  await logAudit(env, user, "update", "pending_bill", id, {
+    billName: b.name,
+    changes: audit.changes,
+    amountFrom: Number(b.amount),
+    amountTo: newAmount !== null ? newAmount : Number(b.amount),
+    ackCleared,
+    byRole: user.role || null,
+  });
+  const updated = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
+  return json({ bill: formatPendingBill(updated), ackCleared });
+}
+__name(updatePendingBill, "updatePendingBill");
 
 async function deletePendingBill(id, env, user) {
   const b = await env.DB.prepare("SELECT status, submitted_by_user_id, evidence_key FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
