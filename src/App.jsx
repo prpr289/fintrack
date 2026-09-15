@@ -21,6 +21,7 @@ import VouchersPrint from './pages/VouchersPrint'
 import Receipt from './pages/Receipt'
 import BulkUpload from './pages/BulkUpload'
 import Reports from './pages/Reports'
+import CashBook from './pages/CashBook'
 import CategoryRules from './pages/CategoryRules'
 import PendingBills from './pages/PendingBills'
 import Integrations from './pages/Integrations'
@@ -66,6 +67,7 @@ export default function App() {
             <Route path="recurring"    element={<RequireAdmin><Recurring /></RequireAdmin>} />
             <Route path="slips"        element={<SlipsGallery />} />
             <Route path="reports"      element={<RequireAdmin><Reports /></RequireAdmin>} />
+            <Route path="cash-book"    element={<RequireAdmin><CashBook /></RequireAdmin>} />
             {/* staff เข้าได้ — คนที่เจอร้านใหม่หน้างานคือ staff · งานที่ย้อนกลับยาก
                 (รวมร้าน/ซ่อน/จัดการหลายร้าน/ลบ) ยังกันไว้ที่ฝั่งเซิร์ฟเวอร์ให้ admin เท่านั้น */}
             <Route path="merchants"     element={<Merchants />} />
