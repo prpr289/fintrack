@@ -1,6 +1,6 @@
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from './AuthContext'
-import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap, Building2 } from 'lucide-react'
+import { LayoutDashboard, ArrowLeftRight, Wallet, Tag, Users, User, LogOut, Menu, X, ClipboardList, Target, RefreshCw, Paperclip, Store, UploadCloud, BarChart3, Wand2, Receipt, PlugZap, Building2, FileText } from 'lucide-react'
 import { useState } from 'react'
 import QuickAdd from './QuickAdd'
 import NotificationBell from './components/NotificationBell'
@@ -51,6 +51,7 @@ const NAV_GROUPS = [
   ] },
   { label: 'รายงาน', items: [
     { to: '/reports',       icon: BarChart3,       label: 'รายงานแยกกระเป๋า', admin: true },
+    { to: '/cash-book',     icon: FileText,        label: 'รายงานเงินสดรับ–จ่าย', admin: true },
   ] },
   { label: 'ข้อมูลหลัก', items: [
     { to: '/categories',    icon: Tag,             label: 'หมวดหมู่' },

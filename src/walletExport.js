@@ -26,7 +26,8 @@ async function assetAsBase64(url) {
   return btoa(binary)
 }
 
-function loadFontData() {
+// exported เพื่อให้รายงานเงินสดรับ-จ่ายใช้ฟอนต์ชุดเดียวกันได้ — logic เดิมไม่เปลี่ยน
+export function loadFontData() {
   if (!fontDataPromise) {
     fontDataPromise = Promise.all([
       assetAsBase64(sarabunRegularUrl),
@@ -39,7 +40,7 @@ function loadFontData() {
   return fontDataPromise
 }
 
-function addSarabunFonts(doc, regular, semiBold) {
+export function addSarabunFonts(doc, regular, semiBold) {
   doc.addFileToVFS('Sarabun-Regular.ttf', regular)
   doc.addFont('Sarabun-Regular.ttf', 'Sarabun', 'normal')
   doc.addFileToVFS('Sarabun-SemiBold.ttf', semiBold)
