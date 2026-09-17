@@ -18,7 +18,7 @@ async function mintJWT(payload) {
 }
 
 // ── D1 stub: จดทุก SQL ที่ถูกยิง เพื่อตรวจว่าเขียนคอลัมน์อะไรบ้าง ──
-function makeDB(billRow) {
+function makeDB(billRow, userRow = null) {
   const log = []
   return {
     log,
@@ -29,6 +29,8 @@ function makeDB(billRow) {
         async first() {
           log.push({ sql, args: stmt.args })
           if (/FROM pending_bills/i.test(sql) || /FROM pending_bills pb/i.test(sql)) return billRow ? { ...billRow } : null
+          // requireAuth อ่าน user จริงจาก D1 (ไม่เชื่อ role ใน JWT) — stub ต้องมีแถว user ที่ยัง active
+          if (/FROM users WHERE id = \? AND is_active = 1/i.test(sql) && userRow && stmt.args[0] === userRow.id) return { ...userRow }
           return null
         },
         async run() {
@@ -54,7 +56,7 @@ const baseBill = {
 }
 
 async function call(body, { role = 'admin', bill = baseBill, userId = 'u1', env: envOver = {} } = {}) {
-  const db = makeDB(bill)
+  const db = makeDB(bill, { id: userId, workspace_id: 'ws1', role, name: 'T' })
   const env = { DB: db, JWT_SECRET: SECRET, SERVICE_TOKEN: 'svc-tok', SERVICE_USER_ID: 'svc-user', ...envOver }
   const token = await mintJWT({ sub: userId, ws: 'ws1', role, name: 'T' })
   const res = await worker.fetch(new Request('https://x/pending-bills/pb1', {

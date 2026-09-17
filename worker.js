@@ -7,6 +7,7 @@ import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
 import { findDuplicatePairs } from "./vendor-dedupe.mjs";
 import { diffFields } from "./audit-diff.mjs";
+import { safeTokenEqual, applyCorsPolicy } from "./auth-guard.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -34,6 +35,11 @@ var worker_default = {
     if (thaiHour === 0) await cleanupDrafts(env);
   },
   async fetch(request, env, ctx) {
+    // ตรวจ Origin ที่ขาออกจุดเดียว — ALLOWED_ORIGINS ไม่ได้ตั้ง = คืน response ตัวเดิมเป๊ะ (Allow-Origin: * เหมือนเดิม)
+    return applyCorsPolicy(await routeRequest(request, env, ctx), request, env);
+  }
+};
+async function routeRequest(request, env, ctx) {
     if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
     const url = new URL(request.url);
     const path = url.pathname;
@@ -182,11 +188,20 @@ var worker_default = {
       return cors(json({ error: "Not found" }, 404));
     } catch (err) {
       console.error("Error:", err);
-      return cors(json({ error: "Internal server error: " + err.message }, 500));
+      // รายละเอียด error (ชื่อตาราง/คอลัมน์/SQL จาก D1, stack) อยู่ใน log ของ worker เท่านั้น ห้ามส่งให้ client
+      return cors(json({ error: "Internal server error" }, 500));
     }
-  }
-};
+}
+__name(routeRequest, "routeRequest");
 async function handleRegister(request, env) {
+  // เดิมเปิดสาธารณะ: ใครก็ได้ในอินเทอร์เน็ตสร้าง workspace + บัญชี role admin ได้เอง
+  // หน้าเว็บไม่มีจุดไหนเรียก route นี้ (การเพิ่มคนทำที่ POST /users) จึงเหลือไว้ให้ Admin ที่ล็อกอินอยู่เท่านั้น
+  // service token (LINE bot / HR OS) ห้ามใช้ แม้แถว user ของมันจะเป็น admin — การเปิด workspace ใหม่ไม่ใช่งานของบอท
+  const auth = await requireAuth(request, env);
+  const isServiceUser = auth.ok && ((env.SERVICE_USER_ID && auth.user.id === env.SERVICE_USER_ID) || (env.HROS_SERVICE_USER_ID && auth.user.id === env.HROS_SERVICE_USER_ID));
+  if (!auth.ok || !requireRole(auth.user, "admin") || isServiceUser) {
+    return json({ error: "ปิดการสมัครสาธารณะแล้ว — ให้ Admin เพิ่มผู้ใช้จากเมนูผู้ใช้" }, 403);
+  }
   const body = await request.json();
   const { email, password, name, workspaceName } = body;
   if (!email || !password || !name || !workspaceName) {
@@ -239,14 +254,15 @@ async function requireAuth(request, env) {
   // Long-lived service token (LINE bot etc.) — never expires; resolves to the
   // explicitly-configured service user (SERVICE_USER_ID), so it always targets
   // the correct workspace regardless of account creation order.
-  if (env.SERVICE_TOKEN && env.SERVICE_USER_ID && token === env.SERVICE_TOKEN) {
+  // เทียบแบบไม่รั่วเวลา (auth-guard.mjs) — ผลเท่ากับ === ทุกกรณี จึงไม่เปลี่ยนพฤติกรรมของ LINE bot
+  if (env.SERVICE_TOKEN && env.SERVICE_USER_ID && await safeTokenEqual(token, env.SERVICE_TOKEN)) {
     const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.SERVICE_USER_ID).first();
     if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" } };
   }
   // Independent long-lived token for the HR OS -> Fintrack expense sync. Kept
   // SEPARATE from SERVICE_TOKEN/SERVICE_USER_ID so HR OS config can never affect
   // the LINE bot (and vice versa). INERT until both HROS_* secrets are set.
-  if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && token === env.HROS_SERVICE_TOKEN) {
+  if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && await safeTokenEqual(token, env.HROS_SERVICE_TOKEN)) {
     const svc = await env.DB.prepare("SELECT id, workspace_id, role, name, settings FROM users WHERE id = ? AND is_active = 1").bind(env.HROS_SERVICE_USER_ID).first();
     // Admin kill-switch from the "เชื่อมระบบ HR OS" menu. Absent flag = ON, so this
     // stays a no-op until someone flips it. Gates THIS branch only — the LINE bot's
@@ -256,10 +272,21 @@ async function requireAuth(request, env) {
   }
   const payload = await verifyJWT(token, env);
   if (!payload) return { ok: false, error: "Invalid token", status: 401 };
-  const user = { id: payload.sub, workspace_id: payload.ws, role: payload.role, name: payload.name || "" };
+  // JWT อายุ 30 วันและไม่มีรายการเพิกถอน ถ้าเชื่อ claim อย่างเดียว คนที่ถูกปิดบัญชี (DELETE /users = is_active 0)
+  // หรือถูกลดสิทธิ์ยังใช้ token เดิมได้จนหมดอายุ — จึงอ่านสถานะ/role/workspace จริงจาก D1 ทุก request
+  const dbUser = await loadActiveUser(env, payload.sub);
+  if (!dbUser) return { ok: false, error: "Invalid token", status: 401 };
+  const user = { id: dbUser.id, workspace_id: dbUser.workspace_id, role: dbUser.role, name: dbUser.name || payload.name || "" };
   return { ok: true, user };
 }
 __name(requireAuth, "requireAuth");
+// แหล่งเดียวของ "user คนนี้ยังใช้งานได้ไหม" สำหรับ JWT — ใช้ทั้ง requireAuth และ WebSocket
+async function loadActiveUser(env, userId) {
+  if (!userId) return null;
+  const row = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(userId).first();
+  return row || null;
+}
+__name(loadActiveUser, "loadActiveUser");
 function requireRole(user, ...roles) {
   return roles.includes(user.role);
 }
@@ -2675,7 +2702,10 @@ async function handleWebSocket(request, env) {
   if (!token) return new Response("Token required", { status: 401 });
   const payload = await verifyJWT(token, env);
   if (!payload) return new Response("Invalid token", { status: 401 });
-  const id = env.REALTIME.idFromName(payload.ws);
+  // ด่านเดียวกับ requireAuth: บัญชีที่ถูกปิดต้องต่อ realtime ไม่ได้ และห้องต้องมาจาก workspace ใน D1 ไม่ใช่ claim
+  const dbUser = await loadActiveUser(env, payload.sub);
+  if (!dbUser) return new Response("Invalid token", { status: 401 });
+  const id = env.REALTIME.idFromName(dbUser.workspace_id);
   const stub = env.REALTIME.get(id);
   return stub.fetch(request);
 }
