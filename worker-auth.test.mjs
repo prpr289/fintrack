@@ -29,11 +29,11 @@ const baseUsers = () => [
 ]
 
 // ── D1 stub: รู้จักเฉพาะ SQL ที่ route ในเทสนี้ยิง ที่เหลือคืนว่าง · จดทุก SQL ไว้ตรวจ ──
-function makeDB({ users = baseUsers(), throwOn = null, lineUsers = [] } = {}) {
+function makeDB({ users = baseUsers(), throwOn = null, lineUsers = [], wallets = [] } = {}) {
   const log = []
   const batches = []
   const db = {
-    log, batches, users, lineUsers,
+    log, batches, users, lineUsers, wallets,
     prepare(sql) {
       if (throwOn && throwOn.test(sql)) throw new Error('D1_ERROR: no such column: secret_internal_col (SQLITE_ERROR)')
       const stmt = {
@@ -58,6 +58,15 @@ function makeDB({ users = baseUsers(), throwOn = null, lineUsers = [] } = {}) {
             return u ? { ...u } : null
           }
           if (/FROM workspaces WHERE id = \?/i.test(sql)) return { id: stmt.args[0], name: 'ร้านทดสอบ' }
+          // กระเป๋า: ไม่ส่ง wallets มา = คืน null เหมือนเดิม (เทสข้ออื่นไม่เปลี่ยนพฤติกรรม)
+          if (/FROM wallets WHERE workspace_id = \? AND is_active = 1/i.test(sql)) {
+            const w = wallets.find(x => x.workspace_id === stmt.args[0] && x.is_active === 1)
+            return w ? { ...w } : null
+          }
+          if (/FROM wallets WHERE id = \? AND workspace_id = \? AND is_active = 1/i.test(sql)) {
+            const w = wallets.find(x => x.id === stmt.args[0] && x.workspace_id === stmt.args[1] && x.is_active === 1)
+            return w ? { ...w } : null
+          }
           if (/FROM line_user_mappings WHERE line_user_id = \? AND workspace_id = \?/i.test(sql)) {
             const m = lineUsers.find(x => x.line_user_id === stmt.args[0] && x.workspace_id === stmt.args[1])
             return m ? { ...m } : null
@@ -487,4 +496,59 @@ for (const wrong of [SVC_TOKEN.slice(0, -1) + 'X', SVC_TOKEN.slice(0, -1), SVC_T
   }
 }
 
-console.log('worker-auth.test.mjs OK — register · JWT/D1 · service token · WebSocket · 500 · CORS · จัดการผู้ใช้ · line-users · login ผ่านหมด')
+// ── 12. บัญชีบริการชี้ไปที่บัญชีคนจริง (SERVICE_USER_ID === id ของ admin ที่ล็อกอิน) ──────────
+// ของจริงเป็นแบบนี้: ทั้ง SERVICE_USER_ID และ HROS_SERVICE_USER_ID ชี้บัญชีเดียวกับที่เจ้าของใช้ล็อกอินเว็บ
+// fixture เดิม (svc-user / hros-user แยกแถว) จึงมองไม่เห็นว่าด่านที่ตัดสินด้วย user.id จะปิดเมนูของเจ้าของเอง
+// ด่านต้องตัดสินจาก "คำขอนี้ยืนยันตัวด้วยอะไร": JWT = คน (ผ่าน) · service token = บอท (403)
+{
+  // บัญชีบริการทั้งสองตัว = u-admin ซึ่งเป็นแถวเดียวกับที่ jwtFor('u-admin') ล็อกอินเข้ามา
+  const sharedEnv = () => makeEnv({ SERVICE_USER_ID: 'u-admin', HROS_SERVICE_USER_ID: 'u-admin' })
+  const asOwner = { email: 'new3@x', password: 'secret123', name: 'ใหม่', role: 'staff' }
+  const owner = await jwtFor('u-admin')
+
+  // 12a. ล็อกอินด้วยรหัสผ่านตัวเอง = ยังเป็น admin เต็มสิทธิ์ทุกเมนู (เหมือน main ก่อนมี PR นี้)
+  const ownerCases = [
+    ['POST', '/users', asOwner, 201],
+    ['PATCH', '/users/u-staff', { role: 'viewer' }, 200],
+    ['DELETE', '/users/u-staff', undefined, 200],
+    ['PATCH', '/workspace', { name: 'ร้านของเจ้าของ' }, 200],
+    ['PATCH', '/integrations/hros', { enabled: false }, 200],
+    ['POST', '/auth/register', registerBody, 200],
+  ]
+  for (const [method, path, body, want] of ownerCases) {
+    const r = await call(method, path, { token: owner, body, env: sharedEnv() })
+    assert.strictEqual(r.status, want, `เจ้าของล็อกอินเอง ${method} ${path} ต้องได้ ${want} ไม่ใช่ ${r.status} (${r.text.slice(0, 80)})`)
+  }
+  // PATCH /pending-bills/:id — stub ไม่มีบิล จึงคาดหวัง 404 "ผ่านด่านแล้ว" ไม่ใช่ 403 "ไม่มีสิทธิ์"
+  const ownerBill = await call('PATCH', '/pending-bills/pb1', { token: owner, body: { name: 'แก้ชื่อบิล' }, env: sharedEnv() })
+  assert.strictEqual(ownerBill.status, 404, `เจ้าของต้องผ่านด่านไปถึงตัวบิล ไม่ใช่ 403 (ได้ ${ownerBill.status})`)
+
+  // 12b. token เดิมของบอท บนบัญชีเดียวกันนี้ ยังถูกห้ามทุกข้อ + ห้ามเขียน D1
+  for (const [token, label] of [[SVC_TOKEN, 'LINE bot'], [HROS_TOKEN, 'HR OS']]) {
+    for (const [method, path, body] of [...ownerCases.map(([m, p, b]) => [m, p, b]), ['PATCH', '/pending-bills/pb1', { name: 'บอทแก้บิล' }]]) {
+      const r = await call(method, path, { token, body, env: sharedEnv() })
+      assert.strictEqual(r.status, 403, `${label} token ห้าม ${method} ${path} แม้ชี้บัญชีเดียวกับเจ้าของ (ได้ ${r.status})`)
+      const writes = r.env.DB.log.filter(l => /^\s*(INSERT|UPDATE|DELETE)/i.test(l.sql))
+      assert.deepStrictEqual(writes, [], `${label} ${method} ${path} ต้องไม่เขียน D1`)
+    }
+  }
+
+  // 12c. ป้ายช่องทางของธุรกรรมก็ต้องดูที่ token ไม่ใช่ id — เจ้าของคีย์บนเว็บ = "web" · บอท = "line"
+  const txBody = { name: 'ค่ากาแฟ', amount: 60, type: 'expense', scope: 'business', date: '2026-09-18' }
+  const txEnv = () => makeEnv({
+    SERVICE_USER_ID: 'u-admin', HROS_SERVICE_USER_ID: 'u-admin',
+    DB: makeDB({ wallets: [{ id: 'w1', workspace_id: 'ws1', name: 'เงินสด', is_active: 1, current_balance: 0 }] }),
+  })
+  const channelOf = (env) => {
+    const insert = env.DB.batches.flat().find(s => /INSERT INTO transactions/i.test(s.sql))
+    return insert ? insert.args[insert.args.length - 1] : null
+  }
+  const ownerTx = await call('POST', '/transactions', { token: owner, body: txBody, env: txEnv() })
+  assert.strictEqual(ownerTx.status, 201, `เจ้าของสร้างธุรกรรมได้ (ได้ ${ownerTx.status} ${ownerTx.text.slice(0, 80)})`)
+  assert.strictEqual(channelOf(ownerTx.env), 'web', 'เจ้าของคีย์เองบนเว็บ ต้องเป็นช่องทาง "web"')
+  const botTx = await call('POST', '/transactions', { token: SVC_TOKEN, body: txBody, env: txEnv() })
+  assert.strictEqual(botTx.status, 201)
+  assert.strictEqual(channelOf(botTx.env), 'line', 'LINE bot ยิงด้วย service token ต้องยังเป็นช่องทาง "line"')
+}
+
+console.log('worker-auth.test.mjs OK — register · JWT/D1 · service token · WebSocket · 500 · CORS · จัดการผู้ใช้ · line-users · login · บัญชีบริการ=บัญชีเจ้าของ ผ่านหมด')

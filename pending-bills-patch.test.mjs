@@ -55,10 +55,12 @@ const baseBill = {
   submitted_by_user_id: 'u9', created_at: '2026-09-01 00:00:00', updated_at: '2026-09-01 00:00:00',
 }
 
-async function call(body, { role = 'admin', bill = baseBill, userId = 'u1', env: envOver = {} } = {}) {
+// serviceToken = ยิงด้วย SERVICE_TOKEN / HROS_SERVICE_TOKEN จริง (แบบที่บอทยิง)
+// ไม่ส่ง = ยิงด้วย JWT ที่ล็อกอินด้วยรหัสผ่าน (แบบที่คนยิง)
+async function call(body, { role = 'admin', bill = baseBill, userId = 'u1', serviceToken = null, env: envOver = {} } = {}) {
   const db = makeDB(bill, { id: userId, workspace_id: 'ws1', role, name: 'T' })
   const env = { DB: db, JWT_SECRET: SECRET, SERVICE_TOKEN: 'svc-tok', SERVICE_USER_ID: 'svc-user', ...envOver }
-  const token = await mintJWT({ sub: userId, ws: 'ws1', role, name: 'T' })
+  const token = serviceToken || await mintJWT({ sub: userId, ws: 'ws1', role, name: 'T' })
   const res = await worker.fetch(new Request('https://x/pending-bills/pb1', {
     method: 'PATCH',
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -74,8 +76,19 @@ const updateSQL = (db) => db.log.find(l => /^UPDATE pending_bills/i.test(l.sql.t
 assert.strictEqual((await call({ name: 'x' }, { role: 'staff' })).status, 403, 'staff ต้องถูกปฏิเสธ')
 assert.strictEqual((await call({ name: 'x' }, { role: 'viewer' })).status, 403, 'viewer ต้องถูกปฏิเสธ')
 // service token ของ LINE bot / HR OS ต้องเข้าไม่ได้ แม้แถว user จะเป็น admin
-assert.strictEqual((await call({ name: 'x' }, { userId: 'svc-user' })).status, 403, 'service user ต้องถูกปฏิเสธ')
-assert.strictEqual((await call({ name: 'x' }, { userId: 'hros-user', env: { HROS_SERVICE_USER_ID: 'hros-user' } })).status, 403, 'HROS service user ต้องถูกปฏิเสธ')
+// ⚠️ ต้องยิงด้วย "token จริงของบอท" ไม่ใช่ JWT ที่บังเอิญ sub ตรงกับ SERVICE_USER_ID
+// เดิมเทสนี้ยิงด้วย JWT แล้วคาด 403 ซึ่งผ่านเพราะด่านเทียบ user.id — ด่านแบบนั้นล็อกเจ้าของออกด้วย
+assert.strictEqual((await call({ name: 'x' }, { userId: 'svc-user', serviceToken: 'svc-tok' })).status, 403, 'LINE bot service token ต้องถูกปฏิเสธ')
+assert.strictEqual((await call({ name: 'x' }, {
+  userId: 'hros-user', serviceToken: 'hros-tok',
+  env: { HROS_SERVICE_TOKEN: 'hros-tok', HROS_SERVICE_USER_ID: 'hros-user' },
+})).status, 403, 'HR OS service token ต้องถูกปฏิเสธ')
+// ...แต่คนที่ล็อกอินด้วยรหัสผ่านตัวเองต้องแก้บิลได้ แม้บัญชีนั้นจะเป็นตัวเดียวกับ SERVICE_USER_ID
+// (ของจริง SERVICE_USER_ID ชี้บัญชีเจ้าของ — ถ้าด่านเทียบ id เจ้าของจะแก้บิลของตัวเองไม่ได้)
+assert.strictEqual((await call({ name: 'x' }, { userId: 'svc-user' })).status, 200, 'เจ้าของล็อกอินเอง (id เดียวกับ SERVICE_USER_ID) ต้องแก้บิลได้')
+assert.strictEqual((await call({ name: 'x' }, {
+  userId: 'hros-user', env: { HROS_SERVICE_TOKEN: 'hros-tok', HROS_SERVICE_USER_ID: 'hros-user' },
+})).status, 200, 'เจ้าของล็อกอินเอง (id เดียวกับ HROS_SERVICE_USER_ID) ต้องแก้บิลได้')
 
 // ── 2. สถานะ ──────────────────────────────────────────────────────
 assert.strictEqual((await call({ name: 'x' }, { bill: null })).status, 404, 'ไม่พบบิล')
