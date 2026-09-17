@@ -203,7 +203,7 @@ async function routeRequest(request, env, ctx) {
 }
 __name(routeRequest, "routeRequest");
 async function handleRegister(request, env) {
-  // เดิมเปิดสาธารณะ: ใครก็ได้ในอินเทอร์เน็ตสร้าง workspace + บัญชี role admin ได้เอง
+  // สร้างบัญชีได้เฉพาะ admin ที่ล็อกอินอยู่และยัง active — บัญชีบริการสร้างคนไม่ได้
   // หน้าเว็บไม่มีจุดไหนเรียก route นี้ (การเพิ่มคนทำที่ POST /users) จึงเหลือไว้ให้ Admin ที่ล็อกอินอยู่เท่านั้น
   // service token (LINE bot / HR OS) ห้ามใช้ แม้แถว user ของมันจะเป็น admin — การเปิด workspace ใหม่ไม่ใช่งานของบอท
   const auth = await requireAuth(request, env);
@@ -285,8 +285,8 @@ async function requireAuth(request, env) {
   }
   const payload = await verifyJWT(token, env);
   if (!payload) return { ok: false, error: "Invalid token", status: 401 };
-  // JWT อายุ 30 วันและไม่มีรายการเพิกถอน ถ้าเชื่อ claim อย่างเดียว คนที่ถูกปิดบัญชี (DELETE /users = is_active 0)
-  // หรือถูกลดสิทธิ์ยังใช้ token เดิมได้จนหมดอายุ — จึงอ่านสถานะ/role/workspace จริงจาก D1 ทุก request
+  // JWT อายุ 30 วันและไม่มีรายการเพิกถอน สถานะ/role/workspace จึงอ่านจาก D1 ทุกคำขอ
+  // ปิดบัญชีหรือเปลี่ยน role แล้วมีผลทันที ไม่ต้องรอ token หมดอายุ
   const dbUser = await loadActiveUser(env, payload.sub);
   if (!dbUser) return { ok: false, error: "Invalid token", status: 401 };
   const user = { id: dbUser.id, workspace_id: dbUser.workspace_id, role: dbUser.role, name: dbUser.name || payload.name || "" };
@@ -580,7 +580,7 @@ async function createTransaction(request, env, user) {
   // Only "auto" is honoured from the payload; anything else falls back to "manual".
   const txSource = source === "auto" ? "auto" : "manual";
   // ช่องทาง: ยิงผ่าน service token ของ LINE bot = "line" · หน้าเว็บ = "web"
-  // เดิมเทียบ user.id === SERVICE_USER_ID จึงติดป้าย "line" ให้ทุกแถวที่เจ้าของคีย์เองบนเว็บ (บัญชีเดียวกัน)
+  // ตัดสินจากวิธียืนยันตัว ไม่ใช่ id ของผู้ใช้ — บัญชีบริการกับคนอาจเป็นบัญชีเดียวกัน
   const txSourceChannel = sourceChannel || (txSource === "auto" ? "hros" : ((String(submittedBy || "").trim() || isServiceUser(user)) ? "line" : "web"));
   await env.DB.batch([
     env.DB.prepare(
@@ -2705,7 +2705,7 @@ async function upsertLineUser(request, env, user) {
   if (!requireRole(user, "admin") && !isServiceUser(user)) return json({ error: "เฉพาะ Admin" }, 403);
   const { lineUserId, employeeName, lineDisplayName } = await request.json();
   if (!lineUserId || !employeeName) return json({ error: "lineUserId and employeeName required" }, 400);
-  // เดิมค้นด้วย line_user_id อย่างเดียวแล้ว UPDATE ตาม id — ผู้ใช้ workspace ไหนก็เขียนทับชื่อพนักงานของ workspace อื่นได้
+  // ค้นและเขียนภายใน workspace ของผู้เรียกเท่านั้น
   const existing = await env.DB.prepare(
     "SELECT id FROM line_user_mappings WHERE line_user_id = ? AND workspace_id = ?"
   ).bind(lineUserId, user.workspace_id).first();
@@ -2715,7 +2715,7 @@ async function upsertLineUser(request, env, user) {
     ).bind(employeeName, lineDisplayName || null, existing.id, user.workspace_id).run();
     return json({ ok: true, updated: true });
   }
-  // ผูกกับ workspace อื่นอยู่แล้ว: ไม่เขียนทับ ไม่ INSERT ซ้ำ (เดิมก็ไม่ได้ผูกเข้า workspace นี้ เพราะ lookup กรอง workspace_id)
+  // ผูกกับ workspace อื่นอยู่แล้ว: ไม่เขียนทับ ไม่ INSERT ซ้ำ
   const elsewhere = await env.DB.prepare(
     "SELECT id FROM line_user_mappings WHERE line_user_id = ?"
   ).bind(lineUserId).first();
@@ -3164,7 +3164,7 @@ async function updatePendingBill(id, request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
   // requireAuth เป็นประตูร่วมของทุก route: service token ของ LINE bot / HR OS วิ่งผ่านมาถึงตรงนี้ได้
   // ถ้าแถว user ของมันเป็น role admin การแก้บิลเป็นการตัดสินใจของคน ไม่ใช่ของบอท จึงปิดให้ชัด
-  // เดิมเทียบ user.id === SERVICE_USER_ID ซึ่งกันเจ้าของ (บัญชีเดียวกัน) ออกจากการแก้บิลของตัวเองไปด้วย
+  // ตัดสินจากวิธียืนยันตัว ไม่ใช่ id — คนที่ล็อกอินเองยังแก้บิลของตัวเองได้
   if (isServiceUser(user)) return json({ error: "ไม่มีสิทธิ์" }, 403);
 
   const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
