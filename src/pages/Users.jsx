@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { api } from '../api'
 import { useAuth } from '../AuthContext'
-import { Plus, Pencil, Trash2, X, MessageCircle, Users as UsersIcon } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, MessageCircle, Users as UsersIcon, ChevronDown } from 'lucide-react'
 
 const CARD = { background: '#161b2e', border: '1px solid #1f2937' }
 const INPUT = 'w-full rounded-lg px-3 py-2 text-sm text-slate-200 border border-slate-600 focus:outline-none focus:border-emerald-500 transition-colors'
@@ -42,6 +42,7 @@ export default function Users() {
   const [form, setForm] = useState(EMPTY)
   const [err, setErr] = useState('')
   const [saving, setSaving] = useState(false)
+  const [showInactive, setShowInactive] = useState(false)
 
   const load = useCallback(async () => {
     const d = await api.users()
@@ -73,9 +74,19 @@ export default function Users() {
 
   const del = async (u) => {
     if (u.id === me.id) return alert('ไม่สามารถลบตัวเองได้')
-    if (!confirm(`ลบผู้ใช้ "${u.name}"?`)) return
+    if (!confirm(`ลบผู้ใช้ "${u.name}"?\nบัญชีนี้จะเข้าระบบไม่ได้อีก ประวัติที่บันทึกไว้ยังอยู่ครบ\nกู้คืนได้จาก "ปิดใช้งานแล้ว" ด้านล่าง`)) return
     try { await api.deleteUser(u.id); load() } catch (e) { alert(e.message) }
   }
+
+  const reactivate = async (u) => {
+    if (!confirm(`เปิดใช้งาน "${u.name}" อีกครั้ง?\nคนนี้จะเข้าระบบได้ด้วยรหัสผ่านเดิม`)) return
+    try { await api.updateUser(u.id, { isActive: true }); load() } catch (e) { alert(e.message) }
+  }
+
+  // "ลบ" ในระบบนี้คือปิดใช้งาน (is_active = 0) ไม่ลบแถวจริง เพราะบิล/ธุรกรรมเก่าอ้างถึงผู้บันทึก
+  // รายการหลักจึงแสดงเฉพาะคนที่ยังใช้งาน ไม่งั้นกดลบแล้วชื่อยังอยู่ ดูเหมือนลบไม่ได้
+  const active = users.filter(u => u.isActive)
+  const inactive = users.filter(u => !u.isActive)
 
   if (loading) return (
     <div className="p-6 flex items-center gap-2 text-slate-500">
@@ -104,7 +115,7 @@ export default function Users() {
           </div>
           <div className="min-w-0">
             <h2 className="text-xl font-bold text-white leading-tight">จัดการผู้ใช้</h2>
-            <p className="text-sm text-slate-500 mt-0.5"><span className="tabular-nums">{users.length}</span> ผู้ใช้ในระบบ</p>
+            <p className="text-sm text-slate-500 mt-0.5"><span className="tabular-nums">{active.length}</span> ผู้ใช้ในระบบ</p>
           </div>
         </div>
         <button onClick={openCreate}
@@ -116,7 +127,7 @@ export default function Users() {
       <div className="rounded-xl overflow-hidden" style={CARD}>
         {/* Mobile cards */}
         <div className="md:hidden divide-y" style={{ borderColor: '#1a2035' }}>
-          {users.map(u => (
+          {active.map(u => (
             <div key={u.id} className="p-4">
               <div className="flex items-start justify-between gap-2 mb-2">
                 <div>
@@ -160,9 +171,9 @@ export default function Users() {
               </tr>
             </thead>
             <tbody>
-              {users.map((u, i) => (
+              {active.map((u, i) => (
                 <tr key={u.id} className="hover:bg-white/[0.02] transition-colors"
-                  style={{ borderBottom: i < users.length - 1 ? '1px solid #1a2035' : 'none' }}>
+                  style={{ borderBottom: i < active.length - 1 ? '1px solid #1a2035' : 'none' }}>
                   <td className="px-4 py-3 font-medium text-slate-200">
                     {u.name} {u.id === me.id && <span className="text-xs text-slate-500">(คุณ)</span>}
                   </td>
@@ -196,6 +207,32 @@ export default function Users() {
           </table>
         </div>
       </div>
+
+      {inactive.length > 0 && (
+        <div className="rounded-xl overflow-hidden" style={CARD}>
+          <button onClick={() => setShowInactive(s => !s)} aria-expanded={showInactive}
+            className="w-full flex items-center justify-between px-4 py-3 text-sm text-slate-400 hover:text-slate-200 transition-colors">
+            <span>ปิดใช้งานแล้ว <span className="tabular-nums">{inactive.length}</span> คน</span>
+            <ChevronDown className={`w-4 h-4 transition-transform ${showInactive ? 'rotate-180' : ''}`} />
+          </button>
+          {showInactive && (
+            <div className="divide-y" style={{ borderTop: '1px solid #1f2937', borderColor: '#1a2035' }}>
+              {inactive.map(u => (
+                <div key={u.id} className="flex items-center justify-between gap-3 px-4 py-3">
+                  <div className="min-w-0">
+                    <p className="text-sm text-slate-300 truncate">{u.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{u.email}</p>
+                  </div>
+                  <button onClick={() => reactivate(u)}
+                    className="flex-shrink-0 text-xs px-3 py-2 rounded-lg text-emerald-400 hover:bg-emerald-500/10 transition-colors">
+                    เปิดใช้งานอีกครั้ง
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <LineUsersCard />
 
