@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+
+      - name: Run every *.test.mjs suite
+        run: |
+          fail=0
+          for f in $(git ls-files '*.test.mjs'); do
+            echo "--- $f"
+            node "$f" || fail=1
+          done
+          exit $fail
+
+      # Baseline lives in eslint-suppressions.json (ESLint bulk suppressions).
+      # Pre-existing worker.js errors are suppressed by rule+count; a new one
+      # pushes the count over baseline and fails. --pass-on-unpruned-suppressions
+      # means fixing a baseline error does not fail the build; prune it with
+      # `npx eslint --prune-suppressions worker.js`.
+      - name: Lint worker.js (new errors only)
+        run: npx eslint --pass-on-unpruned-suppressions worker.js
