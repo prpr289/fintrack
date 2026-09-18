@@ -7,11 +7,14 @@ import { attachMonthlyBalances, monthToDateRange } from "./wallet-balances.mjs";
 import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./vendor-items-logic.mjs";
 import { findDuplicatePairs } from "./vendor-dedupe.mjs";
 import { diffFields } from "./audit-diff.mjs";
+import { safeTokenEqual, applyCorsPolicy } from "./auth-guard.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
 // worker.js
 var JWT_EXPIRY_HOURS = 24 * 30;
+// รูปแบบเดียวกับ hashPassword (salt 16 ไบต์ : hash 32 ไบต์) — ใช้ถ่วงเวลาตอนไม่พบอีเมล ไม่มีรหัสไหนตรงกับค่านี้
+var DUMMY_PASSWORD_HASH = "AAAAAAAAAAAAAAAAAAAAAA==:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
 var DEFAULT_CATEGORIES = [
   { name: "\u0E22\u0E2D\u0E14\u0E02\u0E32\u0E22", color: "#1A7A4A", type: "both" },
   { name: "Delivery", color: "#7C3AED", type: "both" },
@@ -34,12 +37,23 @@ var worker_default = {
     if (thaiHour === 0) await cleanupDrafts(env);
   },
   async fetch(request, env, ctx) {
+    // ตรวจ Origin ที่ขาออกจุดเดียว — ALLOWED_ORIGINS ไม่ได้ตั้ง = คืน response ตัวเดิมเป๊ะ (Allow-Origin: * เหมือนเดิม)
+    return applyCorsPolicy(await routeRequest(request, env, ctx), request, env);
+  }
+};
+async function routeRequest(request, env, ctx) {
     if (request.method === "OPTIONS") return cors(new Response(null, { status: 204 }));
     const url = new URL(request.url);
     const path = url.pathname;
     const method = request.method;
     try {
       if (path === "/auth/register" && method === "POST") return cors(await handleRegister(request, env));
+      // /auth/login เปิดสาธารณะ — จำกัดต่อ IP กันไล่เดารหัสผ่าน · key ขึ้นต้น "login:" จึงไม่กินโควตาเดียวกับ /receipt/*
+      if (path === "/auth/login" && method === "POST" && env.RATE_LIMITER) {
+        const ip = request.headers.get("cf-connecting-ip") || "unknown";
+        const { success } = await env.RATE_LIMITER.limit({ key: "login:" + ip });
+        if (!success) return cors(json({ error: "เรียกถี่เกินไป กรุณารอสักครู่" }, 429));
+      }
       if (path === "/auth/login" && method === "POST") return cors(await handleLogin(request, env));
       if (path === "/health") return cors(json({ ok: true, time: (/* @__PURE__ */ new Date()).toISOString(), version: "v2" }));
       // ทุก route ใต้ /receipt/* เปิดสาธารณะ (คู่ค้าไม่มีบัญชี) — จำกัดจำนวนครั้งต่อ IP กันไล่เดา token
@@ -64,7 +78,8 @@ var worker_default = {
       if (rcptDisMatch && method === "POST") return cors(await disputePublicReceipt(rcptDisMatch[1], request, env));
       const rcptSlipMatch = path.match(/^\/receipt\/([a-f0-9]{16,})\/slip$/);
       if (rcptSlipMatch && method === "GET") return cors(await getPublicReceiptSlip(rcptSlipMatch[1], env));
-      if (path === "/ws") return handleWebSocket(request, env);
+      // await: handleWebSocket อ่าน D1 — ถ้าไม่ await แล้ว D1 throw จะหลุด try/catch ข้างล่าง (worker โยน exception ออกไปแทน 500)
+      if (path === "/ws") return await handleWebSocket(request, env);
       const auth = await requireAuth(request, env);
       if (!auth.ok) return cors(json({ error: auth.error }, auth.status || 401));
       const user = auth.user;
@@ -182,11 +197,19 @@ var worker_default = {
       return cors(json({ error: "Not found" }, 404));
     } catch (err) {
       console.error("Error:", err);
-      return cors(json({ error: "Internal server error: " + err.message }, 500));
+      // รายละเอียด error (ชื่อตาราง/คอลัมน์/SQL จาก D1, stack) อยู่ใน log ของ worker เท่านั้น ห้ามส่งให้ client
+      return cors(json({ error: "Internal server error" }, 500));
     }
-  }
-};
+}
+__name(routeRequest, "routeRequest");
 async function handleRegister(request, env) {
+  // สร้างบัญชีได้เฉพาะ admin ที่ล็อกอินอยู่และยัง active — บัญชีบริการสร้างคนไม่ได้
+  // หน้าเว็บไม่มีจุดไหนเรียก route นี้ (การเพิ่มคนทำที่ POST /users) จึงเหลือไว้ให้ Admin ที่ล็อกอินอยู่เท่านั้น
+  // service token (LINE bot / HR OS) ห้ามใช้ แม้แถว user ของมันจะเป็น admin — การเปิด workspace ใหม่ไม่ใช่งานของบอท
+  const auth = await requireAuth(request, env);
+  if (!auth.ok || !requireRole(auth.user, "admin") || isServiceUser(auth.user)) {
+    return json({ error: "ปิดการสมัครสาธารณะแล้ว — ให้ Admin เพิ่มผู้ใช้จากเมนูผู้ใช้" }, 403);
+  }
   const body = await request.json();
   const { email, password, name, workspaceName } = body;
   if (!email || !password || !name || !workspaceName) {
@@ -224,7 +247,11 @@ async function handleLogin(request, env) {
   const { email, password } = await request.json();
   if (!email || !password) return json({ error: "email and password required" }, 400);
   const user = await env.DB.prepare("SELECT * FROM users WHERE email = ? AND is_active = 1").bind(email).first();
-  if (!user) return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
+  if (!user) {
+    // \u0E17\u0E33 PBKDF2 \u0E23\u0E2D\u0E1A\u0E40\u0E17\u0E48\u0E32\u0E01\u0E31\u0E1A\u0E01\u0E23\u0E13\u0E35\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E34\u0E14 \u0E44\u0E21\u0E48\u0E07\u0E31\u0E49\u0E19\u0E27\u0E31\u0E14\u0E40\u0E27\u0E25\u0E32\u0E15\u0E2D\u0E1A\u0E41\u0E22\u0E01\u0E44\u0E14\u0E49\u0E27\u0E48\u0E32\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E44\u0E2B\u0E19\u0E21\u0E35\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E08\u0E23\u0E34\u0E07
+    await verifyPassword(password, DUMMY_PASSWORD_HASH);
+    return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
+  }
   const ok = await verifyPassword(password, user.password_hash);
   if (!ok) return json({ error: "\u0E2D\u0E35\u0E40\u0E21\u0E25\u0E2B\u0E23\u0E37\u0E2D\u0E23\u0E2B\u0E31\u0E2A\u0E1C\u0E48\u0E32\u0E19\u0E44\u0E21\u0E48\u0E16\u0E39\u0E01\u0E15\u0E49\u0E2D\u0E07" }, 401);
   await env.DB.prepare("UPDATE users SET last_login_at = CURRENT_TIMESTAMP WHERE id = ?").bind(user.id).run();
@@ -239,31 +266,63 @@ async function requireAuth(request, env) {
   // Long-lived service token (LINE bot etc.) — never expires; resolves to the
   // explicitly-configured service user (SERVICE_USER_ID), so it always targets
   // the correct workspace regardless of account creation order.
-  if (env.SERVICE_TOKEN && env.SERVICE_USER_ID && token === env.SERVICE_TOKEN) {
+  // เทียบแบบไม่รั่วเวลา (auth-guard.mjs) — ผลเท่ากับ === ทุกกรณี จึงไม่เปลี่ยนพฤติกรรมของ LINE bot
+  if (env.SERVICE_TOKEN && env.SERVICE_USER_ID && await safeTokenEqual(token, env.SERVICE_TOKEN)) {
     const svc = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(env.SERVICE_USER_ID).first();
-    if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" } };
+    // ติดป้าย "คำขอนี้มาด้วย service token" ให้ isServiceUser อ่าน — ไม่ใช่ตัดสินจาก id ปลายทาง
+    if (svc) return { ok: true, user: markServiceAuth({ id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "LINE Bot" }) };
   }
   // Independent long-lived token for the HR OS -> Fintrack expense sync. Kept
   // SEPARATE from SERVICE_TOKEN/SERVICE_USER_ID so HR OS config can never affect
   // the LINE bot (and vice versa). INERT until both HROS_* secrets are set.
-  if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && token === env.HROS_SERVICE_TOKEN) {
+  if (env.HROS_SERVICE_TOKEN && env.HROS_SERVICE_USER_ID && await safeTokenEqual(token, env.HROS_SERVICE_TOKEN)) {
     const svc = await env.DB.prepare("SELECT id, workspace_id, role, name, settings FROM users WHERE id = ? AND is_active = 1").bind(env.HROS_SERVICE_USER_ID).first();
     // Admin kill-switch from the "เชื่อมระบบ HR OS" menu. Absent flag = ON, so this
     // stays a no-op until someone flips it. Gates THIS branch only — the LINE bot's
     // SERVICE_TOKEN path above never reads it.
     if (svc && !hrosSyncEnabled(svc.settings)) return { ok: false, error: "การดึงข้อมูลจาก HR OS ถูกปิดอยู่", status: 403 };
-    if (svc) return { ok: true, user: { id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "HR OS" } };
+    if (svc) return { ok: true, user: markServiceAuth({ id: svc.id, workspace_id: svc.workspace_id, role: svc.role, name: svc.name || "HR OS" }) };
   }
   const payload = await verifyJWT(token, env);
   if (!payload) return { ok: false, error: "Invalid token", status: 401 };
-  const user = { id: payload.sub, workspace_id: payload.ws, role: payload.role, name: payload.name || "" };
+  // JWT อายุ 30 วันและไม่มีรายการเพิกถอน สถานะ/role/workspace จึงอ่านจาก D1 ทุกคำขอ
+  // ปิดบัญชีหรือเปลี่ยน role แล้วมีผลทันที ไม่ต้องรอ token หมดอายุ
+  const dbUser = await loadActiveUser(env, payload.sub);
+  if (!dbUser) return { ok: false, error: "Invalid token", status: 401 };
+  const user = { id: dbUser.id, workspace_id: dbUser.workspace_id, role: dbUser.role, name: dbUser.name || payload.name || "" };
   return { ok: true, user };
 }
 __name(requireAuth, "requireAuth");
+// แหล่งเดียวของ "user คนนี้ยังใช้งานได้ไหม" สำหรับ JWT — ใช้ทั้ง requireAuth และ WebSocket
+async function loadActiveUser(env, userId) {
+  if (!userId) return null;
+  const row = await env.DB.prepare("SELECT id, workspace_id, role, name FROM users WHERE id = ? AND is_active = 1").bind(userId).first();
+  return row || null;
+}
+__name(loadActiveUser, "loadActiveUser");
 function requireRole(user, ...roles) {
   return roles.includes(user.role);
 }
 __name(requireRole, "requireRole");
+// บัญชีบริการ (LINE bot · HR OS) มีไว้ส่ง/อ่านรายการเท่านั้น ห้ามจัดการผู้ใช้ เปิด workspace หรือแก้การตั้งค่า
+// แม้แถว user ของมันจะเป็น admin — token รั่วต้องไม่กลายเป็นการยึดสมุดบัญชี
+// (LINE bot เรียกแค่ /transactions /categories /category-rules /wallets /line-users /vendor-profiles · HR OS เรียกแค่ POST /transactions)
+//
+// ⚠️ ตัดสินจาก "คำขอนี้ยืนยันตัวด้วยอะไร" ไม่ใช่ "คนนี้เป็นใคร" — SERVICE_USER_ID / HROS_SERVICE_USER_ID
+// ชี้ไปที่บัญชีคนจริงได้ (ของจริงตอนนี้ทั้งสองตัวชี้บัญชีเจ้าของ) ถ้าเทียบด้วย user.id เจ้าของจะโดนด่านนี้
+// ปิดเมนูผู้ใช้/ตั้งค่าของตัวเองทันทีที่ deploy ทั้งที่ล็อกอินด้วยรหัสผ่านตัวเอง
+// requireAuth ติดป้ายเฉพาะ user object ที่ออกจากสาขา SERVICE_TOKEN / HROS_SERVICE_TOKEN เท่านั้น
+// WeakSet: ป้ายผูกกับ object ของ request นั้น ๆ ไม่มีทางมาจาก payload ของผู้เรียก และไม่รั่วออก JSON
+var SERVICE_AUTH_USERS = /* @__PURE__ */ new WeakSet();
+function markServiceAuth(user) {
+  SERVICE_AUTH_USERS.add(user);
+  return user;
+}
+__name(markServiceAuth, "markServiceAuth");
+function isServiceUser(user) {
+  return !!user && SERVICE_AUTH_USERS.has(user);
+}
+__name(isServiceUser, "isServiceUser");
 async function updateMyProfile(request, env, user) {
   const body = await request.json();
   const allowed = ["name", "avatar_url", "phone", "language", "theme", "settings", "bank_name", "bank_account_no", "bank_account_name"];
@@ -520,7 +579,9 @@ async function createTransaction(request, env, user) {
   // "auto" marks rows pushed by an integration (HR OS payroll sync) vs hand-keyed.
   // Only "auto" is honoured from the payload; anything else falls back to "manual".
   const txSource = source === "auto" ? "auto" : "manual";
-  const txSourceChannel = sourceChannel || (txSource === "auto" ? "hros" : ((String(submittedBy || "").trim() || user.id === env.SERVICE_USER_ID) ? "line" : "web"));
+  // ช่องทาง: ยิงผ่าน service token ของ LINE bot = "line" · หน้าเว็บ = "web"
+  // ตัดสินจากวิธียืนยันตัว ไม่ใช่ id ของผู้ใช้ — บัญชีบริการกับคนอาจเป็นบัญชีเดียวกัน
+  const txSourceChannel = sourceChannel || (txSource === "auto" ? "hros" : ((String(submittedBy || "").trim() || isServiceUser(user)) ? "line" : "web"));
   await env.DB.batch([
     env.DB.prepare(
       "INSERT INTO transactions (id, workspace_id, created_by_user_id, wallet_id, category_id, sub_category_id, name, amount, type, scope, date, note, submitted_by, source, source_channel) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
@@ -1003,6 +1064,7 @@ async function listUsers(env, user) {
 __name(listUsers, "listUsers");
 async function createUser(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  if (isServiceUser(user)) return json({ error: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1A\u0E23\u0E34\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49" }, 403);
   const { email, password, name, role } = await request.json();
   if (!email || !password || !name || !role) return json({ error: "fields required" }, 400);
   if (!["admin", "staff", "viewer"].includes(role)) return json({ error: "invalid role" }, 400);
@@ -1023,9 +1085,15 @@ async function createUser(request, env, user) {
 __name(createUser, "createUser");
 async function updateUser(id, request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  if (isServiceUser(user)) return json({ error: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1A\u0E23\u0E34\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49" }, 403);
   const target = await env.DB.prepare("SELECT * FROM users WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!target) return json({ error: "\u0E44\u0E21\u0E48\u0E1E\u0E1A user" }, 404);
   const body = await request.json();
+  // \u0E41\u0E1A\u0E1A\u0E40\u0E14\u0E35\u0E22\u0E27\u0E01\u0E31\u0E1A deleteUser \u0E17\u0E35\u0E48\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2014 role/is_active \u0E2D\u0E48\u0E32\u0E19\u0E08\u0E32\u0E01 D1 \u0E17\u0E38\u0E01 request \u0E41\u0E25\u0E49\u0E27 \u0E1E\u0E25\u0E32\u0E14\u0E04\u0E23\u0E31\u0E49\u0E07\u0E40\u0E14\u0E35\u0E22\u0E27\u0E21\u0E35\u0E1C\u0E25\u0E17\u0E31\u0E19\u0E17\u0E35
+  // \u0E41\u0E25\u0E30 workspace \u0E2D\u0E32\u0E08\u0E44\u0E21\u0E48\u0E40\u0E2B\u0E25\u0E37\u0E2D admin \u0E01\u0E39\u0E49\u0E08\u0E32\u0E01\u0E2B\u0E19\u0E49\u0E32\u0E40\u0E27\u0E47\u0E1A\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u00B7 \u0E1F\u0E2D\u0E23\u0E4C\u0E21\u0E2A\u0E48\u0E07 role \u0E40\u0E14\u0E34\u0E21\u0E01\u0E25\u0E31\u0E1A\u0E21\u0E32\u0E17\u0E38\u0E01\u0E04\u0E23\u0E31\u0E49\u0E07 \u0E08\u0E36\u0E07\u0E01\u0E31\u0E19\u0E40\u0E09\u0E1E\u0E32\u0E30 "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19" role
+  if (id === user.id && ((body.role !== void 0 && body.role !== user.role) || (body.isActive !== void 0 && !body.isActive))) {
+    return json({ error: "\u0E40\u0E1B\u0E25\u0E35\u0E48\u0E22\u0E19\u0E2A\u0E34\u0E17\u0E18\u0E34\u0E4C\u0E2B\u0E23\u0E37\u0E2D\u0E1B\u0E34\u0E14\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E02\u0E2D\u0E07\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49 \u2014 \u0E43\u0E2B\u0E49 Admin \u0E04\u0E19\u0E2D\u0E37\u0E48\u0E19\u0E17\u0E33" }, 400);
+  }
   const updates = [], args = [];
   if (body.name !== void 0) {
     updates.push("name = ?");
@@ -1067,6 +1135,7 @@ async function updateUser(id, request, env, user) {
 __name(updateUser, "updateUser");
 async function deleteUser(id, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "\u0E40\u0E09\u0E1E\u0E32\u0E30 Admin" }, 403);
+  if (isServiceUser(user)) return json({ error: "\u0E1A\u0E31\u0E0D\u0E0A\u0E35\u0E1A\u0E23\u0E34\u0E01\u0E32\u0E23\u0E08\u0E31\u0E14\u0E01\u0E32\u0E23\u0E1C\u0E39\u0E49\u0E43\u0E0A\u0E49\u0E44\u0E21\u0E48\u0E44\u0E14\u0E49" }, 403);
   if (id === user.id) return json({ error: "\u0E44\u0E21\u0E48\u0E2A\u0E32\u0E21\u0E32\u0E23\u0E16\u0E25\u0E1A\u0E15\u0E31\u0E27\u0E40\u0E2D\u0E07" }, 400);
   await env.DB.prepare("UPDATE users SET is_active = 0 WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).run();
   await logAudit(env, user, "delete", "user", id, {});
@@ -1197,6 +1266,7 @@ async function getHrosIntegration(env, user) {
 __name(getHrosIntegration, "getHrosIntegration");
 async function setHrosIntegration(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (isServiceUser(user)) return json({ error: "บัญชีบริการแก้การตั้งค่าไม่ได้" }, 403);
   const { enabled } = await request.json();
   if (typeof enabled !== "boolean") return json({ error: "enabled (boolean) required" }, 400);
   if (!env.HROS_SERVICE_USER_ID) return json({ error: "ยังไม่ได้ตั้งค่า HR OS (HROS_SERVICE_USER_ID)" }, 400);
@@ -2185,6 +2255,7 @@ __name(getWorkspace, "getWorkspace");
 
 async function updateWorkspace(request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
+  if (isServiceUser(user)) return json({ error: "บัญชีบริการแก้การตั้งค่าไม่ได้" }, 403);
   const b = await request.json().catch(() => ({}));
   const name = b.name === undefined ? undefined : String(b.name || "").trim().slice(0, 120);
   if (name !== undefined && !name) return json({ error: "ชื่อร้านห้ามว่าง" }, 400);
@@ -2630,17 +2701,25 @@ async function listLineUsers(env, user) {
 __name(listLineUsers, "listLineUsers");
 
 async function upsertLineUser(request, env, user) {
+  // ผู้เรียกจริงมีแค่ LINE bot ("ลงทะเบียน <ชื่อ>" ด้วย FINTRACK_TOKEN) หน้าเว็บไม่เรียก — staff/viewer ไม่ต้องแก้ชื่อผู้บันทึก
+  if (!requireRole(user, "admin") && !isServiceUser(user)) return json({ error: "เฉพาะ Admin" }, 403);
   const { lineUserId, employeeName, lineDisplayName } = await request.json();
   if (!lineUserId || !employeeName) return json({ error: "lineUserId and employeeName required" }, 400);
+  // ค้นและเขียนภายใน workspace ของผู้เรียกเท่านั้น
   const existing = await env.DB.prepare(
-    "SELECT id FROM line_user_mappings WHERE line_user_id = ?"
-  ).bind(lineUserId).first();
+    "SELECT id FROM line_user_mappings WHERE line_user_id = ? AND workspace_id = ?"
+  ).bind(lineUserId, user.workspace_id).first();
   if (existing) {
     await env.DB.prepare(
-      "UPDATE line_user_mappings SET employee_name = ?, line_display_name = ? WHERE id = ?"
-    ).bind(employeeName, lineDisplayName || null, existing.id).run();
+      "UPDATE line_user_mappings SET employee_name = ?, line_display_name = ? WHERE id = ? AND workspace_id = ?"
+    ).bind(employeeName, lineDisplayName || null, existing.id, user.workspace_id).run();
     return json({ ok: true, updated: true });
   }
+  // ผูกกับ workspace อื่นอยู่แล้ว: ไม่เขียนทับ ไม่ INSERT ซ้ำ
+  const elsewhere = await env.DB.prepare(
+    "SELECT id FROM line_user_mappings WHERE line_user_id = ?"
+  ).bind(lineUserId).first();
+  if (elsewhere) return json({ error: "LINE user นี้ผูกกับร้านอื่นอยู่แล้ว" }, 409);
   const id = "lu_" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   await env.DB.prepare(
     "INSERT INTO line_user_mappings (id, workspace_id, line_user_id, employee_name, line_display_name) VALUES (?, ?, ?, ?, ?)"
@@ -2675,7 +2754,10 @@ async function handleWebSocket(request, env) {
   if (!token) return new Response("Token required", { status: 401 });
   const payload = await verifyJWT(token, env);
   if (!payload) return new Response("Invalid token", { status: 401 });
-  const id = env.REALTIME.idFromName(payload.ws);
+  // ด่านเดียวกับ requireAuth: บัญชีที่ถูกปิดต้องต่อ realtime ไม่ได้ และห้องต้องมาจาก workspace ใน D1 ไม่ใช่ claim
+  const dbUser = await loadActiveUser(env, payload.sub);
+  if (!dbUser) return new Response("Invalid token", { status: 401 });
+  const id = env.REALTIME.idFromName(dbUser.workspace_id);
   const stub = env.REALTIME.get(id);
   return stub.fetch(request);
 }
@@ -3082,8 +3164,8 @@ async function updatePendingBill(id, request, env, user) {
   if (!requireRole(user, "admin")) return json({ error: "เฉพาะ Admin" }, 403);
   // requireAuth เป็นประตูร่วมของทุก route: service token ของ LINE bot / HR OS วิ่งผ่านมาถึงตรงนี้ได้
   // ถ้าแถว user ของมันเป็น role admin การแก้บิลเป็นการตัดสินใจของคน ไม่ใช่ของบอท จึงปิดให้ชัด
-  if (env.SERVICE_USER_ID && user.id === env.SERVICE_USER_ID) return json({ error: "ไม่มีสิทธิ์" }, 403);
-  if (env.HROS_SERVICE_USER_ID && user.id === env.HROS_SERVICE_USER_ID) return json({ error: "ไม่มีสิทธิ์" }, 403);
+  // ตัดสินจากวิธียืนยันตัว ไม่ใช่ id — คนที่ล็อกอินเองยังแก้บิลของตัวเองได้
+  if (isServiceUser(user)) return json({ error: "ไม่มีสิทธิ์" }, 403);
 
   const b = await env.DB.prepare("SELECT * FROM pending_bills WHERE id = ? AND workspace_id = ?").bind(id, user.workspace_id).first();
   if (!b) return json({ error: "ไม่พบบิล" }, 404);

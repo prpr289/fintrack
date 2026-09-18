@@ -1,0 +1,558 @@
+// Run: node worker-auth.test.mjs
+// ทดสอบด่านตัวตนของ worker ระดับ route จริง (worker.fetch) โดย stub เฉพาะ D1 / Durable Object
+// ครอบ: /auth/register ปิดสาธารณะ · JWT ต้องตรงกับ user ที่ยัง active ใน D1 · WebSocket ·
+//       CORS allowlist (ALLOWED_ORIGINS) · 500 ไม่คาย err.message · service token ของ LINE bot / HR OS ยังใช้ได้
+import assert from 'node:assert'
+import worker from './worker.js'
+
+const SECRET = 'test-secret'
+const SVC_TOKEN = 'svc-token-0123456789abcdef'
+const HROS_TOKEN = 'hros-token-fedcba9876543210'
+const b64url = (buf) => Buffer.from(buf).toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+
+async function mintJWT(payload, { expOffset = 3600 } = {}) {
+  const enc = new TextEncoder()
+  const header = b64url(enc.encode(JSON.stringify({ alg: 'HS256', typ: 'JWT' })))
+  const now = Math.floor(Date.now() / 1000)
+  const body = b64url(enc.encode(JSON.stringify({ ...payload, iat: now, exp: now + expOffset })))
+  const key = await crypto.subtle.importKey('raw', enc.encode(SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign'])
+  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(`${header}.${body}`))
+  return `${header}.${body}.${b64url(new Uint8Array(sig))}`
+}
+
+const baseUsers = () => [
+  { id: 'u-admin', workspace_id: 'ws1', email: 'admin@x', name: 'แอดมิน', role: 'admin', is_active: 1, settings: null },
+  { id: 'u-staff', workspace_id: 'ws1', email: 'staff@x', name: 'พนักงาน', role: 'staff', is_active: 1, settings: null },
+  { id: 'u-gone', workspace_id: 'ws1', email: 'gone@x', name: 'ลาออกแล้ว', role: 'admin', is_active: 0, settings: null },
+  { id: 'svc-user', workspace_id: 'ws1', email: 'bot@x', name: 'LINE Bot', role: 'admin', is_active: 1, settings: null },
+  { id: 'hros-user', workspace_id: 'ws1', email: 'hros@x', name: 'HR OS', role: 'admin', is_active: 1, settings: null },
+]
+
+// ── D1 stub: รู้จักเฉพาะ SQL ที่ route ในเทสนี้ยิง ที่เหลือคืนว่าง · จดทุก SQL ไว้ตรวจ ──
+function makeDB({ users = baseUsers(), throwOn = null, lineUsers = [], wallets = [] } = {}) {
+  const log = []
+  const batches = []
+  const db = {
+    log, batches, users, lineUsers, wallets,
+    prepare(sql) {
+      if (throwOn && throwOn.test(sql)) throw new Error('D1_ERROR: no such column: secret_internal_col (SQLITE_ERROR)')
+      const stmt = {
+        sql, args: [],
+        bind(...a) { stmt.args = a; return stmt },
+        async first() {
+          log.push({ sql, args: stmt.args })
+          if (/FROM users WHERE id = \? AND is_active = 1/i.test(sql)) {
+            const u = users.find(x => x.id === stmt.args[0] && x.is_active === 1)
+            return u ? { ...u } : null
+          }
+          if (/FROM users WHERE email = \?/i.test(sql)) {
+            const u = users.find(x => x.email === stmt.args[0])
+            return u ? { ...u } : null
+          }
+          if (/FROM users WHERE id = \? AND workspace_id = \?/i.test(sql)) {
+            const u = users.find(x => x.id === stmt.args[0] && x.workspace_id === stmt.args[1])
+            return u ? { ...u } : null
+          }
+          if (/FROM users WHERE id = \?\s*$/i.test(sql)) {
+            const u = users.find(x => x.id === stmt.args[0])
+            return u ? { ...u } : null
+          }
+          if (/FROM workspaces WHERE id = \?/i.test(sql)) return { id: stmt.args[0], name: 'ร้านทดสอบ' }
+          // กระเป๋า: ไม่ส่ง wallets มา = คืน null เหมือนเดิม (เทสข้ออื่นไม่เปลี่ยนพฤติกรรม)
+          if (/FROM wallets WHERE workspace_id = \? AND is_active = 1/i.test(sql)) {
+            const w = wallets.find(x => x.workspace_id === stmt.args[0] && x.is_active === 1)
+            return w ? { ...w } : null
+          }
+          if (/FROM wallets WHERE id = \? AND workspace_id = \? AND is_active = 1/i.test(sql)) {
+            const w = wallets.find(x => x.id === stmt.args[0] && x.workspace_id === stmt.args[1] && x.is_active === 1)
+            return w ? { ...w } : null
+          }
+          if (/FROM line_user_mappings WHERE line_user_id = \? AND workspace_id = \?/i.test(sql)) {
+            const m = lineUsers.find(x => x.line_user_id === stmt.args[0] && x.workspace_id === stmt.args[1])
+            return m ? { ...m } : null
+          }
+          if (/FROM line_user_mappings WHERE line_user_id = \?\s*$/i.test(sql)) {
+            const m = lineUsers.find(x => x.line_user_id === stmt.args[0])
+            return m ? { ...m } : null
+          }
+          return null
+        },
+        async all() {
+          log.push({ sql, args: stmt.args })
+          if (/FROM users WHERE workspace_id = \?/i.test(sql)) return { results: users.filter(x => x.workspace_id === stmt.args[0]) }
+          return { results: [] }
+        },
+        async run() { log.push({ sql, args: stmt.args }); return { meta: { changes: 1 } } },
+      }
+      return stmt
+    },
+    async batch(stmts) { batches.push(stmts); return stmts.map(() => ({ success: true })) },
+  }
+  return db
+}
+
+function makeRealtime() {
+  const rooms = []
+  return {
+    rooms,
+    idFromName(name) { rooms.push(name); return name },
+    get(id) { return { fetch: async () => new Response(`room:${id}`, { status: 200 }) } },
+  }
+}
+
+function makeEnv(over = {}) {
+  return {
+    DB: makeDB(), REALTIME: makeRealtime(), JWT_SECRET: SECRET,
+    SERVICE_TOKEN: SVC_TOKEN, SERVICE_USER_ID: 'svc-user',
+    HROS_SERVICE_TOKEN: HROS_TOKEN, HROS_SERVICE_USER_ID: 'hros-user',
+    ...over,
+  }
+}
+
+async function call(method, path, { token, body, origin, headers: extraHeaders = {}, env = makeEnv() } = {}) {
+  const headers = { ...extraHeaders }
+  if (token) headers.Authorization = `Bearer ${token}`
+  if (body !== undefined) headers['Content-Type'] = 'application/json'
+  if (origin) headers.Origin = origin
+  const res = await worker.fetch(new Request(`https://fintrack-api.test${path}`, {
+    method, headers, body: body !== undefined ? JSON.stringify(body) : undefined,
+  }), env, {})
+  const text = await res.clone().text()
+  let json = null
+  try { json = JSON.parse(text) } catch { json = null }
+  return { res, status: res.status, json, text, env }
+}
+
+const jwtFor = (sub, claims = {}) => mintJWT({ sub, ws: 'ws1', role: 'admin', name: 'claim-name', ...claims })
+const registerBody = { email: 'new@x', password: 'secret123', name: 'คนใหม่', workspaceName: 'ร้านใหม่' }
+
+// ── 1. POST /auth/register ไม่เปิดสาธารณะแล้ว ──────────────────────────
+{
+  const r = await call('POST', '/auth/register', { body: registerBody })
+  assert.strictEqual(r.status, 403, 'ไม่มี token ต้องถูกปฏิเสธ')
+  assert.strictEqual(typeof r.json.error, 'string')
+  assert.strictEqual(r.env.DB.batches.length, 0, 'ต้องไม่สร้าง workspace/user')
+  assert.ok(!('token' in r.json), 'ต้องไม่คืน token')
+}
+{
+  const r = await call('POST', '/auth/register', { token: 'not-a-jwt', body: registerBody })
+  assert.strictEqual(r.status, 403, 'token มั่วต้องถูกปฏิเสธ')
+  assert.strictEqual(r.env.DB.batches.length, 0)
+}
+{
+  const r = await call('POST', '/auth/register', { token: await jwtFor('u-staff', { role: 'staff' }), body: registerBody })
+  assert.strictEqual(r.status, 403, 'staff สร้าง workspace ไม่ได้')
+  assert.strictEqual(r.env.DB.batches.length, 0)
+}
+{
+  // JWT อ้างว่าเป็น admin แต่ใน D1 เป็น staff → ต้องเชื่อ D1
+  const r = await call('POST', '/auth/register', { token: await jwtFor('u-staff', { role: 'admin' }), body: registerBody })
+  assert.strictEqual(r.status, 403, 'role ใน JWT ต้องไม่มีผล')
+  assert.strictEqual(r.env.DB.batches.length, 0)
+}
+{
+  const r = await call('POST', '/auth/register', { token: await jwtFor('u-gone'), body: registerBody })
+  assert.strictEqual(r.status, 403, 'admin ที่ถูกปิดบัญชีต้องใช้ไม่ได้')
+  assert.strictEqual(r.env.DB.batches.length, 0)
+}
+{
+  const r = await call('POST', '/auth/register', { token: SVC_TOKEN, body: registerBody })
+  assert.strictEqual(r.status, 403, 'LINE bot service token ห้ามสร้าง workspace แม้แถว user เป็น admin')
+  assert.strictEqual(r.env.DB.batches.length, 0)
+  const h = await call('POST', '/auth/register', { token: HROS_TOKEN, body: registerBody })
+  assert.strictEqual(h.status, 403, 'HR OS service token ห้ามสร้าง workspace')
+  assert.strictEqual(h.env.DB.batches.length, 0)
+}
+{
+  const r = await call('POST', '/auth/register', { token: await jwtFor('u-admin'), body: registerBody })
+  assert.strictEqual(r.status, 200, 'admin ที่ล็อกอินและ active ยังเรียกได้')
+  assert.strictEqual(r.env.DB.batches.length, 1)
+  assert.strictEqual(typeof r.json.token, 'string', 'response shape เดิม: token')
+  assert.strictEqual(r.json.user.role, 'admin', 'response shape เดิม: user')
+  assert.strictEqual(r.json.user.email, 'new@x')
+  assert.match(r.json.user.workspaceId, /^ws_/)
+}
+{
+  const r = await call('POST', '/auth/register', { token: await jwtFor('u-admin'), body: { ...registerBody, email: 'staff@x' } })
+  assert.strictEqual(r.status, 409, 'อีเมลซ้ำยังตอบ 409 เหมือนเดิม')
+}
+
+// ── 2. JWT ต้องตรงกับ user ที่ยัง active ใน D1 ทุก request ─────────────
+{
+  const r = await call('GET', '/me', { token: await jwtFor('u-gone') })
+  assert.strictEqual(r.status, 401, 'ปิดบัญชีแล้ว token เดิม (ยังไม่หมดอายุ) ต้องใช้ไม่ได้ทันที')
+  assert.deepStrictEqual(r.json, { error: 'Invalid token' })
+}
+{
+  const r = await call('GET', '/me', { token: await jwtFor('u-never-existed') })
+  assert.strictEqual(r.status, 401, 'user ที่ไม่มีใน D1')
+}
+{
+  // ปิดบัญชีผ่าน DELETE /users/:id แล้ว token ของคนนั้นต้องตายทันที
+  const env = makeEnv()
+  const staffTok = await jwtFor('u-staff', { role: 'staff' })
+  assert.strictEqual((await call('GET', '/me', { token: staffTok, env })).status, 200, 'ก่อนปิด ใช้ได้')
+  const del = await call('DELETE', '/users/u-staff', { token: await jwtFor('u-admin'), env })
+  assert.strictEqual(del.status, 200)
+  assert.ok(env.DB.log.some(l => /UPDATE users SET is_active = 0/.test(l.sql) && l.args[0] === 'u-staff'))
+  env.DB.users.find(u => u.id === 'u-staff').is_active = 0 // จำลองผลของ UPDATE ใน D1
+  assert.strictEqual((await call('GET', '/me', { token: staffTok, env })).status, 401, 'หลังปิด ใช้ไม่ได้')
+}
+{
+  // ถูกลดสิทธิ์จาก admin เป็น staff: token เก่าที่ claim admin ต้องไม่ผ่านหน้าที่เฉพาะ admin
+  const r = await call('GET', '/users', { token: await jwtFor('u-staff', { role: 'admin' }) })
+  assert.strictEqual(r.status, 403, 'role มาจาก D1 ไม่ใช่ JWT')
+  const ok = await call('GET', '/users', { token: await jwtFor('u-admin', { role: 'viewer' }) })
+  assert.strictEqual(ok.status, 200, 'กลับกัน: D1 เป็น admin ก็ต้องผ่าน')
+}
+{
+  // workspace ต้องมาจาก D1 ไม่ใช่ claim ws
+  const r = await call('GET', '/users', { token: await jwtFor('u-admin', { ws: 'ws-someone-else' }) })
+  assert.strictEqual(r.status, 200)
+  const q = r.env.DB.log.find(l => /FROM users WHERE workspace_id = \?/.test(l.sql))
+  assert.strictEqual(q.args[0], 'ws1', 'ต้อง query ด้วย workspace จริงใน D1')
+}
+{
+  const r = await call('GET', '/me', { token: await jwtFor('u-admin') })
+  assert.strictEqual(r.status, 200)
+  assert.strictEqual(r.json.user.id, 'u-admin')
+  assert.strictEqual(r.json.user.name, 'แอดมิน')
+}
+{
+  const r = await call('GET', '/me', { token: await mintJWT({ sub: 'u-admin', ws: 'ws1', role: 'admin' }, { expOffset: -10 }) })
+  assert.strictEqual(r.status, 401, 'JWT หมดอายุยังถูกปฏิเสธเหมือนเดิม')
+  const bad = await mintJWT({ sub: 'u-admin', ws: 'ws1', role: 'admin' })
+  // แก้ตัวแรกของลายเซ็น ไม่ใช่ตัวท้าย: ตัวท้ายของ base64url 43 ตัวมีบิตเติมท้าย
+  // แก้ตรงนั้นบางวินาทีถอดแล้วได้ไบต์เดิม token ยังถูกต้อง เทสแดงแบบสุ่ม (~1/877)
+  const sig = bad.split('.')[2]
+  const tampered = bad.slice(0, -sig.length) + (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1)
+  assert.strictEqual((await call('GET', '/me', { token: tampered })).status, 401, 'ลายเซ็นผิด')
+  assert.strictEqual((await call('GET', '/me')).status, 401, 'ไม่มี token')
+}
+
+// ── 3. service token ของ LINE bot / HR OS ยังทำงานเหมือนเดิม ────────────
+{
+  const r = await call('GET', '/me', { token: SVC_TOKEN })
+  assert.strictEqual(r.status, 200, 'LINE bot token ต้องใช้ได้')
+  assert.strictEqual(r.json.user.id, 'svc-user')
+  const cats = await call('GET', '/categories', { token: SVC_TOKEN })
+  assert.strictEqual(cats.status, 200, 'LINE bot เรียก /categories ได้ (webhook ใช้ทุกข้อความ)')
+  const wallets = await call('GET', '/wallets', { token: SVC_TOKEN })
+  assert.strictEqual(wallets.status, 200, 'LINE bot เรียก /wallets ได้')
+}
+for (const wrong of [SVC_TOKEN.slice(0, -1) + 'X', SVC_TOKEN.slice(0, -1), SVC_TOKEN + 'a', 'X' + SVC_TOKEN.slice(1), ` ${SVC_TOKEN}`]) {
+  assert.strictEqual((await call('GET', '/me', { token: wrong })).status, 401, `token เกือบถูก (${wrong.length} ตัว) ต้องไม่ผ่าน`)
+}
+{
+  const env = makeEnv()
+  env.DB.users.find(u => u.id === 'svc-user').is_active = 0
+  assert.strictEqual((await call('GET', '/me', { token: SVC_TOKEN, env })).status, 401, 'service user ถูกปิด = token ใช้ไม่ได้ (เหมือนเดิม)')
+}
+{
+  const env = makeEnv({ SERVICE_TOKEN: undefined })
+  assert.strictEqual((await call('GET', '/me', { token: SVC_TOKEN, env })).status, 401, 'ไม่ได้ตั้ง SERVICE_TOKEN = path นี้ปิด')
+}
+{
+  const r = await call('GET', '/me', { token: HROS_TOKEN })
+  assert.strictEqual(r.status, 200, 'HR OS token ต้องใช้ได้')
+  assert.strictEqual(r.json.user.id, 'hros-user')
+  assert.strictEqual((await call('GET', '/me', { token: HROS_TOKEN.slice(0, -1) + 'Z' })).status, 401)
+  const env = makeEnv()
+  env.DB.users.find(u => u.id === 'hros-user').settings = JSON.stringify({ hrosSyncEnabled: false })
+  const off = await call('GET', '/me', { token: HROS_TOKEN, env })
+  assert.strictEqual(off.status, 403, 'สวิตช์ปิด HR OS ยังมีผลเหมือนเดิม')
+  // สวิตช์ HR OS ต้องไม่กระทบ LINE bot
+  assert.strictEqual((await call('GET', '/me', { token: SVC_TOKEN, env })).status, 200)
+  // สลับ token กันใช้ต้องไม่ได้ตัวตนของอีกระบบ
+  const envCross = makeEnv({ HROS_SERVICE_TOKEN: undefined })
+  assert.strictEqual((await call('GET', '/me', { token: HROS_TOKEN, env: envCross })).status, 401)
+}
+
+// ── 4. WebSocket ─────────────────────────────────────────────────────
+{
+  const none = await call('GET', '/ws')
+  assert.strictEqual(none.status, 401, 'ไม่มี token')
+  assert.strictEqual(none.env.REALTIME.rooms.length, 0)
+
+  const bad = await call('GET', '/ws?token=garbage')
+  assert.strictEqual(bad.status, 401)
+  assert.strictEqual(bad.env.REALTIME.rooms.length, 0)
+
+  const gone = await call('GET', `/ws?token=${await jwtFor('u-gone')}`)
+  assert.strictEqual(gone.status, 401, 'บัญชีที่ถูกปิดต่อ realtime ไม่ได้')
+  assert.strictEqual(gone.env.REALTIME.rooms.length, 0, 'ต้องไม่ถึง Durable Object')
+
+  const ok = await call('GET', `/ws?token=${await jwtFor('u-staff', { ws: 'ws-someone-else' })}`)
+  assert.strictEqual(ok.status, 200)
+  assert.deepStrictEqual(ok.env.REALTIME.rooms, ['ws1'], 'ห้องต้องมาจาก workspace ใน D1 ไม่ใช่ claim ws')
+
+  const svc = await call('GET', `/ws?token=${SVC_TOKEN}`)
+  assert.strictEqual(svc.status, 401, 'WebSocket รับเฉพาะ JWT เหมือนเดิม')
+}
+
+// ── 5. 500 ต้องไม่คาย err.message ────────────────────────────────────
+{
+  const origError = console.error
+  const logged = []
+  console.error = (...a) => logged.push(a)
+  try {
+    const env = makeEnv({ DB: makeDB({ throwOn: /FROM wallets/i }) })
+    const r = await call('GET', '/wallets', { token: await jwtFor('u-admin'), env })
+    assert.strictEqual(r.status, 500)
+    assert.deepStrictEqual(r.json, { error: 'Internal server error' }, 'body ต้องเป็นข้อความกลาง')
+    assert.ok(!/secret_internal_col|D1_ERROR|SQLITE/.test(r.text), 'รายละเอียดห้ามหลุดไป client')
+    assert.strictEqual(r.res.headers.get('Access-Control-Allow-Origin'), '*', '500 ยังมี CORS header เหมือนเดิม')
+    assert.ok(logged.some(a => a.some(x => String(x && x.message || x).includes('secret_internal_col'))), 'รายละเอียดต้องอยู่ใน log')
+  } finally {
+    console.error = origError
+  }
+}
+
+// ── 6. CORS ──────────────────────────────────────────────────────────
+{
+  // ไม่ตั้ง ALLOWED_ORIGINS = พฤติกรรมเดิมทุกอย่าง
+  const pre = await call('OPTIONS', '/transactions', { origin: 'https://anything.example' })
+  assert.strictEqual(pre.status, 204)
+  assert.strictEqual(pre.res.headers.get('Access-Control-Allow-Origin'), '*')
+  assert.strictEqual(pre.res.headers.get('Access-Control-Allow-Methods'), 'GET, POST, PATCH, DELETE, OPTIONS')
+  assert.strictEqual(pre.res.headers.get('Vary'), null, 'ไม่ตั้ง = ไม่เพิ่ม header ใหม่')
+  const health = await call('GET', '/health', { origin: 'https://anything.example' })
+  assert.strictEqual(health.res.headers.get('Access-Control-Allow-Origin'), '*')
+  const nf = await call('GET', '/nope', { token: await jwtFor('u-admin') })
+  assert.strictEqual(nf.status, 404)
+  assert.strictEqual(nf.res.headers.get('Access-Control-Allow-Origin'), '*')
+}
+{
+  const allow = { ALLOWED_ORIGINS: 'https://fintrack-frontend-d6m.pages.dev, http://localhost:5173' }
+  const good = await call('OPTIONS', '/transactions', { origin: 'https://fintrack-frontend-d6m.pages.dev', env: makeEnv(allow) })
+  assert.strictEqual(good.status, 204)
+  assert.strictEqual(good.res.headers.get('Access-Control-Allow-Origin'), 'https://fintrack-frontend-d6m.pages.dev')
+  assert.match(good.res.headers.get('Vary') || '', /Origin/)
+  assert.strictEqual(good.res.headers.get('Access-Control-Allow-Headers'), 'Content-Type, Authorization')
+
+  const evil = await call('OPTIONS', '/transactions', { origin: 'https://evil.example', env: makeEnv(allow) })
+  assert.strictEqual(evil.res.headers.get('Access-Control-Allow-Origin'), null, 'origin นอกรายชื่อไม่ได้ header')
+
+  const evilGet = await call('GET', '/me', { token: await jwtFor('u-admin'), origin: 'https://evil.example', env: makeEnv(allow) })
+  assert.strictEqual(evilGet.res.headers.get('Access-Control-Allow-Origin'), null)
+
+  // LINE bot / HR OS เรียกจากเซิร์ฟเวอร์ ไม่มี Origin → status และ body ต้องเหมือนตอนไม่ตั้ง
+  const svcWith = await call('GET', '/me', { token: SVC_TOKEN, env: makeEnv(allow) })
+  const svcWithout = await call('GET', '/me', { token: SVC_TOKEN })
+  assert.strictEqual(svcWith.status, 200)
+  assert.deepStrictEqual(svcWith.json, svcWithout.json, 'ตั้ง ALLOWED_ORIGINS แล้ว LINE bot ได้ข้อมูลเหมือนเดิม')
+  const hrosWith = await call('GET', '/me', { token: HROS_TOKEN, env: makeEnv(allow) })
+  assert.strictEqual(hrosWith.status, 200, 'HR OS sync ไม่กระทบ')
+
+  const local = await call('GET', '/health', { origin: 'http://localhost:5173', env: makeEnv(allow) })
+  assert.strictEqual(local.res.headers.get('Access-Control-Allow-Origin'), 'http://localhost:5173')
+
+  const blank = await call('GET', '/health', { origin: 'https://evil.example', env: makeEnv({ ALLOWED_ORIGINS: ' , ' }) })
+  assert.strictEqual(blank.res.headers.get('Access-Control-Allow-Origin'), '*', 'ค่าว่าง = เหมือนไม่ตั้ง')
+}
+
+// ── 7. service token (LINE bot / HR OS) ห้ามจัดการผู้ใช้ · workspace · สวิตช์ HR OS ──────
+// แถว service user เป็น admin ได้ (fixture นี้ก็เป็น) — token รั่วต้องไม่กลายเป็นการยึดสมุดบัญชี
+{
+  const cases = [
+    ['POST', '/users', { email: 'evil@x', password: 'secret123', name: 'evil', role: 'admin' }],
+    ['PATCH', '/users/u-gone', { isActive: true, password: 'pwned123', role: 'admin' }],
+    ['PATCH', '/users/u-staff', { role: 'admin' }],
+    ['DELETE', '/users/u-admin', undefined],
+    ['PATCH', '/integrations/hros', { enabled: true }],
+    ['PATCH', '/workspace', { name: 'ยึดร้าน' }],
+  ]
+  for (const [token, label] of [[SVC_TOKEN, 'LINE bot'], [HROS_TOKEN, 'HR OS']]) {
+    for (const [method, path, body] of cases) {
+      const r = await call(method, path, { token, body })
+      assert.strictEqual(r.status, 403, `${label} token ห้าม ${method} ${path}`)
+      const writes = r.env.DB.log.filter(l => /^\s*(INSERT|UPDATE|DELETE)/i.test(l.sql))
+      assert.deepStrictEqual(writes, [], `${label} ${method} ${path} ต้องไม่เขียน D1`)
+    }
+  }
+  // admin ที่ล็อกอินเองยังทำได้ทุกข้อ (ด่านไม่ได้ปิดเมนูทั้งเมนู)
+  const admin = await jwtFor('u-admin')
+  assert.strictEqual((await call('POST', '/users', { token: admin, body: { email: 'new2@x', password: 'secret123', name: 'ใหม่', role: 'staff' } })).status, 201)
+  assert.strictEqual((await call('PATCH', '/users/u-staff', { token: admin, body: { role: 'viewer' } })).status, 200)
+  assert.strictEqual((await call('DELETE', '/users/u-staff', { token: admin })).status, 200)
+  assert.strictEqual((await call('PATCH', '/integrations/hros', { token: admin, body: { enabled: false } })).status, 200)
+  assert.strictEqual((await call('PATCH', '/workspace', { token: admin, body: { name: 'ร้านใหม่' } })).status, 200)
+}
+
+// ── 8. ลดสิทธิ์ / ปิดบัญชีตัวเองไม่ได้ (role มาจาก D1 ทุก request แล้ว พลาดครั้งเดียวกู้จากหน้าเว็บไม่ได้) ──
+{
+  const admin = await jwtFor('u-admin')
+  const noUserWrite = (r) => !r.env.DB.log.some(l => /^\s*UPDATE users/i.test(l.sql))
+  const demote = await call('PATCH', '/users/u-admin', { token: admin, body: { name: 'แอดมิน', role: 'staff' } })
+  assert.strictEqual(demote.status, 400, 'ลดสิทธิ์ตัวเองไม่ได้')
+  assert.strictEqual(typeof demote.json.error, 'string')
+  assert.ok(noUserWrite(demote))
+  for (const isActive of [false, 0, null]) {
+    const off = await call('PATCH', '/users/u-admin', { token: admin, body: { isActive } })
+    assert.strictEqual(off.status, 400, `ปิดบัญชีตัวเองไม่ได้ (isActive=${isActive})`)
+    assert.ok(noUserWrite(off))
+  }
+  // ฟอร์มหน้า Users ส่ง role เดิมกลับมาทุกครั้ง — แก้ชื่อ/รหัสผ่าน/บัญชีธนาคารของตัวเองต้องยังได้
+  const same = await call('PATCH', '/users/u-admin', { token: admin, body: { name: 'ชื่อใหม่', role: 'admin', bankName: 'KBank', password: 'newpass123' } })
+  assert.strictEqual(same.status, 200, 'แก้ข้อมูลตัวเองโดยไม่เปลี่ยน role ได้')
+  assert.ok(same.env.DB.log.some(l => /^\s*UPDATE users SET/i.test(l.sql) && l.args.at(-1) === 'u-admin'))
+  const stillActive = await call('PATCH', '/users/u-admin', { token: admin, body: { isActive: true } })
+  assert.strictEqual(stillActive.status, 200)
+}
+
+// ── 9. POST /line-users ห้ามเขียนทับ mapping ของ workspace อื่น · LINE bot ลงทะเบียนได้เหมือนเดิม ──
+{
+  const mappings = () => [
+    { id: 'lu-a', workspace_id: 'ws1', line_user_id: 'U-mine', employee_name: 'สมชาย', line_display_name: null },
+    { id: 'lu-b', workspace_id: 'ws-other', line_user_id: 'U-other', employee_name: 'ของร้านอื่น', line_display_name: null },
+  ]
+  const mk = () => makeEnv({ DB: makeDB({ lineUsers: mappings() }) })
+  const lineWrites = (r) => r.env.DB.log.filter(l => /^\s*(INSERT|UPDATE|DELETE)\b.*line_user_mappings/is.test(l.sql))
+
+  const reg = await call('POST', '/line-users', { token: SVC_TOKEN, body: { lineUserId: 'U-new', employeeName: 'คนใหม่', lineDisplayName: 'new' }, env: mk() })
+  assert.strictEqual(reg.status, 200, 'LINE bot "ลงทะเบียน" คนใหม่ได้')
+  assert.ok(reg.json.id)
+  assert.strictEqual(lineWrites(reg).length, 1)
+  assert.match(lineWrites(reg)[0].sql, /^\s*INSERT/i)
+  assert.strictEqual(lineWrites(reg)[0].args[1], 'ws1', 'บันทึกเข้า workspace ของ service user')
+
+  const rename = await call('POST', '/line-users', { token: SVC_TOKEN, body: { lineUserId: 'U-mine', employeeName: 'สมชาย ใหม่' }, env: mk() })
+  assert.strictEqual(rename.status, 200, 'ลงทะเบียนซ้ำ = แก้ชื่อในร้านตัวเองได้เหมือนเดิม')
+  assert.strictEqual(rename.json.updated, true)
+  assert.strictEqual(lineWrites(rename).length, 1)
+  assert.match(lineWrites(rename)[0].sql, /^\s*UPDATE/i)
+  assert.ok(lineWrites(rename)[0].args.includes('lu-a'))
+
+  for (const [token, label] of [[await jwtFor('u-admin'), 'admin ร้านอื่น'], [SVC_TOKEN, 'LINE bot ร้านอื่น']]) {
+    const cross = await call('POST', '/line-users', { token, body: { lineUserId: 'U-other', employeeName: 'ชื่อปลอม' }, env: mk() })
+    assert.strictEqual(cross.status, 409, `${label} ต้องเขียนทับ mapping ของ ws-other ไม่ได้`)
+    assert.deepStrictEqual(lineWrites(cross), [], `${label} ต้องไม่เขียน D1`)
+  }
+
+  const staff = await call('POST', '/line-users', { token: await jwtFor('u-staff', { role: 'staff' }), body: { lineUserId: 'U-mine', employeeName: 'ชื่อปลอม' }, env: mk() })
+  assert.strictEqual(staff.status, 403, 'staff/viewer แก้ mapping ไม่ได้ (หน้าเว็บไม่เรียก route นี้)')
+  assert.deepStrictEqual(lineWrites(staff), [])
+
+  // แถว service user ใน prod อาจไม่ใช่ admin — LINE bot ต้องยังลงทะเบียนได้
+  const envStaffBot = mk()
+  envStaffBot.DB.users.find(u => u.id === 'svc-user').role = 'staff'
+  const botStaff = await call('POST', '/line-users', { token: SVC_TOKEN, body: { lineUserId: 'U-new2', employeeName: 'คนใหม่' }, env: envStaffBot })
+  assert.strictEqual(botStaff.status, 200)
+}
+
+// ── 10. /ws: D1 ล่มต้องได้ 500 แบบคุมไว้ ไม่ใช่ exception หลุดออกจาก worker ──
+{
+  const origError = console.error
+  console.error = () => {}
+  try {
+    const env = makeEnv({ DB: makeDB({ throwOn: /FROM users/i }) })
+    const r = await call('GET', `/ws?token=${await jwtFor('u-admin')}`, { env })
+    assert.strictEqual(r.status, 500)
+    assert.deepStrictEqual(r.json, { error: 'Internal server error' })
+    assert.strictEqual(env.REALTIME.rooms.length, 0)
+  } finally {
+    console.error = origError
+  }
+}
+
+// ── 11. /auth/login: จำกัดต่อ IP + เวลาตอบของ "ไม่มีอีเมลนี้" เท่ากับ "รหัสผิด" ──
+{
+  const saltBytes = crypto.getRandomValues(new Uint8Array(16))
+  const pwKey = await crypto.subtle.importKey('raw', new TextEncoder().encode('right-pass'), { name: 'PBKDF2' }, false, ['deriveBits'])
+  const pwBits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt: saltBytes, iterations: 1e5, hash: 'SHA-256' }, pwKey, 256)
+  const pwHash = Buffer.from(saltBytes).toString('base64') + ':' + Buffer.from(new Uint8Array(pwBits)).toString('base64')
+  const withPw = () => makeDB({ users: baseUsers().map(u => ({ ...u, password_hash: u.id === 'u-admin' ? pwHash : 'AAAA:AAAA' })) })
+  const ipHeaders = { 'cf-connecting-ip': '203.0.113.9' }
+  const makeLimiter = (success) => { const keys = []; return { keys, async limit({ key }) { keys.push(key); return { success } } } }
+
+  // ไม่มี binding (รันโลคัล) = login ได้ตามเดิม
+  const dev = await call('POST', '/auth/login', { body: { email: 'admin@x', password: 'right-pass' }, env: makeEnv({ DB: withPw() }) })
+  assert.strictEqual(dev.status, 200)
+  assert.strictEqual(typeof dev.json.token, 'string')
+
+  const okLimiter = makeLimiter(true)
+  const ok = await call('POST', '/auth/login', { body: { email: 'admin@x', password: 'right-pass' }, headers: ipHeaders, env: makeEnv({ DB: withPw(), RATE_LIMITER: okLimiter }) })
+  assert.strictEqual(ok.status, 200, 'ยังไม่เกินโควตา login ได้')
+  assert.deepStrictEqual(okLimiter.keys, ['login:203.0.113.9'], 'นับต่อ IP แยกถังจาก /receipt/*')
+
+  const blocked = makeLimiter(false)
+  const r429 = await call('POST', '/auth/login', { body: { email: 'admin@x', password: 'right-pass' }, headers: ipHeaders, env: makeEnv({ DB: withPw(), RATE_LIMITER: blocked }) })
+  assert.strictEqual(r429.status, 429, 'เกินโควตา = 429')
+  assert.deepStrictEqual(r429.env.DB.log, [], 'เกินโควตาแล้วต้องไม่แตะ D1 / ไม่เช็ครหัส')
+
+  const subtle = crypto.subtle
+  const origDerive = subtle.deriveBits
+  let derives = 0
+  subtle.deriveBits = function (...a) { derives++; return origDerive.apply(this, a) }
+  try {
+    derives = 0
+    const wrong = await call('POST', '/auth/login', { body: { email: 'admin@x', password: 'wrong-pass' }, env: makeEnv({ DB: withPw() }) })
+    assert.strictEqual(wrong.status, 401)
+    const derivesWrong = derives
+    derives = 0
+    const missing = await call('POST', '/auth/login', { body: { email: 'nobody@x', password: 'wrong-pass' }, env: makeEnv({ DB: withPw() }) })
+    assert.strictEqual(missing.status, 401)
+    assert.deepStrictEqual(missing.json, wrong.json, 'ข้อความเดียวกัน')
+    assert.ok(derivesWrong >= 1)
+    assert.strictEqual(derives, derivesWrong, 'อีเมลที่ไม่มีต้องทำ PBKDF2 เท่ากับรหัสผิด (วัดเวลาแยกไม่ได้)')
+  } finally {
+    subtle.deriveBits = origDerive
+  }
+}
+
+// ── 12. บัญชีบริการชี้ไปที่บัญชีคนจริง (SERVICE_USER_ID === id ของ admin ที่ล็อกอิน) ──────────
+// ของจริงเป็นแบบนี้: ทั้ง SERVICE_USER_ID และ HROS_SERVICE_USER_ID ชี้บัญชีเดียวกับที่เจ้าของใช้ล็อกอินเว็บ
+// fixture เดิม (svc-user / hros-user แยกแถว) จึงมองไม่เห็นว่าด่านที่ตัดสินด้วย user.id จะปิดเมนูของเจ้าของเอง
+// ด่านต้องตัดสินจาก "คำขอนี้ยืนยันตัวด้วยอะไร": JWT = คน (ผ่าน) · service token = บอท (403)
+{
+  // บัญชีบริการทั้งสองตัว = u-admin ซึ่งเป็นแถวเดียวกับที่ jwtFor('u-admin') ล็อกอินเข้ามา
+  const sharedEnv = () => makeEnv({ SERVICE_USER_ID: 'u-admin', HROS_SERVICE_USER_ID: 'u-admin' })
+  const asOwner = { email: 'new3@x', password: 'secret123', name: 'ใหม่', role: 'staff' }
+  const owner = await jwtFor('u-admin')
+
+  // 12a. ล็อกอินด้วยรหัสผ่านตัวเอง = ยังเป็น admin เต็มสิทธิ์ทุกเมนู (เหมือน main ก่อนมี PR นี้)
+  const ownerCases = [
+    ['POST', '/users', asOwner, 201],
+    ['PATCH', '/users/u-staff', { role: 'viewer' }, 200],
+    ['DELETE', '/users/u-staff', undefined, 200],
+    ['PATCH', '/workspace', { name: 'ร้านของเจ้าของ' }, 200],
+    ['PATCH', '/integrations/hros', { enabled: false }, 200],
+    ['POST', '/auth/register', registerBody, 200],
+  ]
+  for (const [method, path, body, want] of ownerCases) {
+    const r = await call(method, path, { token: owner, body, env: sharedEnv() })
+    assert.strictEqual(r.status, want, `เจ้าของล็อกอินเอง ${method} ${path} ต้องได้ ${want} ไม่ใช่ ${r.status} (${r.text.slice(0, 80)})`)
+  }
+  // PATCH /pending-bills/:id — stub ไม่มีบิล จึงคาดหวัง 404 "ผ่านด่านแล้ว" ไม่ใช่ 403 "ไม่มีสิทธิ์"
+  const ownerBill = await call('PATCH', '/pending-bills/pb1', { token: owner, body: { name: 'แก้ชื่อบิล' }, env: sharedEnv() })
+  assert.strictEqual(ownerBill.status, 404, `เจ้าของต้องผ่านด่านไปถึงตัวบิล ไม่ใช่ 403 (ได้ ${ownerBill.status})`)
+
+  // 12b. token เดิมของบอท บนบัญชีเดียวกันนี้ ยังถูกห้ามทุกข้อ + ห้ามเขียน D1
+  for (const [token, label] of [[SVC_TOKEN, 'LINE bot'], [HROS_TOKEN, 'HR OS']]) {
+    for (const [method, path, body] of [...ownerCases.map(([m, p, b]) => [m, p, b]), ['PATCH', '/pending-bills/pb1', { name: 'บอทแก้บิล' }]]) {
+      const r = await call(method, path, { token, body, env: sharedEnv() })
+      assert.strictEqual(r.status, 403, `${label} token ห้าม ${method} ${path} แม้ชี้บัญชีเดียวกับเจ้าของ (ได้ ${r.status})`)
+      const writes = r.env.DB.log.filter(l => /^\s*(INSERT|UPDATE|DELETE)/i.test(l.sql))
+      assert.deepStrictEqual(writes, [], `${label} ${method} ${path} ต้องไม่เขียน D1`)
+    }
+  }
+
+  // 12c. ป้ายช่องทางของธุรกรรมก็ต้องดูที่ token ไม่ใช่ id — เจ้าของคีย์บนเว็บ = "web" · บอท = "line"
+  const txBody = { name: 'ค่ากาแฟ', amount: 60, type: 'expense', scope: 'business', date: '2026-09-18' }
+  const txEnv = () => makeEnv({
+    SERVICE_USER_ID: 'u-admin', HROS_SERVICE_USER_ID: 'u-admin',
+    DB: makeDB({ wallets: [{ id: 'w1', workspace_id: 'ws1', name: 'เงินสด', is_active: 1, current_balance: 0 }] }),
+  })
+  const channelOf = (env) => {
+    const insert = env.DB.batches.flat().find(s => /INSERT INTO transactions/i.test(s.sql))
+    return insert ? insert.args[insert.args.length - 1] : null
+  }
+  const ownerTx = await call('POST', '/transactions', { token: owner, body: txBody, env: txEnv() })
+  assert.strictEqual(ownerTx.status, 201, `เจ้าของสร้างธุรกรรมได้ (ได้ ${ownerTx.status} ${ownerTx.text.slice(0, 80)})`)
+  assert.strictEqual(channelOf(ownerTx.env), 'web', 'เจ้าของคีย์เองบนเว็บ ต้องเป็นช่องทาง "web"')
+  const botTx = await call('POST', '/transactions', { token: SVC_TOKEN, body: txBody, env: txEnv() })
+  assert.strictEqual(botTx.status, 201)
+  assert.strictEqual(channelOf(botTx.env), 'line', 'LINE bot ยิงด้วย service token ต้องยังเป็นช่องทาง "line"')
+}
+
+console.log('worker-auth.test.mjs OK — register · JWT/D1 · service token · WebSocket · 500 · CORS · จัดการผู้ใช้ · line-users · login · บัญชีบริการ=บัญชีเจ้าของ ผ่านหมด')
