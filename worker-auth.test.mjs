@@ -222,7 +222,11 @@ const registerBody = { email: 'new@x', password: 'secret123', name: 'คนใ�
   const r = await call('GET', '/me', { token: await mintJWT({ sub: 'u-admin', ws: 'ws1', role: 'admin' }, { expOffset: -10 }) })
   assert.strictEqual(r.status, 401, 'JWT หมดอายุยังถูกปฏิเสธเหมือนเดิม')
   const bad = await mintJWT({ sub: 'u-admin', ws: 'ws1', role: 'admin' })
-  assert.strictEqual((await call('GET', '/me', { token: bad.slice(0, -2) + 'xx' })).status, 401, 'ลายเซ็นผิด')
+  // แก้ตัวแรกของลายเซ็น ไม่ใช่ตัวท้าย: ตัวท้ายของ base64url 43 ตัวมีบิตเติมท้าย
+  // แก้ตรงนั้นบางวินาทีถอดแล้วได้ไบต์เดิม token ยังถูกต้อง เทสแดงแบบสุ่ม (~1/877)
+  const sig = bad.split('.')[2]
+  const tampered = bad.slice(0, -sig.length) + (sig[0] === 'A' ? 'B' : 'A') + sig.slice(1)
+  assert.strictEqual((await call('GET', '/me', { token: tampered })).status, 401, 'ลายเซ็นผิด')
   assert.strictEqual((await call('GET', '/me')).status, 401, 'ไม่มี token')
 }
 
