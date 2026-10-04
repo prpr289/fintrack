@@ -444,6 +444,15 @@ function buildConfirmFlex(ocr, messageId, today, memo = '', cat = null, wallet =
     ...(isIncome ? { ty: 'income' } : {}),
   })
 
+  // ขอโอนเงิน: เฉพาะรายจ่ายที่มีรูป (รูป = หลักฐานของบิลรอจ่าย) · ไม่พกธนาคาร/อ้างอิง/กระเป๋า
+  // เพราะเป็นบิลยังไม่จ่าย และ postback data จำกัด 300 ตัวอักษร
+  const payReqData = PAY_REQUEST_ON && !isIncome && messageId ? JSON.stringify({
+    a: 'payreq', m: messageId, amt: ocr.amount, d: txDate, n: name,
+    ...(memoTrimmed ? { mo: memoTrimmed } : {}),
+    ...(cat?.categoryId ? { c: cat.categoryId } : {}),
+    ...(cat?.subCategoryId ? { s: cat.subCategoryId } : {}),
+  }) : null
+
   const editFillIn = `/แก้|m=${messageId}|a=${ocr.amount}|d=${txDate}|b=${bank}|r=${ref}|t=${slipType}|n=${name}${memoTrimmed ? `|mo=${memoTrimmed}` : ''}`
   const autoMemoData = JSON.stringify({
     a: 'automemo', m: messageId, amt: ocr.amount, d: txDate,
@@ -533,6 +542,10 @@ function buildConfirmFlex(ocr, messageId, today, memo = '', cat = null, wallet =
             type: 'button', style: 'secondary', height: 'sm',
             action: { type: 'postback', label: flipLabel, data: flipData },
           },
+          ...(payReqData ? [{
+            type: 'button', style: 'secondary', height: 'sm',
+            action: { type: 'postback', label: '💸 ขอโอนเงิน', data: payReqData },
+          }] : []),
           {
             type: 'box', layout: 'horizontal', spacing: 'sm',
             contents: [
@@ -547,6 +560,65 @@ function buildConfirmFlex(ocr, messageId, today, memo = '', cat = null, wallet =
             ],
           },
         ],
+      },
+    },
+  }
+}
+
+// ── ขอโอนเงิน (บิลรอจ่าย) ───────────────────────────────────
+// INERT จนกว่าจะตั้ง PAY_REQUEST_ENABLED=1 บน Pages — rollback = ลบค่านี้แล้ว redeploy
+// ค่าเดียวกันทุก request ของ deployment เดียว จึงเก็บระดับ module ได้ (ตั้งใน onRequestPost)
+let PAY_REQUEST_ON = false
+
+// เลือกร้านจากผลค้น /vendor-profiles?name= (LIKE) — ชื่อบนการ์ดถูกตัดที่ 25 ตัวอักษร
+// จึงยอมรับ "ขึ้นต้นตรงกัน" เฉพาะเมื่อชื่อยาวจนถูกตัด และเจอร้านเดียวเท่านั้น
+// (เลือกผิดร้าน = เลขบัญชีผิด จึงไม่เดาเมื่อกำกวม)
+export function pickVendor(vendors, name) {
+  const n = (name || '').trim().toLowerCase()
+  if (!n) return null
+  const nm = v => (v.vendorName || '').trim().toLowerCase()
+  const active = vendors.filter(v => v.isActive !== false) // ร้านที่เลิกใช้แล้วไม่ควรได้รับเงิน
+  const exact = active.find(v => nm(v) === n)
+  if (exact) return exact
+  if ((name || '').length < 25) return null
+  const starts = active.filter(v => nm(v).startsWith(n))
+  return starts.length === 1 ? starts[0] : null
+}
+
+// กดปุ่มซ้ำต้องไม่ได้บิลซ้ำ — บิลรอจ่ายของร้านเดียวกันยอดเท่ากันถือเป็นใบเดิม
+export function findSamePending(bills, vendorId, amount) {
+  return bills.find(b => b.payeeRefId === vendorId && Number(b.amount) === Number(amount)) || null
+}
+
+export function buildPayRequestFlex(bill, payUrl, { existing = false, evidenceOk = true } = {}) {
+  const rows = [
+    flexRow('👤 ผู้รับ', bill.payeeName || '-'),
+    flexRow('🏦 บัญชี', `${bill.payeeBank || ''} ${bill.payeeAccountNo || ''}`.trim() || '-'),
+    flexRow('💰 ยอด', `฿${thb(bill.amount)}`),
+    bill.categoryName && flexRow('🏷️ หมวด', bill.categoryName),
+    bill.submittedByName && flexRow('🙋 ขอโดย', bill.submittedByName),
+  ].filter(Boolean)
+  return {
+    type: 'flex',
+    altText: `รอโอน ฿${thb(bill.amount)} ${bill.payeeName || ''}`.trim(),
+    contents: {
+      type: 'bubble',
+      styles: { body: { backgroundColor: '#1a2035' }, footer: { backgroundColor: '#1a2035' } },
+      body: {
+        type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: '16px',
+        contents: [
+          { type: 'text', text: existing ? '💸 มีบิลรอโอนใบนี้อยู่แล้ว' : '💸 รอโอน', weight: 'bold', size: 'md', color: '#ffffff' },
+          { type: 'separator', margin: 'sm', color: '#2e3349' },
+          { type: 'box', layout: 'vertical', margin: 'md', spacing: 'sm', contents: rows },
+          !evidenceOk && { type: 'text', text: '⚠️ แนบรูปบิลไม่สำเร็จ ต้องแนบที่หน้าบิลรอจ่ายก่อนจึงจะจ่ายได้', size: 'xs', color: '#fbbf24', margin: 'md', wrap: true },
+        ].filter(Boolean),
+      },
+      footer: {
+        type: 'box', layout: 'vertical', paddingAll: '12px',
+        contents: [{
+          type: 'button', style: 'primary', height: 'sm', color: '#10b981',
+          action: { type: 'uri', label: '💸 เปิดหน้าโอน', uri: payUrl },
+        }],
       },
     },
   }
@@ -993,6 +1065,67 @@ async function handlePostback(event, env) {
       await replyOrPush(event, [{ type: 'text', text: '🗑️ ลบรายการเรียบร้อยแล้วครับ' }], env.LINE_CHANNEL_ACCESS_TOKEN)
     } catch (err) {
       await replyOrPush(event, [{ type: 'text', text: `❌ ลบไม่สำเร็จ: ${err.message}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+    }
+    return
+  }
+
+  // ขอโอนเงิน: สร้างบิลรอจ่ายแทนการลงรายจ่ายทันที แล้วตอบการ์ดที่มีลิงก์หน้าโอนให้เจ้าของ
+  if (data.a === 'payreq') {
+    if (!PAY_REQUEST_ON) return
+    try {
+      const baseUrl = env.FINTRACK_API_URL || 'https://fintrack-api.iamcreatle.workers.dev'
+      const token = env.FINTRACK_TOKEN
+      const found = data.n
+        ? await fintrack('GET', `/vendor-profiles?${new URLSearchParams({ name: data.n })}`, null, baseUrl, token)
+        : {}
+      const vendor = pickVendor(found.vendors || [], data.n)
+      // ไม่มีเลขบัญชี = การ์ดรอโอนไม่มีอะไรให้คัดลอก → ไม่สร้างบิล ให้เพิ่มร้านก่อนแล้วกดปุ่มเดิมซ้ำ
+      if (!vendor?.bankAccountNo) {
+        await replyOrPush(event, [{
+          type: 'text',
+          text: `⚠️ ยังขอโอนไม่ได้ครับ\nร้าน "${data.n || 'ไม่ทราบชื่อ'}" ยังไม่มีเลขบัญชีในทะเบียนร้านค้า\n\nเพิ่มร้านพร้อมเลขบัญชีที่หน้าเว็บ (ชื่อร้านต้องตรงกับบนการ์ด) แล้วกด "ขอโอนเงิน" อีกครั้ง`,
+        }], env.LINE_CHANNEL_ACCESS_TOKEN)
+        return
+      }
+
+      const pending = await fintrack('GET', '/pending-bills?status=pending', null, baseUrl, token)
+      let bill = findSamePending(pending.bills || [], vendor.id, data.amt)
+      const existing = !!bill
+      let evidenceOk = true
+      if (!bill) {
+        const submittedByName = await lookupEmployee(source.userId, baseUrl, token)
+        const res = await fintrack('POST', '/pending-bills', {
+          name: data.mo || `จ่าย ${vendor.vendorName}`, amount: data.amt, scope: 'business',
+          payeeType: 'vendor', payeeRefId: vendor.id, evidenceType: 'receipt',
+          ...(data.mo ? { note: data.mo } : {}),
+          ...(data.c ? { categoryId: data.c } : {}),
+          ...(data.s ? { subCategoryId: data.s } : {}),
+          ...(submittedByName ? { submittedByName } : {}),
+        }, baseUrl, token)
+        bill = res?.bill
+        if (!bill?.id) {
+          await replyOrPush(event, [{ type: 'text', text: `❌ ขอโอนไม่สำเร็จครับ: ${res?.error || 'ระบบไม่ตอบกลับ'}` }], env.LINE_CHANNEL_ACCESS_TOKEN)
+          return
+        }
+        try {
+          const up = await fetch(`${baseUrl}/pending-bills/${bill.id}/evidence`, {
+            method: 'POST',
+            headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg' },
+            body: await downloadImage(data.m, env.LINE_CHANNEL_ACCESS_TOKEN),
+          })
+          evidenceOk = up.ok
+        } catch (e) {
+          console.error('payreq evidence error:', e)
+          evidenceOk = false
+        }
+      }
+
+      // openExternalBrowser=1: ให้ LINE เปิดในเบราว์เซอร์หลักของเครื่อง ซึ่งเจ้าของล็อกอิน FinTrack ค้างไว้
+      const payUrl = `https://fintrack-frontend-d6m.pages.dev/pending-bills?pay=${bill.id}&openExternalBrowser=1`
+      await replyOrPush(event, [buildPayRequestFlex(bill, payUrl, { existing, evidenceOk })], env.LINE_CHANNEL_ACCESS_TOKEN)
+    } catch (err) {
+      console.error('payreq error:', err)
+      await replyOrPush(event, [{ type: 'text', text: `❌ ขอโอนไม่สำเร็จ: ${err.message}\nกรุณาลองใหม่อีกครั้งครับ` }], env.LINE_CHANNEL_ACCESS_TOKEN).catch(() => {})
     }
     return
   }
@@ -1511,6 +1644,7 @@ export async function onRequestPost(context) {
   }
 
   const body = JSON.parse(new TextDecoder().decode(rawBody))
+  PAY_REQUEST_ON = env.PAY_REQUEST_ENABLED === '1'
 
   const response = new Response(JSON.stringify({ ok: true }), {
     status: 200,
