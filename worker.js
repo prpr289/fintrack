@@ -3034,9 +3034,13 @@ async function createPendingBill(request, env, user) {
   const snap = await snapshotPayee(env, user.workspace_id, payeeType, payeeRefId);
   const id = "pb_" + crypto.randomUUID();
   const publicToken = hasItems ? (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "") : null;
+  // ปุ่ม "ขอโอนเงิน" ของ LINE bot สร้างบิลแทนพนักงาน — service token ชี้บัญชีเจ้าของ จึงต้องรับชื่อคนขอจากบอท
+  // เชื่อ submittedByName เฉพาะคำขอที่ยืนยันตัวด้วย service token · คำขอจากเว็บได้ค่าเดิมทุกช่อง
+  const viaLine = isServiceUser(user);
+  const submittedByName = (viaLine && String(body.submittedByName || "").trim().slice(0, 80)) || user.name || null;
   await env.DB.prepare(
-    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit, kind, line_items, received_by_user_id, received_by_name, public_token) VALUES (?, ?, 'pending', 'web', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
-  ).bind(id, user.workspace_id, user.id, user.name || null, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : isBillingLink ? "billing_link" : "simple", lineItemsJson, hasItems ? user.id : null, hasItems ? (user.name || null) : null, publicToken).run();
+    "INSERT INTO pending_bills (id, workspace_id, status, source, submitted_by_user_id, submitted_by_name, name, amount, category_id, sub_category_id, scope, note, payee_type, payee_ref_id, payee_name, payee_bank, payee_account_no, evidence_type, is_deposit, kind, line_items, received_by_user_id, received_by_name, public_token) VALUES (?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+  ).bind(id, user.workspace_id, viaLine ? "line" : "web", user.id, submittedByName, name, finalAmount, categoryId || null, subCategoryId || null, scope, note || null, payeeType, payeeRefId || null, payeeName || snap.name, snap.bank, snap.acc, evidenceType, isDeposit ? 1 : 0, isGoods ? "goods_receipt" : isBillingLink ? "billing_link" : "simple", lineItemsJson, hasItems ? user.id : null, hasItems ? (user.name || null) : null, publicToken).run();
   if (hasItems && payeeType === "vendor") await upsertVendorItems(env, user.workspace_id, payeeRefId, lineItems);
   await logAudit(env, user, "create", "pending_bill", id, { name, amount: finalAmount });
   const b = await env.DB.prepare("SELECT pb.*, c.name AS category_name FROM pending_bills pb LEFT JOIN categories c ON pb.category_id = c.id AND c.workspace_id = pb.workspace_id WHERE pb.id = ?").bind(id).first();
