@@ -8,6 +8,7 @@ import { itemKey, isValidItemName, billItemsToBasketRows, sortBasket } from "./v
 import { findDuplicatePairs } from "./vendor-dedupe.mjs";
 import { diffFields } from "./audit-diff.mjs";
 import { safeTokenEqual, applyCorsPolicy } from "./auth-guard.mjs";
+import { handleLifeVaultSummary } from "./lifevault-summary.mjs";
 var __defProp = Object.defineProperty;
 var __name = (target, value) => __defProp(target, "name", { value, configurable: true });
 
@@ -37,6 +38,9 @@ var worker_default = {
     if (thaiHour === 0) await cleanupDrafts(env);
   },
   async fetch(request, env, ctx) {
+    // ช่องอ่านของ Life Vault — กุญแจและ CORS ของตัวเอง · path อื่นคืน null แล้วเดินเส้นทางเดิม (INERT จนตั้ง LIFEVAULT_*)
+    const lifeVault = await handleLifeVaultSummary(request, env);
+    if (lifeVault) return lifeVault;
     // ตรวจ Origin ที่ขาออกจุดเดียว — ALLOWED_ORIGINS ไม่ได้ตั้ง = คืน response ตัวเดิมเป๊ะ (Allow-Origin: * เหมือนเดิม)
     return applyCorsPolicy(await routeRequest(request, env, ctx), request, env);
   }
